@@ -1,0 +1,214 @@
+#include "rl_observation.h"
+
+#include <math.h>
+#include <string.h>
+
+#define RL_QUAT_EPS 1.0e-6f
+
+/* 检查数组 */
+static uint8_t RL_Observation_Array_Finite(const float *data, uint32_t count)
+{
+    uint32_t i;
+
+    if (data == NULL) return 0u;
+    for (i = 0u; i < count; i++)
+    {
+        if (!isfinite(data[i])) return 0u;
+    }
+    return 1u;
+}
+
+/* 清空动作 */
+static void RL_Observation_Clear_Action(float action[RL_ACTION_SIZE])
+{
+    if (action != NULL)
+        memset(action, 0, RL_ACTION_SIZE * sizeof(float));
+}
+
+/* 检查参数 */
+static uint8_t RL_Observation_Param_Valid(const rl_observation_param_t *param)
+{
+    if (param == NULL || !param->configured) return 0u;
+    if (!RL_Observation_Array_Finite(param->obs_dof_pos, 4u)) return 0u;
+    if (!RL_Observation_Array_Finite(param->command_scale, 3u)) return 0u;
+    if (!RL_Observation_Array_Finite(param->gyro_scale, 3u)) return 0u;
+    if (!RL_Observation_Array_Finite(param->joint_vel_scale, 6u)) return 0u;
+    return 1u;
+}
+
+/* 初始化观测 */
+void RL_Observation_Init(rl_observation_state_t *state)
+{
+    RL_Observation_Reset(state);
+}
+
+/* 初始化参数 */
+void RL_Observation_Param_Init(rl_observation_param_t *param)
+{
+    if (param == NULL) return;
+    memset(param, 0, sizeof(*param));
+}
+
+/* 清空观测 */
+void RL_Observation_Reset(rl_observation_state_t *state)
+{
+    if (state == NULL) return;
+    memset(state, 0, sizeof(*state));
+}
+
+/* 计算重力 */
+static void RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
+{
+    float qx;
+    float qy;
+    float qz;
+    float qw;
+    float tx;
+    float ty;
+    float tz;
+    float cx;
+    float cy;
+    float cz;
+
+    /* 对齐策略 */
+    qx = -quat[1];
+    qy = -quat[2];
+    qz = -quat[3];
+    qw = quat[0];
+
+    /* 旋转重力 */
+    tx = -2.0f * qy;
+    ty =  2.0f * qx;
+    tz =  0.0f;
+    cx = qy * tz - qz * ty;
+    cy = qz * tx - qx * tz;
+    cz = qx * ty - qy * tx;
+
+    gravity[0] = qw * tx + cx;
+    gravity[1] = qw * ty + cy;
+    gravity[2] = -1.0f + qw * tz + cz;
+}
+
+/* 构建观测 */
+uint8_t RL_Observation_Build(rl_observation_state_t *state,
+                             const rl_observation_param_t *param,
+                             const float gyro_rad_s[3],
+                             const float quat[4],
+                             const float command[3],
+                             const float joint_pos[4],
+                             const float joint_vel[6],
+                             uint8_t source_valid)
+{
+    float gravity[3];
+    float quat_norm;
+    float quat_unit[4];
+    uint32_t i;
+
+    if (state == NULL) return 0u;
+    if (!source_valid || !RL_Observation_Param_Valid(param)
+        || !RL_Observation_Array_Finite(gyro_rad_s, 3u)
+        || !RL_Observation_Array_Finite(quat, 4u)
+        || !RL_Observation_Array_Finite(command, 3u)
+        || !RL_Observation_Array_Finite(joint_pos, 4u)
+        || !RL_Observation_Array_Finite(joint_vel, 6u))
+    {
+        RL_Observation_Reset(state);
+        return 0u;
+    }
+
+    quat_norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1]
+                    + quat[2] * quat[2] + quat[3] * quat[3]);
+    if (!isfinite(quat_norm) || quat_norm < RL_QUAT_EPS)
+    {
+        RL_Observation_Reset(state);
+        return 0u;
+    }
+
+    for (i = 0u; i < 4u; i++) quat_unit[i] = quat[i] / quat_norm;
+    RL_Observation_Project_Gravity(quat_unit, gravity);
+    if (!RL_Observation_Array_Finite(gravity, 3u))
+    {
+        RL_Observation_Reset(state);
+        return 0u;
+    }
+
+    for (i = 0u; i < 3u; i++)
+        state->obs[RL_OBS_GYRO_X + i] = gyro_rad_s[i] * param->gyro_scale[i];
+    for (i = 0u; i < 3u; i++)
+        state->obs[RL_OBS_GRAV_X + i] = gravity[i];
+    for (i = 0u; i < 3u; i++)
+        state->obs[RL_OBS_CMD_VX + i] = command[i] * param->command_scale[i];
+
+    state->obs[RL_OBS_L_THIGH] = joint_pos[0] - param->obs_dof_pos[0];
+    state->obs[RL_OBS_L_SHANK] = joint_pos[1] - param->obs_dof_pos[1];
+    state->obs[RL_OBS_R_THIGH] = joint_pos[2] - param->obs_dof_pos[2];
+    state->obs[RL_OBS_R_SHANK] = joint_pos[3] - param->obs_dof_pos[3];
+
+    for (i = 0u; i < 6u; i++)
+        state->obs[RL_OBS_L_THIGH_VEL + i] = joint_vel[i] * param->joint_vel_scale[i];
+    for (i = 0u; i < RL_ACTION_SIZE; i++)
+        state->obs[RL_OBS_LAST_ACTION + i] = state->last_action[i];
+
+    if (!RL_Observation_Array_Finite(state->obs, RL_OBS_SIZE))
+    {
+        RL_Observation_Reset(state);
+        return 0u;
+    }
+
+    state->valid = 1u;
+    return 1u;
+}
+
+/* 更新历史 */
+void RL_Observation_Update_History(rl_observation_state_t *state)
+{
+    uint32_t i;
+
+    if (state == NULL || !state->valid)
+    {
+        RL_Observation_Reset(state);
+        return;
+    }
+
+    if (!state->history_ready)
+    {
+        for (i = 0u; i < RL_OBS_HISTORY_FRAMES; i++)
+            memcpy(&state->history[i * RL_OBS_SIZE], state->obs,
+                   RL_OBS_SIZE * sizeof(float));
+        state->history_ready = 1u;
+        return;
+    }
+
+    memmove(&state->history[0], &state->history[RL_OBS_SIZE],
+            (RL_OBS_HISTORY_SIZE - RL_OBS_SIZE) * sizeof(float));
+    memcpy(&state->history[RL_OBS_HISTORY_SIZE - RL_OBS_SIZE], state->obs,
+           RL_OBS_SIZE * sizeof(float));
+}
+
+/* 保存动作 */
+uint8_t RL_Observation_Set_Last_Action(rl_observation_state_t *state,
+                                       const float action[RL_ACTION_SIZE])
+{
+    if (state == NULL || !state->valid
+        || !RL_Observation_Array_Finite(action, RL_ACTION_SIZE))
+    {
+        if (state != NULL) RL_Observation_Reset(state);
+        return 0u;
+    }
+
+    memcpy(state->last_action, action, RL_ACTION_SIZE * sizeof(float));
+    return 1u;
+}
+
+/* 动作门控 */
+uint8_t RL_Observation_Gate_Action(const rl_observation_state_t *state,
+                                   float action[RL_ACTION_SIZE])
+{
+    if (state == NULL || !state->valid || !state->history_ready
+        || !RL_Observation_Array_Finite(action, RL_ACTION_SIZE))
+    {
+        RL_Observation_Clear_Action(action);
+        return 0u;
+    }
+    return 1u;
+}
