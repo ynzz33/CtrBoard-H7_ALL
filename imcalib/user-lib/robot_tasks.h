@@ -7,6 +7,9 @@
 #include "dm.h"
 #include "dji.h"
 #include "leg_solver.h"
+#include "rl_observation.h"
+#include "rl_policy.h"
+#include "rl_torque.h"
 
 typedef struct {
     float pos_rad[DM_MOTOR_NUM];
@@ -34,6 +37,7 @@ typedef struct {
 
 typedef struct {
     float   a[6];      /* 6 维动作 */
+    uint32_t last_ok_tick;
     uint8_t updated;
 } action_state_t;
 
@@ -43,6 +47,26 @@ typedef struct {
     float   height;
     uint8_t mode;
 } command_state_t;
+
+typedef struct {
+    int8_t dm_front;
+    int8_t dm_rear;
+    uint8_t configured;
+} leg_map_t;
+
+typedef struct {
+    uint8_t rc_enable;
+    uint8_t enabled;
+    uint8_t fallen;
+} robot_state_t;
+
+typedef struct {
+    rl_observation_state_t observation;  /* RL 观测 */
+    rl_observation_param_t param;        /* 观测参数 */
+    rl_policy_t policy;                  /* 策略状态 */
+    rl_torque_param_t torque_param[RL_MODEL_COUNT];
+    rl_torque_state_t torque_state;
+} rl_control_state_t;
 
 /* 故障位 */
 #define FAULT_NONE    0u
@@ -58,14 +82,23 @@ extern leg_state_t       leg_l;
 extern leg_state_t       leg_r;
 extern action_state_t    action_state;
 extern command_state_t   command_state;
+extern leg_map_t         leg_map_l;
+extern leg_map_t         leg_map_r;
+extern robot_state_t     robot_state;
+extern rl_control_state_t rl_control;
 extern volatile uint32_t ctrl_fault;
+extern uint8_t torque_output_enabled;
 
 extern osSemaphoreId ctrl_tick_sem_handle;
 
 void Robot_Control_Init(void);
+void imu_task_init(void);
 void imu_task_body(void);
+void ctrl_task_init(void);
 void ctrl_task_body(void);
+void output_task_init(void);
 void output_task_body(void);
-void monitor_task_body(void);
+void comm_task_body(void);
+uint8_t RL_Control_Select_Model(rl_model_t model);
 
 #endif

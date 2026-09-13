@@ -1,6 +1,6 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-09-09 12:32:24
-Parameters            : generate --target stm32h7 --name stable -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/stable/stable_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace1522544705580003379035034804837101 --output C:/Users/ynz/.stm32cubemx/stable_output
+Created date          : 2026-09-12 16:06:37
+Parameters            : generate --target stm32h7 --name stable -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/stable/stable_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace483907434640013246764266630715173 --output C:/Users/ynz/.stm32cubemx/stable_output
 
 Exec/report summary (generate)
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -11,7 +11,7 @@ compression        :   none
 options            :   allocate-inputs, allocate-outputs                                                                                                                                             
 optimization       :   time                                                                                                                                                                          
 target/series      :   stm32h7                                                                                                                                                                       
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace1522544705580003379035034804837101                                                                                              
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace483907434640013246764266630715173                                                                                               
 output dir         :   C:\Users\ynz\.stm32cubemx\stable_output                                                                                                                                       
 model_fmt          :   float                                                                                                                                                                         
 model_name         :   stable_pos0_23_0_65_p15_0_d1_0_0_1                                                                                                                                            

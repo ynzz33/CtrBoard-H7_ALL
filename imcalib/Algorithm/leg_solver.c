@@ -21,6 +21,7 @@ static uint8_t Leg_Input_Valid(const leg_state_t *leg)
     const leg_input_t *in = &leg->input;
     const leg_config_t *cfg = &leg->config;
 
+    if (!cfg->configured) return 0u;
     if (cfg->lu <= LEG_EPS || cfg->lg <= LEG_EPS) return 0u;
     if (!isfinite(in->hip_f) || !isfinite(in->hip_b)
         || !isfinite(in->d_hip_f) || !isfinite(in->d_hip_b))
@@ -40,6 +41,9 @@ uint8_t Leg_Solve(leg_state_t *leg)
 {
     float qf;
     float qb;
+    float vf;
+    float vb;
+    float mirror;
     float s_f;
     float c_f;
     float s_b;
@@ -61,22 +65,31 @@ uint8_t Leg_Solve(leg_state_t *leg)
     float y_p;
     float sin_ab;
     float sin_fa;
+    float sin_fb;
     float sin_bb;
     float sin_0a;
     float sin_0b;
     float cos_0a;
     float cos_0b;
     float phi0_abs;
+    float vs_raw;
+    float jac_a;
+    float jac_b;
+    float d_vs;
     float lu;
     float lg;
 
-    if (leg == NULL || !Leg_Input_Valid(leg)) return 0u;
+    if (leg == NULL) return 0u;
     memset(&leg->output, 0, sizeof(leg->output));
+    if (!Leg_Input_Valid(leg)) return 0u;
 
+    mirror = (leg->config.mirror >= 0) ? 1.0f : -1.0f;
     lu = leg->config.lu;
     lg = leg->config.lg;
-    qf = leg->input.hip_f + leg->config.offset_f;
-    qb = leg->input.hip_b + leg->config.offset_b;
+    qf = mirror * leg->input.hip_f;
+    qb = mirror * leg->input.hip_b;
+    vf = mirror * leg->input.d_hip_f;
+    vb = mirror * leg->input.d_hip_b;
     s_f = sinf(qf);
     c_f = cosf(qf);
     s_b = sinf(qb);
@@ -107,12 +120,15 @@ uint8_t Leg_Solve(leg_state_t *leg)
 
     phi0_abs = atan2f(y_p, x_p);
     leg->output.phi0 = Leg_Wrap(phi0_abs - LEG_HALF_PI);
-    leg->output.virtual_shank = Leg_Wrap(phi_b - qb - LEG_HALF_PI);
+    /* 虚拟小腿: 相对大腿(hip_f), 右腿镜像 */
+    vs_raw = Leg_Wrap(phi_a - qf - LEG_HALF_PI);
+    leg->output.virtual_shank = Leg_Wrap(mirror * vs_raw);
 
     /* 两条下连杆共线时雅可比奇异。 */
     sin_ab = sinf(phi_a - phi_b);
     if (fabsf(sin_ab) < LEG_EPS) return 0u;
     sin_fa = sinf(qf - phi_a);
+    sin_fb = sinf(qf - phi_b);
     sin_bb = sinf(qb - phi_b);
     sin_0a = sinf(phi0_abs - phi_a);
     sin_0b = sinf(phi0_abs - phi_b);
@@ -141,14 +157,17 @@ uint8_t Leg_Solve(leg_state_t *leg)
     leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);
 
     /* 雅可比前向映射得到虚拟腿速度。 */
-    leg->output.dl0 = leg->output.leg_jac[0][0] * leg->input.d_hip_f
-        + leg->output.leg_jac[0][1] * leg->input.d_hip_b;
-    leg->output.dphi0 = leg->output.leg_jac[1][0] * leg->input.d_hip_f
-        + leg->output.leg_jac[1][1] * leg->input.d_hip_b;
-    leg->output.d_virtual_shank = lu * sin_fa
-        / (lg * sinf(phi_b - phi_a)) * leg->input.d_hip_f
-        + (-lu * sinf(qb - phi_a) / (lg * sinf(phi_b - phi_a)) - 1.0f)
-        * leg->input.d_hip_b;
+    leg->output.dl0 = leg->output.leg_jac[0][0] * vf
+        + leg->output.leg_jac[0][1] * vb;
+    leg->output.dphi0 = leg->output.leg_jac[1][0] * vf
+        + leg->output.leg_jac[1][1] * vb;
+    /* 虚拟小腿速度雅可比: [hip_b, hip_f] */
+    jac_a = lu * sin_bb / (lg * sin_ab);
+    jac_b = -lu * sin_fb / (lg * sin_ab) - 1.0f;
+    d_vs = jac_a * vb + jac_b * vf;
+    leg->output.vshank_jac[0] = jac_a;
+    leg->output.vshank_jac[1] = jac_b;
+    leg->output.d_virtual_shank = mirror * d_vs;
     leg->output.valid = 1u;
     return 1u;
 }

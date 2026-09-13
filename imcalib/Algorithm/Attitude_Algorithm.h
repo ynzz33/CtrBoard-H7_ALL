@@ -21,6 +21,7 @@ enum {
 
 void Attitude_Init(imu_state_t *state);
 void IMU_State_Convert_Unit(imu_state_t *state);
+bool Attitude_Update_From_HI229(imu_state_t *state);
 bool Attitude_Update(imu_state_t *state);
 
 #endif

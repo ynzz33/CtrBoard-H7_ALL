@@ -88,10 +88,10 @@ void MX_UART9_Init(void)
 
   /* USER CODE END UART9_Init 1 */
   huart9.Instance = UART9;
-  huart9.Init.BaudRate = 115200;
-  huart9.Init.WordLength = UART_WORDLENGTH_8B;
+  huart9.Init.BaudRate = 100000;
+  huart9.Init.WordLength = UART_WORDLENGTH_9B;
   huart9.Init.StopBits = UART_STOPBITS_1;
-  huart9.Init.Parity = UART_PARITY_NONE;
+  huart9.Init.Parity = UART_PARITY_EVEN;
   huart9.Init.Mode = UART_MODE_TX_RX;
   huart9.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart9.Init.OverSampling = UART_OVERSAMPLING_16;

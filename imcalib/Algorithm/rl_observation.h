@@ -10,42 +10,42 @@
 
 /* 观测索引 */
 typedef enum {
-    RL_OBS_GYRO_X = 0,
+    RL_OBS_GYRO_X = 0,       /* 角速度 */
     RL_OBS_GYRO_Y,
     RL_OBS_GYRO_Z,
-    RL_OBS_GRAV_X,
+    RL_OBS_GRAV_X,           /* 投影重力 */
     RL_OBS_GRAV_Y,
     RL_OBS_GRAV_Z,
-    RL_OBS_CMD_VX,
+    RL_OBS_CMD_VX,           /* 控制指令 */
     RL_OBS_CMD_YAW_RATE,
     RL_OBS_CMD_HEIGHT,
-    RL_OBS_L_THIGH,
+    RL_OBS_L_THIGH,          /* 关节角度 */
     RL_OBS_L_SHANK,
     RL_OBS_R_THIGH,
     RL_OBS_R_SHANK,
-    RL_OBS_L_THIGH_VEL,
+    RL_OBS_L_THIGH_VEL,      /* 关节速度 */
     RL_OBS_L_SHANK_VEL,
     RL_OBS_L_WHEEL_VEL,
     RL_OBS_R_THIGH_VEL,
     RL_OBS_R_SHANK_VEL,
     RL_OBS_R_WHEEL_VEL,
-    RL_OBS_LAST_ACTION = 19
+    RL_OBS_LAST_ACTION = 19  /* 上次动作 */
 } rl_obs_index_t;
 
 typedef struct {
-    float obs_dof_pos[4];
-    float command_scale[3];
-    float gyro_scale[3];
-    float joint_vel_scale[6];
-    uint8_t configured;
+    float obs_dof_pos[4];        /* 观测中位 */
+    float command_scale[3];      /* 指令缩放 */
+    float gyro_scale[3];         /* 陀螺缩放 */
+    float joint_vel_scale[6];    /* 速度缩放 */
+    uint8_t configured;          /* 参数有效 */
 } rl_observation_param_t;
 
 typedef struct {
-    float obs[RL_OBS_SIZE];
-    float history[RL_OBS_HISTORY_SIZE];
-    float last_action[RL_ACTION_SIZE];
-    uint8_t valid;
-    uint8_t history_ready;
+    float obs[RL_OBS_SIZE];              /* 当前观测 */
+    float history[RL_OBS_HISTORY_SIZE];  /* 五帧历史 */
+    float last_action[RL_ACTION_SIZE];   /* 上次动作 */
+    uint8_t valid;                       /* 观测有效 */
+    uint8_t history_ready;               /* 历史有效 */
 } rl_observation_state_t;
 
 void RL_Observation_Init(rl_observation_state_t *state);
@@ -60,9 +60,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              const float joint_vel[6],
                              uint8_t source_valid);
 void RL_Observation_Update_History(rl_observation_state_t *state);
-uint8_t RL_Observation_Set_Last_Action(rl_observation_state_t *state,
-                                       const float action[RL_ACTION_SIZE]);
-uint8_t RL_Observation_Gate_Action(const rl_observation_state_t *state,
-                                   float action[RL_ACTION_SIZE]);
+void RL_Observation_Set_Last_Action(rl_observation_state_t *state,
+                                    const float action[RL_ACTION_SIZE]);
 
 #endif

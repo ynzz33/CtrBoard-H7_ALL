@@ -17,6 +17,14 @@ static bool Attitude_Is_Finite3(const float value[3])
         && !isinf(value[0]) && !isinf(value[1]) && !isinf(value[2]);
 }
 
+/* 检查四元数 */
+static bool Attitude_Is_Finite4(const float value[4])
+{
+    return !isnan(value[0]) && !isnan(value[1]) && !isnan(value[2])
+        && !isnan(value[3]) && !isinf(value[0]) && !isinf(value[1])
+        && !isinf(value[2]) && !isinf(value[3]);
+}
+
 /* 更新姿态输出 */
 static void Attitude_Update_Output(imu_state_t *state)
 {
@@ -82,7 +90,8 @@ void IMU_State_Convert_Unit(imu_state_t *state)
     }
 }
 
-/* 更新姿态解算 */
+#if 0
+/* Mahony 解算 */
 bool Attitude_Update(imu_state_t *state)
 {
     float q0;
@@ -182,4 +191,63 @@ bool Attitude_Update(imu_state_t *state)
     /* 归一化后同步更新欧拉角和旋转矩阵。 */
     Attitude_Update_Output(state);
     return true;
+}
+#endif
+
+/* HI229 姿态核心 */
+bool Attitude_Update_From_HI229(imu_state_t *state)
+{
+    float q_norm;
+    float acc_norm;
+    uint8_t axis;
+
+    if (state == NULL || !Attitude_Is_Finite3(state->input.gyro_dps)
+        || !Attitude_Is_Finite3(state->input.accel_g)
+        || !Attitude_Is_Finite4(state->reference.quat)
+        || !Attitude_Is_Finite3(state->reference.euler_deg))
+        return false;
+
+    q_norm = sqrtf(state->reference.quat[0] * state->reference.quat[0]
+        + state->reference.quat[1] * state->reference.quat[1]
+        + state->reference.quat[2] * state->reference.quat[2]
+        + state->reference.quat[3] * state->reference.quat[3]);
+    if (!isfinite(q_norm) || q_norm < 0.001f)
+        return false;
+
+    for (axis = 0u; axis < 4u; axis++)
+        state->output.quat[axis] = state->reference.quat[axis] / q_norm;
+
+    state->output.euler_deg[ATTITUDE_ROLL] = state->reference.euler_deg[0];
+    state->output.euler_deg[ATTITUDE_PITCH] = state->reference.euler_deg[1];
+    state->output.euler_deg[ATTITUDE_YAW] = state->reference.euler_deg[2];
+    for (axis = 0u; axis < 3u; axis++)
+        state->output.euler_rad[axis] = state->output.euler_deg[axis]
+            * 0.01745329251994f;
+
+    acc_norm = sqrtf(state->input.accel_g[0] * state->input.accel_g[0]
+        + state->input.accel_g[1] * state->input.accel_g[1]
+        + state->input.accel_g[2] * state->input.accel_g[2]);
+    if (!isfinite(acc_norm) || acc_norm < ATTITUDE_MIN_ACC_NORM_G)
+        return false;
+
+    for (axis = 0u; axis < 3u; axis++)
+        state->output.accel_normed[axis] = state->input.accel_g[axis] / acc_norm;
+    state->output.accel_trust = 1.0f;
+    memset(state->output.mahony_error, 0, sizeof(state->output.mahony_error));
+    memset(state->output.mahony_output, 0, sizeof(state->output.mahony_output));
+    Attitude_Update_Output(state);
+    state->output.euler_deg[ATTITUDE_ROLL] = state->reference.euler_deg[0];
+    state->output.euler_deg[ATTITUDE_PITCH] = state->reference.euler_deg[1];
+    state->output.euler_deg[ATTITUDE_YAW] = state->reference.euler_deg[2];
+    for (axis = 0u; axis < 3u; axis++)
+        state->output.euler_rad[axis] = state->output.euler_deg[axis]
+            * 0.01745329251994f;
+    return true;
+}
+
+/* 兼容旧接口 */
+bool Attitude_Update(imu_state_t *state)
+{
+    (void)state;
+    return false;
 }

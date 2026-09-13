@@ -13,6 +13,8 @@ typedef enum {
 
 #define DJI_CURRENT_MAX_M2006  10000
 #define DJI_CURRENT_MAX_M3508  16384
+#define DJI_NM_PER_RAW_M2006   (0.18f * 10.0f / 10000.0f)
+#define DJI_NM_PER_RAW_M3508   (0.30f * 20.0f / 16384.0f)
 #define DJI_ANGLE_CPR          8192L
 #define DJI_RAD_PER_COUNT      (0.0007669903939f)
 #define DJI_RPM_TO_RAD_S       (0.1047197551f)
@@ -30,6 +32,7 @@ typedef struct {
     uint8_t              motor_id;
     uint16_t             feedback_id;
     uint16_t             control_id;
+    int8_t               feedback_sign;
 } dji_motor_config_t;
 
 /* 反馈值 */
@@ -64,6 +67,9 @@ void Dji_Parse(void);
 void Dji_Circle_Calculate(void);
 float Dji_Encoder_To_Rad(int32_t encoder_count);
 float Dji_Rpm_To_Rad_S(int16_t rpm);
+int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm);
+HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
+                                        float right_torque_nm);
 HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                                    const int16_t current_raw[4]);
 HAL_StatusTypeDef Dji_All_Stop(void);

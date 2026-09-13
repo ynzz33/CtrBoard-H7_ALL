@@ -8,6 +8,8 @@ typedef struct {
     float lg;
     float offset_f;
     float offset_b;
+    int8_t mirror;
+    uint8_t configured;
 } leg_config_t;
 
 typedef struct {
@@ -24,6 +26,7 @@ typedef struct {
     float dphi0;
     float virtual_shank;
     float d_virtual_shank;
+    float vshank_jac[2];
     float point_jac[2][2];
     float leg_jac[2][2];
     float force_map[2][2];

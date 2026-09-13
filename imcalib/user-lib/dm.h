@@ -45,6 +45,7 @@ typedef struct {
     dm_motor_type_t      type;
     uint16_t             feedback_id;
     uint16_t             control_id;
+    int8_t               feedback_sign;
 } dm_motor_config_t;
 
 /* 反馈值 */
@@ -72,9 +73,14 @@ void Dm_Init(void);
 void Dm_Parse(void);
 bool Dm_Is_Online(uint8_t index);
 float Dm_Uint_To_Float(uint16_t value, float min, float max, uint8_t bits);
+uint16_t Dm_Float_To_Uint(float value, float min, float max, uint8_t bits);
 HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,
                                  uint16_t vel_raw, uint16_t kp_raw,
                                  uint16_t kd_raw, uint16_t trq_raw);
 HAL_StatusTypeDef Dm_Send_Command(uint8_t index, uint8_t command);
+HAL_StatusTypeDef Dm_All_Enable(void);
+HAL_StatusTypeDef Dm_All_Disable(void);
+HAL_StatusTypeDef Dm_Send_Zero(void);
+HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM]);
 
 #endif

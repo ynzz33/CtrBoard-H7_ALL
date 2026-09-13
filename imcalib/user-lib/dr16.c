@@ -41,7 +41,8 @@ static void DR16_Parse(const uint8_t *buf)
 
     parsed.key = (uint16_t)(buf[14] | (buf[15] << 8));
 
-    parsed.wheel = (int16_t)(((uint16_t)buf[16] | ((uint16_t)buf[17] << 8)) - 1024);
+    parsed.wheel = (int16_t)(1024 -
+        ((uint16_t)buf[16] | ((uint16_t)buf[17] << 8)));
 
     if (!DR16_Validate(&parsed))
         return;
@@ -69,7 +70,10 @@ void DR16_Init(void)
 /* 接收处理 */
 void DR16_Process(void)
 {
-    if (!dbus_rx.flag) return;
+    if (dbus_rx.flag == 0) 
+    {
+        return;
+    }
     dbus_rx.flag = 0;
 
     uint8_t buf[DBUS_BUF_SIZE];
@@ -77,7 +81,9 @@ void DR16_Process(void)
     memcpy(buf, dbus_rx.isr_buf, len);
 
     if (len == DR16_FRAME_LEN)
+    {
         DR16_Parse(buf);
+    }
 }
 
 /* 在线检测 */

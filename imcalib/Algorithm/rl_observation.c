@@ -18,13 +18,6 @@ static uint8_t RL_Observation_Array_Finite(const float *data, uint32_t count)
     return 1u;
 }
 
-/* 清空动作 */
-static void RL_Observation_Clear_Action(float action[RL_ACTION_SIZE])
-{
-    if (action != NULL)
-        memset(action, 0, RL_ACTION_SIZE * sizeof(float));
-}
-
 /* 检查参数 */
 static uint8_t RL_Observation_Param_Valid(const rl_observation_param_t *param)
 {
@@ -59,16 +52,10 @@ void RL_Observation_Reset(rl_observation_state_t *state)
 /* 计算重力 */
 static void RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
 {
-    float qx;
-    float qy;
-    float qz;
-    float qw;
-    float tx;
-    float ty;
-    float tz;
-    float cx;
-    float cy;
-    float cz;
+    float qx, qy, qz;  /* 四元虚部 */
+    float qw;          /* 四元实部 */
+    float tx, ty, tz;  /* 首次叉乘 */
+    float cx, cy, cz;  /* 二次叉乘 */
 
     /* 对齐策略 */
     qx = -quat[1];
@@ -99,10 +86,10 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              const float joint_vel[6],
                              uint8_t source_valid)
 {
-    float gravity[3];
-    float quat_norm;
-    float quat_unit[4];
-    uint32_t i;
+    float gravity[3];    /* 投影重力 */
+    float quat_norm;     /* 四元模长 */
+    float quat_unit[4];  /* 单位四元 */
+    uint32_t i;          /* 循环索引 */
 
     if (state == NULL) return 0u;
     if (!source_valid || !RL_Observation_Param_Valid(param)
@@ -162,7 +149,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
 /* 更新历史 */
 void RL_Observation_Update_History(rl_observation_state_t *state)
 {
-    uint32_t i;
+    uint32_t i;  /* 循环索引 */
 
     if (state == NULL || !state->valid)
     {
@@ -186,29 +173,10 @@ void RL_Observation_Update_History(rl_observation_state_t *state)
 }
 
 /* 保存动作 */
-uint8_t RL_Observation_Set_Last_Action(rl_observation_state_t *state,
-                                       const float action[RL_ACTION_SIZE])
+void RL_Observation_Set_Last_Action(rl_observation_state_t *state,
+                                    const float action[RL_ACTION_SIZE])
 {
-    if (state == NULL || !state->valid
-        || !RL_Observation_Array_Finite(action, RL_ACTION_SIZE))
-    {
-        if (state != NULL) RL_Observation_Reset(state);
-        return 0u;
-    }
+    if (state == NULL || action == NULL) return;
 
     memcpy(state->last_action, action, RL_ACTION_SIZE * sizeof(float));
-    return 1u;
-}
-
-/* 动作门控 */
-uint8_t RL_Observation_Gate_Action(const rl_observation_state_t *state,
-                                   float action[RL_ACTION_SIZE])
-{
-    if (state == NULL || !state->valid || !state->history_ready
-        || !RL_Observation_Array_Finite(action, RL_ACTION_SIZE))
-    {
-        RL_Observation_Clear_Action(action);
-        return 0u;
-    }
-    return 1u;
 }

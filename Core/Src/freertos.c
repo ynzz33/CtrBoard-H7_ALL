@@ -48,10 +48,10 @@
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
-osThreadId monitorTaskHandle;
+osThreadId commTaskHandle;
 osThreadId imuTaskHandle;
-osThreadId ctrlTaskHandle;
-osThreadId outputTaskHandle;
+osThreadId policyTaskHandle;
+osThreadId actuationTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -59,10 +59,10 @@ osThreadId outputTaskHandle;
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void const * argument);
-void monitorTask_Entry(void const * argument);
+void commTask_Entry(void const * argument);
 void imuTask_Entry(void const * argument);
-void ctrlTask_Entry(void const * argument);
-void outputTask_Entry(void const * argument);
+void policyTask_Entry(void const * argument);
+void actuationTask_Entry(void const * argument);
 
 extern void MX_USB_DEVICE_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -130,21 +130,21 @@ void MX_FREERTOS_Init(void) {
   osThreadDef(defaultTask, StartDefaultTask, osPriorityNormal, 0, 128);
   defaultTaskHandle = osThreadCreate(osThread(defaultTask), NULL);
 
-  /* definition and creation of monitorTask */
-  osThreadDef(monitorTask, monitorTask_Entry, osPriorityAboveNormal, 0, 512);
-  monitorTaskHandle = osThreadCreate(osThread(monitorTask), NULL);
+  /* definition and creation of commTask */
+  osThreadDef(commTask, commTask_Entry, osPriorityAboveNormal, 0, 512);
+  commTaskHandle = osThreadCreate(osThread(commTask), NULL);
 
   /* definition and creation of imuTask */
   osThreadDef(imuTask, imuTask_Entry, osPriorityHigh, 0, 512);
   imuTaskHandle = osThreadCreate(osThread(imuTask), NULL);
 
-  /* definition and creation of ctrlTask */
-  osThreadDef(ctrlTask, ctrlTask_Entry, osPriorityHigh, 0, 2048);
-  ctrlTaskHandle = osThreadCreate(osThread(ctrlTask), NULL);
+  /* definition and creation of policyTask */
+  osThreadDef(policyTask, policyTask_Entry, osPriorityHigh, 0, 2048);
+  policyTaskHandle = osThreadCreate(osThread(policyTask), NULL);
 
-  /* definition and creation of outputTask */
-  osThreadDef(outputTask, outputTask_Entry, osPriorityRealtime, 0, 1024);
-  outputTaskHandle = osThreadCreate(osThread(outputTask), NULL);
+  /* definition and creation of actuationTask */
+  osThreadDef(actuationTask, actuationTask_Entry, osPriorityRealtime, 0, 1024);
+  actuationTaskHandle = osThreadCreate(osThread(actuationTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -172,18 +172,22 @@ void StartDefaultTask(void const * argument)
   /* USER CODE END StartDefaultTask */
 }
 
-/* USER CODE BEGIN Header_monitorTask_Entry */
+/* USER CODE BEGIN Header_commTask_Entry */
 /**
-* @brief Function implementing the monitorTask thread.
+* @brief Function implementing the commTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_monitorTask_Entry */
-void monitorTask_Entry(void const * argument)
+/* USER CODE END Header_commTask_Entry */
+void commTask_Entry(void const * argument)
 {
-  /* USER CODE BEGIN monitorTask_Entry */
-  monitor_task_body();
-  /* USER CODE END monitorTask_Entry */
+  /* USER CODE BEGIN commTask_Entry */
+  for(;;)
+  {
+    comm_task_body();
+    osDelay(1);
+  }
+  /* USER CODE END commTask_Entry */
 }
 
 /* USER CODE BEGIN Header_imuTask_Entry */
@@ -196,36 +200,51 @@ void monitorTask_Entry(void const * argument)
 void imuTask_Entry(void const * argument)
 {
   /* USER CODE BEGIN imuTask_Entry */
-  imu_task_body();
+  imu_task_init();
+  for(;;)
+  {
+    imu_task_body();
+    osDelay(2);
+  }
   /* USER CODE END imuTask_Entry */
 }
 
-/* USER CODE BEGIN Header_ctrlTask_Entry */
+/* USER CODE BEGIN Header_policyTask_Entry */
 /**
-* @brief Function implementing the ctrlTask thread.
+* @brief Function implementing the policyTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_ctrlTask_Entry */
-void ctrlTask_Entry(void const * argument)
+/* USER CODE END Header_policyTask_Entry */
+void policyTask_Entry(void const * argument)
 {
-  /* USER CODE BEGIN ctrlTask_Entry */
-  ctrl_task_body();
-  /* USER CODE END ctrlTask_Entry */
+  /* USER CODE BEGIN policyTask_Entry */
+  ctrl_task_init();
+  for(;;)
+  {
+    ctrl_task_body();
+    osDelay(10);
+  }
+  /* USER CODE END policyTask_Entry */
 }
 
-/* USER CODE BEGIN Header_outputTask_Entry */
+/* USER CODE BEGIN Header_actuationTask_Entry */
 /**
-* @brief Function implementing the outputTask thread.
+* @brief Function implementing the actuationTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_outputTask_Entry */
-void outputTask_Entry(void const * argument)
+/* USER CODE END Header_actuationTask_Entry */
+void actuationTask_Entry(void const * argument)
 {
-  /* USER CODE BEGIN outputTask_Entry */
-  output_task_body();
-  /* USER CODE END outputTask_Entry */
+  /* USER CODE BEGIN actuationTask_Entry */
+  output_task_init();
+  for(;;)
+  {
+    osSemaphoreWait(ctrl_tick_sem_handle, osWaitForever);
+    output_task_body();
+  }
+  /* USER CODE END actuationTask_Entry */
 }
 
 /* Private application code --------------------------------------------------*/

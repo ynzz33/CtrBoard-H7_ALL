@@ -1,6 +1,6 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-09-09 12:32:48
-Parameters            : generate --target stm32h7 --name upstairs -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/upstairs/upstairs_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace1522763594234007062218399852512556 --output C:/Users/ynz/.stm32cubemx/upstairs_output
+Created date          : 2026-09-12 16:06:58
+Parameters            : generate --target stm32h7 --name upstairs -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/upstairs/upstairs_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace48601528265004780555307942115177 --output C:/Users/ynz/.stm32cubemx/upstairs_output
 
 Exec/report summary (generate)
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -9,9 +9,9 @@ type               :   onnx
 c_name             :   upstairs                                                                                                                                                                          
 compression        :   none                                                                                                                                                                              
 options            :   allocate-inputs, allocate-outputs                                                                                                                                                 
-optimization       :   time                                                                                                                                                                              
+optimization       :   balanced                                                                                                                                                                          
 target/series      :   stm32h7                                                                                                                                                                           
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace1522763594234007062218399852512556                                                                                                  
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace48601528265004780555307942115177                                                                                                    
 output dir         :   C:\Users\ynz\.stm32cubemx\upstairs_output                                                                                                                                         
 model_fmt          :   float                                                                                                                                                                             
 model_name         :   upstairs_pos0_23_0_65_p15_0_d1_0_0_1                                                                                                                                              

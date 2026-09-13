@@ -800,44 +800,44 @@
   ],
   "environment": {
     "generated_model": {
-      "generated_time": "2026-09-09T12:32:47+0800",
+      "generated_time": "2026-09-12T16:06:56+0800",
       "model_files": [
         {
           "name": "upstairs_data_params.h",
-          "signature": "0xa7df87c1afeff40cd1538c98c2bfa5e8"
+          "signature": "0xef610e27a85cecf38ad2888e3bcaf8be"
         },
         {
           "name": "upstairs_data_params.c",
-          "signature": "0xb290a285e73429a69780cd09c850d748"
+          "signature": "0xd90c9296bb82da80101b518a5922328f"
         },
         {
           "name": "upstairs_data.h",
-          "signature": "0xf9e358f2cce0dc9d5722098f1465775b"
+          "signature": "0x8128fe1e053c3fecc34d653550ddeeb6"
         },
         {
           "name": "upstairs_data.c",
-          "signature": "0xc1ce9c355d05b6286381cdf6408fb3d9"
+          "signature": "0x1756a3416761bb91de3e18ac9f5adca7"
         },
         {
           "name": "upstairs_config.h",
-          "signature": "0x125ceecc4f7b324b2f0f4694697a4fd6"
+          "signature": "0xd3cbfdf55e1c4fd3fe37f9a83330d0c2"
         },
         {
           "name": "upstairs.h",
-          "signature": "0x0f436926c51f99e3608e71b305c914ef"
+          "signature": "0x6ddea0880f30588a72898284e230fcda"
         },
         {
           "name": "upstairs.c",
-          "signature": "0x16c37d4d69ddf22225dfd66b18344793"
+          "signature": "0xbae5b6a3a189914d0b1afb699d1f1758"
         }
       ],
       "name": "upstairs"
     },
-    "network_signature": "0x18dd67f160d6f8ba",
+    "network_signature": "0x439b11f5411e81a6",
     "test_name": "",
     "tools": [
       {
-        "arguments": "generate --target stm32h7 --name upstairs -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/upstairs/upstairs_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace1522763594234007062218399852512556 --output C:/Users/ynz/.stm32cubemx/upstairs_output",
+        "arguments": "generate --target stm32h7 --name upstairs -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/upstairs/upstairs_pos0.23_0.65_p15.0_d1.0_0.1.onnx --compression none --verbosity 1 --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace48601528265004780555307942115177 --output C:/Users/ynz/.stm32cubemx/upstairs_output",
         "environment": [
           "STATS_TYPE=X-CUBE-AI"
         ],
