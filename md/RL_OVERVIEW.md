@@ -22,6 +22,14 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
     → CubeAI推理 → 6维动作 → PD → 雅可比映射 → 气弹簧补偿 → 6个电机力矩
 ```
 
+## 极性与坐标定义（已确认，禁止擅自修改）
+
+- DM 反馈层先统一右侧电机的角度、角速度和力矩反馈极性；五连杆解算不再重复做右腿镜像或前后电机交换，`config.mirror` 保持 `+1`。
+- 几何输入中，前髋 `hip_f` 使用 `DM 反馈角 + π + offset_f`，后髋 `hip_b` 使用 `DM 反馈角 + offset_b`。
+- 虚拟腿长度 `l0` 增大表示伸腿；虚拟腿摆角 `phi0` 采用前摆为正、后摆为负；虚拟小腿角按 EGA 的相对大腿定义。
+- RL/测试得到的逻辑电机力矩采用上述机体坐标正方向；右侧 DM 下发只允许在 `dm.c` 的驱动边界统一取反一次，禁止在解算器、测试模式或任务层再次取反。
+- 以上定义已经过当前机械安装的输入、腿长、摆角、速度/雅可比和输出方向联调确认。若物理行为再次异常，先检查反馈/下发链路和报文状态，不得直接改几何符号。
+
 ---
 
 ## 二、任务架构
@@ -58,16 +66,26 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 
 ### 3.1 五连杆运动学 (`leg_solver`)
 
-**输入**：左右各 2 个 DM 髋电机的角度 + 角速度（hip_f=前髋，hip_b=后髋）。腿长和腿角由前后髋共同决定，不能把两台电机简称为“大腿/小腿电机”。
+**输入**：左右各 2 个 DM 髋电机的角度 + 角速度（hip_f=前髋，hip_b=后髋）。前髋的几何零位比 DM 反馈零位多 π，使“前后上连杆反向水平”的最短腿姿态对应虚拟腿竖直。腿长和腿角由前后髋共同决定，不能把两台电机简称为“大腿/小腿电机”。
 
 **计算**：
-- 闭链几何求解足端 P → 腿长 l0、腿角 phi0
+- 闭链几何求解足端 P → 腿长 l0、腿摆角 phi0（前摆为正，含零点偏置）
 - 虚拟小腿角 `virtual_shank = wrap(phi_a - qf - π/2)`（相对前髋电机）
 - 雅可比：`point_jac`（足端直角坐标）、`leg_jac`（极坐标）、`vshank_jac`（虚拟小腿）、`force_map`（力域转换）
+
+实现分为闭链几何、速度与雅可比、力矩映射三层，`Leg_Solve()` 仅负责按顺序调用三层。
 
 **极性**：DM/DJI 驱动反馈层统一到机体坐标系，右前髋、右后髋和右轮的物理角度/速度取反；五连杆输入不再重复做右腿镜像。现有 `config.mirror` 保持 +1，后续清理前不得设置为 -1。
 
 **输出**：`leg_output_t` 含 l0/phi0/virtual_shank/各雅可比/force_map/valid
+
+调试通道 `dbg[32..35]` 额外输出左右大腿侧下连杆角和公式值，用于核对 `phi_lower - phi_thigh - π/2`。
+
+VOFA 保持 32 通道：`dbg[0..11]` 为遥控输入、F/T 指令和状态，`dbg[12..15]` 为四个 DM 角速度，`dbg[16..19]` 为四个髋电机测试力矩，`dbg[20..25]` 为左右腿长/摆角/虚拟小腿角，`dbg[26..28]` 为映射误差和有效位，`dbg[29..31]` 为 DM/DJI 发送状态及在线掩码。
+
+DM 反馈层已对右侧电机取反，力矩下发同步取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
+
+力矩映射台架测试：左拨杆上位进入测试，右拨杆上位选左腿、右拨杆中位选右腿，右拨杆下位不输出；左拨杆下位立即失能。`ch3` 映射径向力 F，`ch0` 映射切向力矩 T，测试范围和电机力矩均做严格限幅。仅当 `torque_output_enabled=1` 时下发。
 
 ### 3.2 观测构建 (`rl_observation`)
 
@@ -140,7 +158,9 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 
 **翻倒**：|pitch| > 1.4rad 置 fallen，< 1.0rad 回正（回差）
 
-**总开关**：`torque_output_enabled`（默认 0，实测时置 1）
+**总开关**：`torque_output_enabled`（当前测试初始化为 1）
+
+测试模式下 `torque_output_enabled=0` 时允许 DM 使能但保持零力矩；此时 `FAULT_ACTION` 不阻止使能，其余故障和翻倒保护仍有效。
 
 ---
 
@@ -158,8 +178,8 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 | HI229 IMU | hi229.c/h | ✅ 通信 + 数据提取 |
 | 姿态解算 | Attitude_Algorithm.c/h | ✅ Mahony + HI229 融合 |
 | Vofa 调试 | Vofa_send.c/h | ✅ FireWater DMA 发送 |
-| 五连杆 | leg_solver.c/h | ✅ 闭链求解 + 雅可比 + 镜像 + 门控 |
-| RL 观测 | rl_observation.c/h | ✅ 25 维构建 + 5 帧历史 + 参数门控 |
+| 五连杆 | leg_solver.c/h | ✅ 几何、腿长、腿角、虚拟小腿、速度/雅可比、force_map、实际电机力矩极性及实体运动均已上机验证 |
+| RL 观测 | rl_observation.c/h | 🟡 腿部字段和基础输入已确认；投影重力、轮速极性、缩放和参数仍待整体验证 |
 | CubeAI 推理 | rl_policy.c/h | ✅ 4 模型初始化 + 运行 + 维度静态检查 |
 | 力矩执行 | rl_torque.c/h | ✅ PD + 雅可比映射 + 气弹簧 + 限幅 + 斜率限制 |
 | 任务框架 | robot_tasks.c/h | ✅ 4 任务体 + 使能机 + 故障门 + VOFA 32 通道 |
@@ -169,15 +189,17 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 
 | 项目 | 位置 | 说明 | 优先级 |
 |------|------|------|--------|
-| **电机映射** | `leg_map_l/r` | 左前/后髋=DM0/DM1，右前/后髋=DM2/DM3 已登记；几何参数仍未配置 | 🟡 P0 |
-| **五连杆参数** | `leg_l/r.config` | lu/lg/offset_f/offset_b，需 SolidWorks 测量 | 🔴 P0 |
-| **电机偏置** | `leg_config.offset_f/b` | 实机零点→策略零点的偏置角 | 🔴 P0 |
-| **观测参数** | `rl_control.param` | obs_dof_pos/command_scale/gyro_scale/joint_vel_scale | 🔴 P0 |
+| **电机映射** | `leg_map_l/r` | 左前/后髋=DM0/DM1，右前/后髋=DM2/DM3，已完成台架确认 | ✅ |
+| **五连杆参数** | `leg_l/r.config` | lu/lg/offset_f/offset_b 已用于当前机械并完成解算验证 | ✅ |
+| **电机偏置** | `leg_config.offset_f/b` | 已完成几何零位校准；前髋几何输入包含 `+π` | ✅ |
+| **观测参数** | `rl_control.param` | obs_dof_pos/command_scale/gyro_scale/joint_vel_scale 尚未完成整体验证 | 🔴 P0 |
 | **气弹簧** | `rl_torque_param_t.gas_spring` | 实测标定当前为 0（参考值 370.1） | 🟡 P1 |
 | **DJI 力矩常数** | `dji.h DJI_NM_PER_RAW_*` | Kt/满量程电流实测核对 | 🟡 P1 |
-| **DR16 指令映射** | commTask | ch3→vx、ch0→yaw、wheel→height；±20 死区、±660 限幅，s2 上位允许高度指令；物理单位待 RL 对接 | 🟡 P1 |
-| **轮速符号** | `RL_Control_Update_Observation` | 观测侧轮速取反方向待实测 | 🟡 P1 |
-| **torque_output_enabled** | robot_tasks.c | 全局下发开关，实测时置 1 | 🔴 P0 |
+| **DR16 接收** | `dr16.c/h` | 数据帧接收与解析已实测正常 | ✅ |
+| **DR16 指令缩放** | `commTask` | 通道映射已接通，物理缩放仍待确认 | 🟡 P1 |
+| **投影重力** | `rl_observation.c/h` | 公式已实现，尚未完成 VOFA 姿态变化实测 | 🔴 P0 |
+| **轮速与轮子极性** | `dji.c/h` / `RL_Control_Update_Observation` | 左右轮反馈方向和观测符号尚未实测 | 🔴 P0 |
+| **torque_output_enabled** | robot_tasks.c | 当前测试初始化为 1，低力矩输出链已完成上机运动确认 | ✅ |
 
 ### ⚠️ 与参考实车的差异
 
@@ -197,7 +219,19 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 
 ## 五、实测打开顺序
 
-严格按此顺序，任何一步失败则停止：
+Leg_Solve 当前已完成以下验证：
+
+```text
+输入极性与前髋 +π 几何零位
+→ 腿长与虚拟腿摆角
+→ 虚拟小腿角
+→ 速度与解析雅可比
+→ 虚拟 F/T 到实际髋电机力矩
+→ 左右腿实体输出极性
+→ 低力矩上机运动
+```
+
+后续 RL 整链路仍按以下顺序进行，任何一步失败则停止：
 
 ```
 ① 电机映射 (leg_map_l/r.configured = 1)
@@ -206,16 +240,19 @@ commTask    → motor_state/leg_state → actuationTask → 力矩 → CAN
 ② 五连杆有效 (leg_l/r.config.configured = 1)
    → 确认 Leg_Solve 返回 valid=1，l0/phi0 合理
 
-③ 观测有效 (rl_control.param.configured = 1)
+③ 投影重力与轮速极性
+   → VOFA 确认重力方向、左右轮速度方向
+
+④ 观测参数有效 (rl_control.param.configured = 1)
    → 确认 obs 25 维全 finite，history_ready=1
 
-④ 推理有效
+⑤ 推理有效
    → 确认 CubeAI 4 模型初始化成功，action 6 维 finite
 
-⑤ 低力矩输出 (torque_output_enabled = 1)
+⑥ 低力矩输出 (torque_output_enabled = 1)
    → 先用小 Kp/Kd 验证力矩方向正确
 
-⑥ 实机验证
+⑦ 实机验证
    → 逐步提高增益，验证平衡/行走/小陀螺/跳跃
 ```
 

@@ -7,7 +7,7 @@
 #define VOFA_MAX_CH  32
 
 /* 串口号 */
-#define VOFA_UART   &huart1
+#define VOFA_UART   &huart8
 
 void Vofa_Send(const float *data, uint8_t n);
 

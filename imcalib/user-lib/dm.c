@@ -258,6 +258,7 @@ HAL_StatusTypeDef Dm_Send_Zero(void)
 HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
 {
     HAL_StatusTypeDef status = HAL_OK;
+    float command_torque;
 
     if (torque == NULL)
     {
@@ -265,7 +266,12 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
     }
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
-        uint16_t trq_raw = Dm_Float_To_Uint(torque[i],
+        command_torque = torque[i];
+        if (dm_motor_config[i].feedback_sign < 0)
+        {
+            command_torque = -command_torque;
+        }
+        uint16_t trq_raw = Dm_Float_To_Uint(command_torque,
             DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
         if (Dm_Mit_Control(i, dm_motor_feedback[i].angle_raw,
                            0u, 0u, 0u, trq_raw) != HAL_OK)

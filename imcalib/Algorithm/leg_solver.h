@@ -8,6 +8,7 @@ typedef struct {
     float lg;
     float offset_f;
     float offset_b;
+    float offset_phi0;
     int8_t mirror;
     uint8_t configured;
 } leg_config_t;
@@ -24,6 +25,8 @@ typedef struct {
     float phi0;
     float dl0;
     float dphi0;
+    float lower_angle;
+    float formula_virtual_shank;
     float virtual_shank;
     float d_virtual_shank;
     float vshank_jac[2];
@@ -31,6 +34,7 @@ typedef struct {
     float leg_jac[2][2];
     float force_map[2][2];
     float force_det;
+    float force_test_error;
     uint8_t force_valid;
     uint8_t valid;
 } leg_output_t;
@@ -43,5 +47,7 @@ typedef struct {
 
 void Leg_Init(leg_state_t *leg);
 uint8_t Leg_Solve(leg_state_t *leg);
+uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
+                              float torque, float output[2]);
 
 #endif

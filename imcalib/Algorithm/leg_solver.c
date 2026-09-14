@@ -29,21 +29,22 @@ static uint8_t Leg_Input_Valid(const leg_state_t *leg)
     return 1u;
 }
 
-/* 初始化状态 */
-void Leg_Init(leg_state_t *leg)
-{
-    if (leg == NULL) return;
-    memset(leg, 0, sizeof(*leg));
-}
-
-/* 求解运动学 */
-uint8_t Leg_Solve(leg_state_t *leg)
-{
+typedef struct {
     float qf;
     float qb;
     float vf;
     float vb;
     float mirror;
+    float lu;
+    float lg;
+    float phi_a;
+    float phi_b;
+    float phi0_abs;
+} leg_solver_cache_t;
+
+/* 闭链几何 */
+static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
+{
     float s_f;
     float c_f;
     float s_b;
@@ -59,10 +60,65 @@ uint8_t Leg_Solve(leg_state_t *leg)
     float c;
     float disc;
     float root;
-    float phi_a;
-    float phi_b;
     float x_p;
     float y_p;
+    float vs_raw;
+
+    cache->mirror = (leg->config.mirror >= 0) ? 1.0f : -1.0f;
+    cache->lu = leg->config.lu;
+    cache->lg = leg->config.lg;
+    cache->qf = cache->mirror * leg->input.hip_f;
+    cache->qb = cache->mirror * leg->input.hip_b;
+    cache->vf = cache->mirror * leg->input.d_hip_f;
+    cache->vb = cache->mirror * leg->input.d_hip_b;
+    s_f = sinf(cache->qf);
+    c_f = cosf(cache->qf);
+    s_b = sinf(cache->qb);
+    c_b = cosf(cache->qb);
+
+    x_a = cache->lu * c_f;
+    y_a = cache->lu * s_f;
+    x_b = cache->lu * c_b;
+    y_b = cache->lu * s_b;
+    dx = x_b - x_a;
+    dy = y_b - y_a;
+    a = 2.0f * cache->lg * dx;
+    b = 2.0f * cache->lg * dy;
+    c = dx * dx + dy * dy;
+    disc = a * a + b * b - c * c;
+    if (disc < -LEG_EPS)
+    {
+        return 0u;
+    }
+    if (disc < 0.0f)
+    {
+        disc = 0.0f;
+    }
+
+    root = sqrtf(disc);
+    cache->phi_a = 2.0f * atan2f(b + root, a + c);
+    x_p = x_a + cache->lg * cosf(cache->phi_a);
+    y_p = y_a + cache->lg * sinf(cache->phi_a);
+    cache->phi_b = atan2f(y_p - y_b, x_p - x_b);
+    leg->output.l0 = sqrtf(x_p * x_p + y_p * y_p);
+    if (leg->output.l0 < LEG_MIN_LENGTH)
+    {
+        return 0u;
+    }
+
+    cache->phi0_abs = atan2f(y_p, x_p);
+    leg->output.phi0 = Leg_Wrap(LEG_HALF_PI - cache->phi0_abs
+        + leg->config.offset_phi0);
+    leg->output.lower_angle = cache->phi_a;
+    vs_raw = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
+    leg->output.formula_virtual_shank = vs_raw;
+    leg->output.virtual_shank = Leg_Wrap(cache->mirror * vs_raw);
+    return 1u;
+}
+
+/* 速度与雅可比 */
+static uint8_t Leg_Solve_Velocity(leg_state_t *leg, const leg_solver_cache_t *cache)
+{
     float sin_ab;
     float sin_fa;
     float sin_fb;
@@ -71,82 +127,55 @@ uint8_t Leg_Solve(leg_state_t *leg)
     float sin_0b;
     float cos_0a;
     float cos_0b;
-    float phi0_abs;
-    float vs_raw;
     float jac_a;
     float jac_b;
     float d_vs;
-    float lu;
-    float lg;
 
-    if (leg == NULL) return 0u;
-    memset(&leg->output, 0, sizeof(leg->output));
-    if (!Leg_Input_Valid(leg)) return 0u;
+    sin_ab = sinf(cache->phi_a - cache->phi_b);
+    if (fabsf(sin_ab) < LEG_EPS)
+    {
+        return 0u;
+    }
+    sin_fa = sinf(cache->qf - cache->phi_a);
+    sin_fb = sinf(cache->qf - cache->phi_b);
+    sin_bb = sinf(cache->qb - cache->phi_b);
+    sin_0a = sinf(cache->phi0_abs - cache->phi_a);
+    sin_0b = sinf(cache->phi0_abs - cache->phi_b);
+    cos_0a = cosf(cache->phi0_abs - cache->phi_a);
+    cos_0b = cosf(cache->phi0_abs - cache->phi_b);
 
-    mirror = (leg->config.mirror >= 0) ? 1.0f : -1.0f;
-    lu = leg->config.lu;
-    lg = leg->config.lg;
-    qf = mirror * leg->input.hip_f;
-    qb = mirror * leg->input.hip_b;
-    vf = mirror * leg->input.d_hip_f;
-    vb = mirror * leg->input.d_hip_b;
-    s_f = sinf(qf);
-    c_f = cosf(qf);
-    s_b = sinf(qb);
-    c_b = cosf(qb);
+    leg->output.point_jac[0][0] = cache->lu * sin_fa * sinf(cache->phi_b) / sin_ab;
+    leg->output.point_jac[0][1] = -cache->lu * sin_bb * sinf(cache->phi_a) / sin_ab;
+    leg->output.point_jac[1][0] = -cache->lu * sin_fa * cosf(cache->phi_b) / sin_ab;
+    leg->output.point_jac[1][1] = cache->lu * sin_bb * cosf(cache->phi_a) / sin_ab;
 
-    x_a = lu * c_f;
-    y_a = lu * s_f;
-    x_b = lu * c_b;
-    y_b = lu * s_b;
-    /* A、B 为两侧上连杆端点。 */
-    dx = x_b - x_a;
-    dy = y_b - y_a;
-    a = 2.0f * lg * dx;
-    b = 2.0f * lg * dy;
-    c = dx * dx + dy * dy;
-    disc = a * a + b * b - c * c;
-    if (disc < -LEG_EPS) return 0u;
-    if (disc < 0.0f) disc = 0.0f;
-
-    /* 闭链几何求解足端 P。 */
-    root = sqrtf(disc);
-    phi_a = 2.0f * atan2f(b + root, a + c);
-    x_p = x_a + lg * cosf(phi_a);
-    y_p = y_a + lg * sinf(phi_a);
-    phi_b = atan2f(y_p - y_b, x_p - x_b);
-    leg->output.l0 = sqrtf(x_p * x_p + y_p * y_p);
-    if (leg->output.l0 < LEG_MIN_LENGTH) return 0u;
-
-    phi0_abs = atan2f(y_p, x_p);
-    leg->output.phi0 = Leg_Wrap(phi0_abs - LEG_HALF_PI);
-    /* 虚拟小腿: 相对大腿(hip_f), 右腿镜像 */
-    vs_raw = Leg_Wrap(phi_a - qf - LEG_HALF_PI);
-    leg->output.virtual_shank = Leg_Wrap(mirror * vs_raw);
-
-    /* 两条下连杆共线时雅可比奇异。 */
-    sin_ab = sinf(phi_a - phi_b);
-    if (fabsf(sin_ab) < LEG_EPS) return 0u;
-    sin_fa = sinf(qf - phi_a);
-    sin_fb = sinf(qf - phi_b);
-    sin_bb = sinf(qb - phi_b);
-    sin_0a = sinf(phi0_abs - phi_a);
-    sin_0b = sinf(phi0_abs - phi_b);
-    cos_0a = cosf(phi0_abs - phi_a);
-    cos_0b = cosf(phi0_abs - phi_b);
-
-    leg->output.point_jac[0][0] = lu * sin_fa * sinf(phi_b) / sin_ab;
-    leg->output.point_jac[0][1] = -lu * sin_bb * sinf(phi_a) / sin_ab;
-    leg->output.point_jac[1][0] = -lu * sin_fa * cosf(phi_b) / sin_ab;
-    leg->output.point_jac[1][1] = lu * sin_bb * cosf(phi_a) / sin_ab;
-
-    /* 极坐标雅可比：髋角速度到腿长和腿角速度。 */
-    leg->output.leg_jac[0][0] = -lu * sin_0b * sin_fa / sin_ab;
-    leg->output.leg_jac[0][1] = lu * sin_0a * sin_bb / sin_ab;
-    leg->output.leg_jac[1][0] = -lu * cos_0b * sin_fa
+    leg->output.leg_jac[0][0] = -cache->lu * sin_0b * sin_fa / sin_ab;
+    leg->output.leg_jac[0][1] = cache->lu * sin_0a * sin_bb / sin_ab;
+    leg->output.leg_jac[1][0] = cache->lu * cos_0b * sin_fa
         / (leg->output.l0 * sin_ab);
-    leg->output.leg_jac[1][1] = lu * cos_0a * sin_bb
+    leg->output.leg_jac[1][1] = -cache->lu * cos_0a * sin_bb
         / (leg->output.l0 * sin_ab);
+    leg->output.dl0 = leg->output.leg_jac[0][0] * cache->vf
+        + leg->output.leg_jac[0][1] * cache->vb;
+    leg->output.dphi0 = leg->output.leg_jac[1][0] * cache->vf
+        + leg->output.leg_jac[1][1] * cache->vb;
+
+    jac_a = cache->lu * sin_bb / (cache->lg * sin_ab);
+    jac_b = -cache->lu * sin_fb / (cache->lg * sin_ab) - 1.0f;
+    d_vs = jac_a * cache->vb + jac_b * cache->vf;
+    leg->output.vshank_jac[0] = jac_a;
+    leg->output.vshank_jac[1] = jac_b;
+    leg->output.d_virtual_shank = cache->mirror * d_vs;
+    return 1u;
+}
+
+/* 力矩映射 */
+static void Leg_Solve_Force_Map(leg_state_t *leg)
+{
+    float tau_f_test;
+    float tau_b_test;
+    float force_test;
+    float torque_test;
 
     leg->output.force_map[0][0] = leg->output.leg_jac[0][0];
     leg->output.force_map[0][1] = leg->output.leg_jac[1][0];
@@ -155,19 +184,75 @@ uint8_t Leg_Solve(leg_state_t *leg)
     leg->output.force_det = leg->output.force_map[0][0] * leg->output.force_map[1][1]
         - leg->output.force_map[0][1] * leg->output.force_map[1][0];
     leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);
+    if (!leg->output.force_valid)
+    {
+        return;
+    }
 
-    /* 雅可比前向映射得到虚拟腿速度。 */
-    leg->output.dl0 = leg->output.leg_jac[0][0] * vf
-        + leg->output.leg_jac[0][1] * vb;
-    leg->output.dphi0 = leg->output.leg_jac[1][0] * vf
-        + leg->output.leg_jac[1][1] * vb;
-    /* 虚拟小腿速度雅可比: [hip_b, hip_f] */
-    jac_a = lu * sin_bb / (lg * sin_ab);
-    jac_b = -lu * sin_fb / (lg * sin_ab) - 1.0f;
-    d_vs = jac_a * vb + jac_b * vf;
-    leg->output.vshank_jac[0] = jac_a;
-    leg->output.vshank_jac[1] = jac_b;
-    leg->output.d_virtual_shank = mirror * d_vs;
+    tau_f_test = leg->output.force_map[0][0]
+        + 0.5f * leg->output.force_map[0][1];
+    tau_b_test = leg->output.force_map[1][0]
+        + 0.5f * leg->output.force_map[1][1];
+    force_test = (leg->output.force_map[1][1] * tau_f_test
+        - leg->output.force_map[0][1] * tau_b_test)
+        / leg->output.force_det;
+    torque_test = (-leg->output.force_map[1][0] * tau_f_test
+        + leg->output.force_map[0][0] * tau_b_test)
+        / leg->output.force_det;
+    leg->output.force_test_error = fmaxf(fabsf(force_test - 1.0f),
+        fabsf(torque_test - 0.5f));
+}
+
+/* 虚拟力到电机 */
+uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
+                              float torque, float output[2])
+{
+    if (leg == NULL || output == NULL || !leg->output.force_valid)
+    {
+        return 0u;
+    }
+    if (!isfinite(force) || !isfinite(torque))
+    {
+        return 0u;
+    }
+
+    output[0] = leg->output.force_map[0][0] * force
+        + leg->output.force_map[0][1] * torque;
+    output[1] = leg->output.force_map[1][0] * force
+        + leg->output.force_map[1][1] * torque;
+    return 1u;
+}
+
+/* 初始化状态 */
+void Leg_Init(leg_state_t *leg)
+{
+    if (leg == NULL) return;
+    memset(leg, 0, sizeof(*leg));
+}
+
+/* 三层求解 */
+uint8_t Leg_Solve(leg_state_t *leg)
+{
+    leg_solver_cache_t cache;
+
+    if (leg == NULL)
+    {
+        return 0u;
+    }
+    memset(&leg->output, 0, sizeof(leg->output));
+    if (!Leg_Input_Valid(leg))
+    {
+        return 0u;
+    }
+    if (!Leg_Solve_Geometry(leg, &cache))
+    {
+        return 0u;
+    }
+    if (!Leg_Solve_Velocity(leg, &cache))
+    {
+        return 0u;
+    }
+    Leg_Solve_Force_Map(leg);
     leg->output.valid = 1u;
     return 1u;
 }

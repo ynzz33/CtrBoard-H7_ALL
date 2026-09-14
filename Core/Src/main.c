@@ -127,6 +127,7 @@ int main(void)
   MX_OCTOSPI2_Init();
   MX_UART9_Init();
   MX_TIM6_Init();
+  MX_UART8_Init();
   /* USER CODE BEGIN 2 */
   DR16_Init();
   HI229_Init();

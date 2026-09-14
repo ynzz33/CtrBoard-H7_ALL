@@ -12,6 +12,11 @@
 #include <math.h>
 #include <string.h>
 
+#define LEG_GEOMETRY_PI 3.14159265358979f
+#define FORCE_TEST_FORCE_MAX     8.0f
+#define FORCE_TEST_TORQUE_MAX    1.0f
+#define FORCE_TEST_MOTOR_LIMIT   1.0f
+
 /* 共享状态 */
 imu_state_t       imu_state;
 motor_state_t     motor_state;
@@ -32,6 +37,61 @@ osSemaphoreId ctrl_tick_sem_handle = NULL;
 
 static volatile uint32_t tick_count;
 
+typedef struct {
+    float l0;
+    float phi0;
+    float virtual_shank;
+    float measured[3];
+    float predicted[3];
+    float residual[3];
+    uint32_t tick_ms;
+    uint8_t ready;
+} leg_debug_history_t;
+
+static leg_debug_history_t leg_debug_l;
+static leg_debug_history_t leg_debug_r;
+
+typedef enum {
+    FORCE_TEST_NONE = 0u,
+    FORCE_TEST_LEFT,
+    FORCE_TEST_RIGHT,
+} force_test_leg_t;
+
+typedef struct {
+    float force;
+    float torque;
+    float motor_torque[RL_TQ_NUM];
+    force_test_leg_t leg;
+    uint8_t mode;
+    uint8_t active;
+} force_map_test_t;
+
+static force_map_test_t force_map_test;
+static volatile uint8_t remote_debug_online;
+static volatile uint8_t remote_debug_s1;
+static volatile uint8_t remote_debug_s2;
+static volatile int16_t remote_debug_ch3;
+static volatile int16_t remote_debug_ch0;
+static volatile uint8_t output_debug_dm_sent;
+static volatile uint8_t output_debug_dji_sent;
+
+static void Leg_Debug_Validate(const leg_state_t *leg,
+                               leg_debug_history_t *history);
+
+/* 限制测试力矩 */
+static float Force_Test_Clip(float value)
+{
+    if (value > FORCE_TEST_MOTOR_LIMIT)
+    {
+        return FORCE_TEST_MOTOR_LIMIT;
+    }
+    if (value < -FORCE_TEST_MOTOR_LIMIT)
+    {
+        return -FORCE_TEST_MOTOR_LIMIT;
+    }
+    return value;
+}
+
 /* 清空动作 */
 static void Action_State_Clear(void)
 {
@@ -45,7 +105,7 @@ static void Leg_State_Update(void)
     if (leg_map_l.configured)
     {
         leg_l.input.hip_f = motor_state.dm.pos_rad[leg_map_l.dm_front]
-            + leg_l.config.offset_f;
+            + LEG_GEOMETRY_PI + leg_l.config.offset_f;
         leg_l.input.hip_b = motor_state.dm.pos_rad[leg_map_l.dm_rear]
             + leg_l.config.offset_b;
         leg_l.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_l.dm_front];
@@ -54,7 +114,7 @@ static void Leg_State_Update(void)
     if (leg_map_r.configured)
     {
         leg_r.input.hip_f = motor_state.dm.pos_rad[leg_map_r.dm_front]
-            + leg_r.config.offset_f;
+            + LEG_GEOMETRY_PI + leg_r.config.offset_f;
         leg_r.input.hip_b = motor_state.dm.pos_rad[leg_map_r.dm_rear]
             + leg_r.config.offset_b;
         leg_r.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_r.dm_front];
@@ -62,6 +122,72 @@ static void Leg_State_Update(void)
     }
     (void)Leg_Solve(&leg_l);
     (void)Leg_Solve(&leg_r);
+    Leg_Debug_Validate(&leg_l, &leg_debug_l);
+    Leg_Debug_Validate(&leg_r, &leg_debug_r);
+}
+
+/* 速度层自检 */
+static float Leg_Debug_Angle_Diff(float current, float previous)
+{
+    float diff;
+
+    diff = current - previous;
+    while (diff > 3.14159265358979f)
+    {
+        diff -= 6.28318530717959f;
+    }
+    while (diff < -3.14159265358979f)
+    {
+        diff += 6.28318530717959f;
+    }
+    return diff;
+}
+
+static void Leg_Debug_Validate(const leg_state_t *leg,
+                               leg_debug_history_t *history)
+{
+    float dt_s;
+    uint32_t now_ms;
+
+    if (leg == NULL || history == NULL || !leg->output.valid)
+    {
+        if (history != NULL)
+        {
+            history->ready = 0u;
+        }
+        return;
+    }
+    now_ms = HAL_GetTick();
+    if (!history->ready)
+    {
+        history->l0 = leg->output.l0;
+        history->phi0 = leg->output.phi0;
+        history->virtual_shank = leg->output.virtual_shank;
+        history->tick_ms = now_ms;
+        history->ready = 1u;
+        return;
+    }
+    if (now_ms == history->tick_ms)
+    {
+        return;
+    }
+
+    dt_s = (float)(now_ms - history->tick_ms) * 0.001f;
+    history->measured[0] = (leg->output.l0 - history->l0) / dt_s;
+    history->measured[1] = Leg_Debug_Angle_Diff(leg->output.phi0,
+        history->phi0) / dt_s;
+    history->measured[2] = Leg_Debug_Angle_Diff(leg->output.virtual_shank,
+        history->virtual_shank) / dt_s;
+    history->predicted[0] = leg->output.dl0;
+    history->predicted[1] = leg->output.dphi0;
+    history->predicted[2] = leg->output.d_virtual_shank;
+    history->residual[0] = history->predicted[0] - history->measured[0];
+    history->residual[1] = history->predicted[1] - history->measured[1];
+    history->residual[2] = history->predicted[2] - history->measured[2];
+    history->l0 = leg->output.l0;
+    history->phi0 = leg->output.phi0;
+    history->virtual_shank = leg->output.virtual_shank;
+    history->tick_ms = now_ms;
 }
 
 /* 检查电机 */
@@ -166,6 +292,7 @@ void Robot_Control_Init(void)
     uint8_t i;
 
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
+    torque_output_enabled = 1u;
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
     leg_l.config.lu = 0.13087f;
@@ -173,12 +300,14 @@ void Robot_Control_Init(void)
     /* 软件零位 = 电机反馈 - 标定读数 */
     leg_l.config.offset_f = -0.03f;
     leg_l.config.offset_b = -0.04f;
+    leg_l.config.offset_phi0 = -0.13f;
     leg_l.config.mirror = 1;
     leg_l.config.configured = 1u;
     leg_r.config.lu = 0.13087f;
     leg_r.config.lg = 0.15240f;
     leg_r.config.offset_f = -0.038f;
     leg_r.config.offset_b = -0.023f;
+    leg_r.config.offset_phi0 = -0.07f;
     leg_r.config.mirror = 1;
     leg_r.config.configured = 1u;
     leg_map_l.dm_front = DM_MOTOR_LEG_F_LFT;
@@ -298,24 +427,74 @@ uint8_t RL_Control_Select_Model(rl_model_t model)
 /* 遥控通道映射 */
 static void Remote_Control_Update(void)
 {
+    dr16_t remote;
     int16_t vx_cmd;
     int16_t yaw_cmd;
     int16_t height_cmd;
+    uint8_t remote_online;
+    uint8_t enable_request;
+    uint8_t height_request;
+    uint32_t enable_faults;
 
     DR16_Process();
-    if (DR16_Online())
+    remote_online = (uint8_t)DR16_Online();
+    remote = DR16_Snapshot();
+    remote_debug_online = remote_online;
+    remote_debug_s1 = remote.s1;
+    remote_debug_s2 = remote.s2;
+    remote_debug_ch3 = remote.ch3;
+    remote_debug_ch0 = remote.ch0;
+    enable_request = 0u;
+    height_request = 0u;
+    if (remote_online)
     {
-        vx_cmd = DR16_Command_Axis(dr16.ch3);
-        yaw_cmd = DR16_Command_Axis(dr16.ch0);
-        height_cmd = DR16_Command_Axis(dr16.wheel);
+        if (remote.s1 == DR16_SW_UP || remote.s1 == DR16_SW_MID)
+        {
+            enable_request = 1u;
+        }
+        if (remote.s2 == DR16_SW_UP)
+        {
+            height_request = 1u;
+        }
+    }
+
+    force_map_test.active = 0u;
+    force_map_test.mode = 0u;
+    force_map_test.leg = FORCE_TEST_NONE;
+    force_map_test.force = 0.0f;
+    force_map_test.torque = 0.0f;
+    if (remote_online && remote.s1 == DR16_SW_UP)
+    {
+        force_map_test.mode = 1u;
+        if (remote.s2 == DR16_SW_UP)
+        {
+            force_map_test.leg = FORCE_TEST_LEFT;
+        }
+        else if (remote.s2 == DR16_SW_MID)
+        {
+            force_map_test.leg = FORCE_TEST_RIGHT;
+        }
+        if (force_map_test.leg != FORCE_TEST_NONE)
+        {
+            force_map_test.active = 1u;
+            force_map_test.force = (float)DR16_Command_Axis(remote.ch3)
+                / (float)DR16_CH_LIMIT * FORCE_TEST_FORCE_MAX;
+            force_map_test.torque = (float)DR16_Command_Axis(remote.ch0)
+                / (float)DR16_CH_LIMIT * FORCE_TEST_TORQUE_MAX;
+        }
+    }
+
+    if (remote_online)
+    {
+        vx_cmd = DR16_Command_Axis(remote.ch3);
+        yaw_cmd = DR16_Command_Axis(remote.ch0);
+        height_cmd = DR16_Command_Axis(remote.wheel);
 
         command_state.vx       = (float)vx_cmd;
         command_state.yaw_rate = (float)yaw_cmd;
-        command_state.height   = (dr16.s2 == DR16_SW_UP)
+        command_state.height   = height_request
             ? (float)height_cmd : 0.0f;
-        command_state.mode = dr16.s1;
-        robot_state.rc_enable = (uint8_t)(dr16.s1 == DR16_SW_UP
-            || dr16.s1 == DR16_SW_MID);
+        command_state.mode = remote.s1;
     }
     else
     {
@@ -323,31 +502,32 @@ static void Remote_Control_Update(void)
         command_state.yaw_rate = 0.0f;
         command_state.height = 0.0f;
         command_state.mode = 0u;
-        robot_state.rc_enable = 0u;
-    }
-}
-
-/* 遥控使能迁移 */
-static void Remote_Enable_Update(void)
-{
-    uint8_t enable_ok;
-
-    enable_ok = (uint8_t)(robot_state.rc_enable
-        && ctrl_fault == FAULT_NONE && !robot_state.fallen);
-    if (robot_state.enabled == enable_ok)
-    {
-        return;
     }
 
-    robot_state.enabled = enable_ok;
-    if (enable_ok)
+    robot_state.rc_enable = enable_request;
+
+    enable_faults = ctrl_fault;
+    if (!torque_output_enabled || force_map_test.mode)
     {
-        (void)Dm_All_Enable();
+        enable_faults &= ~FAULT_ACTION;
+    }
+    if (robot_state.rc_enable && enable_faults == FAULT_NONE
+        && !robot_state.fallen)
+    {
+        if (!robot_state.enabled)
+        {
+            robot_state.enabled = 1u;
+            (void)Dm_All_Enable();
+        }
     }
     else
     {
-        (void)Dji_All_Stop();
-        (void)Dm_All_Disable();
+        if (robot_state.enabled)
+        {
+            robot_state.enabled = 0u;
+            (void)Dji_All_Stop();
+            (void)Dm_All_Disable();
+        }
     }
 }
 
@@ -356,20 +536,26 @@ static void Motor_Output_Update(void)
 {
     float torque[RL_TQ_NUM];
     float wheel_vel[2];
+    float leg_torque[2];
+    HAL_StatusTypeDef dm_status;
+    HAL_StatusTypeDef dji_status;
     uint8_t action_fresh;
+    uint32_t i;
 
     if (!robot_state.rc_enable)
     {
+        output_debug_dm_sent = 0u;
+        output_debug_dji_sent = 0u;
         (void)Dji_All_Stop();
         (void)Dm_Send_Zero();
-        (void)Dm_All_Disable();
         return;
     }
 
     action_fresh = (uint8_t)(action_state.updated
         && (HAL_GetTick() - action_state.last_ok_tick) < 100u);
     memset(torque, 0, sizeof(torque));
-    if (robot_state.enabled && action_fresh)
+    memset(force_map_test.motor_torque, 0, sizeof(force_map_test.motor_torque));
+    if (robot_state.enabled && action_fresh && !force_map_test.mode)
     {
         wheel_vel[0] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
         wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
@@ -377,16 +563,43 @@ static void Motor_Output_Update(void)
             &rl_control.torque_param[rl_control.policy.selected_model],
             wheel_vel, action_state.a, &rl_control.torque_state, torque);
     }
+    if (robot_state.enabled && force_map_test.active)
+    {
+        leg_torque[0] = 0.0f;
+        leg_torque[1] = 0.0f;
+        if (force_map_test.leg == FORCE_TEST_LEFT
+            && Leg_Force_Map_Forward(&leg_l, force_map_test.force,
+                force_map_test.torque, leg_torque))
+        {
+            torque[RL_TQ_L_THIGH] = Force_Test_Clip(leg_torque[0]);
+            torque[RL_TQ_L_SHANK] = Force_Test_Clip(leg_torque[1]);
+        }
+        else if (force_map_test.leg == FORCE_TEST_RIGHT
+            && Leg_Force_Map_Forward(&leg_r, force_map_test.force,
+                force_map_test.torque, leg_torque))
+        {
+            torque[RL_TQ_R_THIGH] = Force_Test_Clip(leg_torque[0]);
+            torque[RL_TQ_R_SHANK] = Force_Test_Clip(leg_torque[1]);
+        }
+    }
+    for (i = 0u; i < RL_TQ_NUM; i++)
+    {
+        force_map_test.motor_torque[i] = torque[i];
+    }
 
     if (!robot_state.enabled || !torque_output_enabled)
     {
+        output_debug_dm_sent = 0u;
+        output_debug_dji_sent = 0u;
         (void)Dji_All_Stop();
         (void)Dm_Send_Zero();
         return;
     }
-    (void)Dm_Send_Torque(torque);
-    (void)Dji_Send_Wheel_Torque(torque[RL_TQ_L_WHEEL],
+    dm_status = Dm_Send_Torque(torque);
+    dji_status = Dji_Send_Wheel_Torque(torque[RL_TQ_L_WHEEL],
         torque[RL_TQ_R_WHEEL]);
+    output_debug_dm_sent = (uint8_t)(dm_status == HAL_OK);
+    output_debug_dji_sent = (uint8_t)(dji_status == HAL_OK);
 }
 
 /* 输出初始化 */
@@ -461,7 +674,6 @@ void comm_task_body(void)
         fault |= FAULT_ACTION;
     }
     ctrl_fault = fault;
-    Remote_Enable_Update();
 
     pitch_abs = fabsf(imu_state.output.euler_rad[ATTITUDE_PITCH]);
     if (pitch_abs > 1.4f)
@@ -479,42 +691,40 @@ void comm_task_body(void)
     }
     vofa_div = 0u;
 
-    dbg[0] = leg_l.input.hip_f;
-    dbg[1] = leg_l.input.hip_b;
-    dbg[2] = leg_r.input.hip_f;
-    dbg[3] = leg_r.input.hip_b;
-    dbg[4] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_LFT];
-    dbg[5] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_LFT];
-    dbg[6] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_RGT];
-    dbg[7] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_RGT];
-
-    dbg[8] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_total;
-    dbg[9] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_total;
-    dbg[10] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_LFT];
-    dbg[11] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_RGT];
-    dbg[12] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].vel_raw;
-    dbg[13] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].vel_raw;
-    dbg[14] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-    dbg[15] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
-    dbg[16] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_raw;
-    dbg[17] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_raw;
-    dbg[18] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw;
-    dbg[19] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw;
+    dbg[0] = (float)remote_debug_online;
+    dbg[1] = (float)remote_debug_s1;
+    dbg[2] = (float)remote_debug_s2;
+    dbg[3] = (float)remote_debug_ch3 / (float)DR16_CH_LIMIT;
+    dbg[4] = (float)remote_debug_ch0 / (float)DR16_CH_LIMIT;
+    dbg[5] = force_map_test.force;
+    dbg[6] = force_map_test.torque;
+    dbg[7] = (float)force_map_test.leg;
+    dbg[8] = (float)robot_state.rc_enable;
+    dbg[9] = (float)robot_state.enabled;
+    dbg[10] = (float)torque_output_enabled;
+    dbg[11] = (float)ctrl_fault;
+    dbg[12] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_LFT];
+    dbg[13] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_LFT];
+    dbg[14] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_RGT];
+    dbg[15] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_RGT];
+    dbg[16] = force_map_test.motor_torque[RL_TQ_L_THIGH];
+    dbg[17] = force_map_test.motor_torque[RL_TQ_L_SHANK];
+    dbg[18] = force_map_test.motor_torque[RL_TQ_R_THIGH];
+    dbg[19] = force_map_test.motor_torque[RL_TQ_R_SHANK];
     dbg[20] = leg_l.output.l0;
     dbg[21] = leg_l.output.phi0;
     dbg[22] = leg_l.output.virtual_shank;
-    dbg[23] = leg_l.output.d_virtual_shank;
-    dbg[24] = leg_r.output.l0;
-    dbg[25] = leg_r.output.phi0;
-    dbg[26] = leg_r.output.virtual_shank;
-    dbg[27] = leg_r.output.d_virtual_shank;
+    dbg[23] = leg_r.output.l0;
+    dbg[24] = leg_r.output.phi0;
+    dbg[25] = leg_r.output.virtual_shank;
+    dbg[26] = leg_l.output.force_test_error;
+    dbg[27] = leg_r.output.force_test_error;
     dbg[28] = (float)((leg_l.output.valid ? 1u : 0u)
         | (leg_r.output.valid ? 2u : 0u)
         | (leg_l.output.force_valid ? 4u : 0u)
         | (leg_r.output.force_valid ? 8u : 0u));
-    dbg[29] = (float)robot_state.rc_enable;
-    dbg[30] = (float)ctrl_fault;
-
+    dbg[29] = (float)output_debug_dm_sent;
+    dbg[30] = (float)output_debug_dji_sent;
     motor_mask = 0u;
     for (i = 0u; i < DM_MOTOR_NUM; i++)
     {

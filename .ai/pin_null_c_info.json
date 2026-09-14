@@ -800,44 +800,44 @@
   ],
   "environment": {
     "generated_model": {
-      "generated_time": "2026-09-12T16:06:10+0800",
+      "generated_time": "2026-09-13T21:03:34+0800",
       "model_files": [
         {
           "name": "pin_data_params.h",
-          "signature": "0x39b6b55934eb1b8839069f77eadc6d09"
+          "signature": "0x40307c47c459c137251f94378100cfb2"
         },
         {
           "name": "pin_data_params.c",
-          "signature": "0xae52e1549d1b477de77885c9f8049911"
+          "signature": "0xe8cf69ac15b55fbdfb2625d96cede45c"
         },
         {
           "name": "pin_data.h",
-          "signature": "0xa0ca0ce3bc81572629a23a6879bf0bf3"
+          "signature": "0x24e202b2c5f39e45f97ce635fdac4294"
         },
         {
           "name": "pin_data.c",
-          "signature": "0x44706a58391b67d7f4a5ee940d822177"
+          "signature": "0x0446b29e494cd92c8ab1e46d83804e68"
         },
         {
           "name": "pin_config.h",
-          "signature": "0x8cd97fa744b86ea21cec4ea00ea0d164"
+          "signature": "0x1954cb659cba60d5c31af9cc13902b25"
         },
         {
           "name": "pin.h",
-          "signature": "0xa0cec27586fa445f6870546480cffc38"
+          "signature": "0x4e9bc574648a95675b05e48f1a46310d"
         },
         {
           "name": "pin.c",
-          "signature": "0xba3757dcda4a68635fedae1d2ef6aca2"
+          "signature": "0x1a9a25c7713036f21da58bd0e65a5b8c"
         }
       ],
       "name": "pin"
     },
-    "network_signature": "0xdb6a49f003820760",
+    "network_signature": "0xcb5d7327f468208c",
     "test_name": "",
     "tools": [
       {
-        "arguments": "generate --target stm32h7 --name pin -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/pin/spin_pos0.23_0.65_p10.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace48139262060009230004363332575423 --output C:/Users/ynz/.stm32cubemx/pin_output",
+        "arguments": "generate --target stm32h7 --name pin -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/pin/spin_pos0.23_0.65_p10.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace7692980555460015387221455524621665 --output C:/Users/ynz/.stm32cubemx/pin_output",
         "environment": [
           "STATS_TYPE=X-CUBE-AI"
         ],
