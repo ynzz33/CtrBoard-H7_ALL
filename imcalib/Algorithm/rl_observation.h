@@ -51,6 +51,7 @@ typedef struct {
 void RL_Observation_Init(rl_observation_state_t *state);
 void RL_Observation_Param_Init(rl_observation_param_t *param);
 void RL_Observation_Reset(rl_observation_state_t *state);
+uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3]);
 uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              const rl_observation_param_t *param,
                              const float gyro_rad_s[3],

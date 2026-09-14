@@ -50,7 +50,7 @@ void RL_Observation_Reset(rl_observation_state_t *state)
 }
 
 /* 计算重力 */
-static void RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
+static void RL_Observation_Project_Gravity_Unit(const float quat[4], float gravity[3])
 {
     float qx, qy, qz;  /* 四元虚部 */
     float qw;          /* 四元实部 */
@@ -74,6 +74,31 @@ static void RL_Observation_Project_Gravity(const float quat[4], float gravity[3]
     gravity[0] = qw * tx + cx;
     gravity[1] = qw * ty + cy;
     gravity[2] = -1.0f + qw * tz + cz;
+}
+
+/* 投影重力接口 */
+uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
+{
+    float norm;
+    float quat_unit[4];
+    uint32_t i;
+
+    if (quat == NULL || gravity == NULL)
+    {
+        return 0u;
+    }
+    norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1]
+        + quat[2] * quat[2] + quat[3] * quat[3]);
+    if (!isfinite(norm) || norm < RL_QUAT_EPS)
+    {
+        return 0u;
+    }
+    for (i = 0u; i < 4u; i++)
+    {
+        quat_unit[i] = quat[i] / norm;
+    }
+    RL_Observation_Project_Gravity_Unit(quat_unit, gravity);
+    return RL_Observation_Array_Finite(gravity, 3u);
 }
 
 /* 构建观测 */
@@ -112,7 +137,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
     }
 
     for (i = 0u; i < 4u; i++) quat_unit[i] = quat[i] / quat_norm;
-    RL_Observation_Project_Gravity(quat_unit, gravity);
+    RL_Observation_Project_Gravity_Unit(quat_unit, gravity);
     if (!RL_Observation_Array_Finite(gravity, 3u))
     {
         RL_Observation_Reset(state);

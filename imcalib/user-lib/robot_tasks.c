@@ -16,6 +16,7 @@
 #define FORCE_TEST_FORCE_MAX     8.0f
 #define FORCE_TEST_TORQUE_MAX    1.0f
 #define FORCE_TEST_MOTOR_LIMIT   1.0f
+#define REMOTE_COMMAND_SCALE     0.1f
 
 /* 共享状态 */
 imu_state_t       imu_state;
@@ -490,10 +491,13 @@ static void Remote_Control_Update(void)
         yaw_cmd = DR16_Command_Axis(remote.ch0);
         height_cmd = DR16_Command_Axis(remote.wheel);
 
-        command_state.vx       = (float)vx_cmd;
-        command_state.yaw_rate = (float)yaw_cmd;
+        command_state.vx       = (float)vx_cmd / (float)DR16_CH_LIMIT
+            * REMOTE_COMMAND_SCALE;
+        command_state.yaw_rate = (float)yaw_cmd / (float)DR16_CH_LIMIT
+            * REMOTE_COMMAND_SCALE;
         command_state.height   = height_request
-            ? (float)height_cmd : 0.0f;
+            ? (float)height_cmd / (float)DR16_CH_LIMIT
+                * REMOTE_COMMAND_SCALE : 0.0f;
         command_state.mode = remote.s1;
     }
     else
@@ -625,12 +629,30 @@ void comm_task_body(void)
     uint32_t fault;
     uint8_t motors_ok;
     uint8_t motor_mask;
+    uint8_t gravity_valid;
     uint8_t i;
+    float gravity[3];
+    float gravity_norm;
+    float quat_norm;
 
     Dm_Parse();
     Dji_Parse();
     Motor_State_Update();
     Leg_State_Update();
+    gravity_valid = RL_Observation_Project_Gravity(imu_state.output.quat,
+        gravity);
+    if (!gravity_valid)
+    {
+        gravity[0] = 0.0f;
+        gravity[1] = 0.0f;
+        gravity[2] = 0.0f;
+    }
+    gravity_norm = sqrtf(gravity[0] * gravity[0] + gravity[1] * gravity[1]
+        + gravity[2] * gravity[2]);
+    quat_norm = sqrtf(imu_state.output.quat[0] * imu_state.output.quat[0]
+        + imu_state.output.quat[1] * imu_state.output.quat[1]
+        + imu_state.output.quat[2] * imu_state.output.quat[2]
+        + imu_state.output.quat[3] * imu_state.output.quat[3]);
     WS2812_RainbowBlink();
     Remote_Control_Update();
 
@@ -691,40 +713,41 @@ void comm_task_body(void)
     }
     vofa_div = 0u;
 
-    dbg[0] = (float)remote_debug_online;
-    dbg[1] = (float)remote_debug_s1;
-    dbg[2] = (float)remote_debug_s2;
-    dbg[3] = (float)remote_debug_ch3 / (float)DR16_CH_LIMIT;
-    dbg[4] = (float)remote_debug_ch0 / (float)DR16_CH_LIMIT;
-    dbg[5] = force_map_test.force;
-    dbg[6] = force_map_test.torque;
-    dbg[7] = (float)force_map_test.leg;
-    dbg[8] = (float)robot_state.rc_enable;
-    dbg[9] = (float)robot_state.enabled;
-    dbg[10] = (float)torque_output_enabled;
-    dbg[11] = (float)ctrl_fault;
-    dbg[12] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_LFT];
-    dbg[13] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_LFT];
-    dbg[14] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_F_RGT];
-    dbg[15] = motor_state.dm.vel_rad_s[DM_MOTOR_LEG_B_RGT];
-    dbg[16] = force_map_test.motor_torque[RL_TQ_L_THIGH];
-    dbg[17] = force_map_test.motor_torque[RL_TQ_L_SHANK];
-    dbg[18] = force_map_test.motor_torque[RL_TQ_R_THIGH];
-    dbg[19] = force_map_test.motor_torque[RL_TQ_R_SHANK];
-    dbg[20] = leg_l.output.l0;
-    dbg[21] = leg_l.output.phi0;
-    dbg[22] = leg_l.output.virtual_shank;
-    dbg[23] = leg_r.output.l0;
-    dbg[24] = leg_r.output.phi0;
-    dbg[25] = leg_r.output.virtual_shank;
-    dbg[26] = leg_l.output.force_test_error;
-    dbg[27] = leg_r.output.force_test_error;
-    dbg[28] = (float)((leg_l.output.valid ? 1u : 0u)
+    dbg[0] = imu_state.input.gyro_rad_s[0];
+    dbg[1] = imu_state.input.gyro_rad_s[1];
+    dbg[2] = imu_state.input.gyro_rad_s[2];
+    dbg[3] = imu_state.input.accel_g[0];
+    dbg[4] = imu_state.input.accel_g[1];
+    dbg[5] = imu_state.input.accel_g[2];
+    dbg[6] = imu_state.output.quat[0];
+    dbg[7] = imu_state.output.quat[1];
+    dbg[8] = imu_state.output.quat[2];
+    dbg[9] = imu_state.output.quat[3];
+    dbg[10] = gravity[0];
+    dbg[11] = gravity[1];
+    dbg[12] = gravity[2];
+    dbg[13] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[14] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    dbg[15] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_LFT];
+    dbg[16] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_RGT];
+    dbg[17] = command_state.vx;
+    dbg[18] = command_state.yaw_rate;
+    dbg[19] = command_state.height;
+    dbg[20] = (float)remote_debug_s1;
+    dbg[21] = (float)remote_debug_s2;
+    dbg[22] = (float)motor_state.dji.current_raw[DJI_MOTOR_WHEEL_LFT];
+    dbg[23] = (float)motor_state.dji.current_raw[DJI_MOTOR_WHEEL_RGT];
+    dbg[24] = (float)imu_state.online;
+    dbg[25] = (float)gravity_valid;
+    dbg[26] = imu_state.output.euler_rad[ATTITUDE_ROLL];
+    dbg[27] = imu_state.output.euler_rad[ATTITUDE_PITCH];
+    dbg[28] = imu_state.output.euler_rad[ATTITUDE_YAW];
+    dbg[29] = gravity_norm;
+    dbg[30] = quat_norm;
+    dbg[31] = (float)((leg_l.output.force_valid ? 1u : 0u)
         | (leg_r.output.valid ? 2u : 0u)
         | (leg_l.output.force_valid ? 4u : 0u)
         | (leg_r.output.force_valid ? 8u : 0u));
-    dbg[29] = (float)output_debug_dm_sent;
-    dbg[30] = (float)output_debug_dji_sent;
     motor_mask = 0u;
     for (i = 0u; i < DM_MOTOR_NUM; i++)
     {
