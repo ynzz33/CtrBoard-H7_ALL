@@ -11,6 +11,8 @@
 #include "rl_policy.h"
 #include "rl_torque.h"
 
+
+
 typedef struct {
     float pos_rad[DM_MOTOR_NUM];
     float vel_rad_s[DM_MOTOR_NUM];
@@ -67,6 +69,16 @@ typedef struct {
     rl_torque_param_t torque_param[RL_MODEL_COUNT];
     rl_torque_state_t torque_state;
 } rl_control_state_t;
+
+
+typedef struct {
+    int16_t vx_cmd;
+    int16_t yaw_cmd;
+    int16_t height_cmd;
+    float thigh_delta_cmd[2];
+    float shin_delta[2];
+    uint8_t mode;
+} input_command_t;
 
 /* 故障位 */
 #define FAULT_NONE    0u

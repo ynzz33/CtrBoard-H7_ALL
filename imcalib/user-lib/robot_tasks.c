@@ -8,15 +8,21 @@
 #include "tim.h"
 #include "Attitude_Algorithm.h"
 #include "ws2812.h"
+#include "pid.h"
 
 #include <math.h>
 #include <string.h>
 
 #define LEG_GEOMETRY_PI 3.14159265358979f
+#if 0 /* 旧单关节极性测试参数，暂时停用并保留 */
 #define FORCE_TEST_FORCE_MAX     8.0f
 #define FORCE_TEST_TORQUE_MAX    1.0f
 #define FORCE_TEST_MOTOR_LIMIT   1.0f
+#endif
 #define REMOTE_COMMAND_SCALE     0.1f
+#define ACTION_TEST_POS_LIMIT     3.0f
+#define ACTION_TEST_LEG_LIMIT     10.0f
+#define ACTION_TEST_POS_SCALE     0.5f
 
 /* 共享状态 */
 imu_state_t       imu_state;
@@ -24,7 +30,7 @@ motor_state_t     motor_state;
 leg_state_t       leg_l;
 leg_state_t       leg_r;
 action_state_t    action_state;
-command_state_t   command_state;
+input_command_t   input_command;
 leg_map_t         leg_map_l;
 leg_map_t         leg_map_r;
 robot_state_t     robot_state;
@@ -53,6 +59,28 @@ static leg_debug_history_t leg_debug_l;
 static leg_debug_history_t leg_debug_r;
 
 typedef enum {
+    ACTION_TEST_NONE = 0u,
+    ACTION_TEST_LEFT,
+    ACTION_TEST_RIGHT,
+} action_test_side_t;
+
+typedef struct {
+    float action[RL_ACTION_SIZE];
+    float base_action[RL_ACTION_SIZE];
+    float thigh_base[4];
+    float thigh_target[4];
+    pid_t thigh_pid[4];
+    action_test_side_t side;
+    uint8_t mode;
+    uint8_t active;
+    uint8_t latched;
+    uint8_t thigh_pid_ready;
+} action_test_t;
+
+static action_test_t action_test;
+
+#if 0 /* 旧 force-map 测试状态，暂时停用并保留 */
+typedef enum {
     FORCE_TEST_NONE = 0u,
     FORCE_TEST_LEFT,
     FORCE_TEST_RIGHT,
@@ -68,30 +96,76 @@ typedef struct {
 } force_map_test_t;
 
 static force_map_test_t force_map_test;
+#endif
 static volatile uint8_t remote_debug_online;
 static volatile uint8_t remote_debug_s1;
 static volatile uint8_t remote_debug_s2;
-static volatile int16_t remote_debug_ch3;
-static volatile int16_t remote_debug_ch0;
 static volatile uint8_t output_debug_dm_sent;
 static volatile uint8_t output_debug_dji_sent;
 
 static void Leg_Debug_Validate(const leg_state_t *leg,
                                leg_debug_history_t *history);
 
-/* 限制测试力矩 */
+/* 保持锁存目标不变，仅把单圈反馈换到距离目标最近的等效分支。 */
+static float Action_Test_Equivalent_Angle_Feedback(float feedback, float target)
+{
+    float error = target - feedback;
+
+    while (error > 3.141592653589793f) error -= 6.283185307179586f;
+    while (error <= -3.141592653589793f) error += 6.283185307179586f;
+    return target - error;
+}
+
+static void Action_Test_Thigh_Compute(float torque[RL_TQ_NUM])
+{
+    const rl_torque_param_t *param;
+    float tau_lf;
+    float tau_lb;
+    float tau_rf;
+    float tau_rb;
+
+    param = &rl_control.torque_param[rl_control.policy.selected_model];
+    if (!action_test.thigh_pid_ready)
+    {
+        memset(action_test.thigh_pid, 0, sizeof(action_test.thigh_pid));
+        PID_struct_init(&action_test.thigh_pid[0], POSITION_PID, 1000.0f,
+            0.0f, param->p_gains[0], 0.0f, param->d_gains[0], 0.0f, 0.0f);
+        PID_struct_init(&action_test.thigh_pid[1], POSITION_PID, 1000.0f,
+            0.0f, param->p_gains[0], 0.0f, param->d_gains[0], 0.0f, 0.0f);
+        PID_struct_init(&action_test.thigh_pid[2], POSITION_PID, 1000.0f,
+            0.0f, param->p_gains[3], 0.0f, param->d_gains[3], 0.0f, 0.0f);
+        PID_struct_init(&action_test.thigh_pid[3], POSITION_PID, 1000.0f,
+            0.0f, param->p_gains[3], 0.0f, param->d_gains[3], 0.0f, 0.0f);
+        action_test.thigh_pid_ready = 1u;
+    }
+
+    tau_lf = pid_calc(&action_test.thigh_pid[0],
+        Action_Test_Equivalent_Angle_Feedback(leg_l.input.hip_f,
+            action_test.thigh_target[0]), action_test.thigh_target[0], 0.002f);
+    tau_lb = pid_calc(&action_test.thigh_pid[1],
+        Action_Test_Equivalent_Angle_Feedback(leg_l.input.hip_b,
+            action_test.thigh_target[1]), action_test.thigh_target[1], 0.002f);
+    tau_rf = pid_calc(&action_test.thigh_pid[2],
+        Action_Test_Equivalent_Angle_Feedback(leg_r.input.hip_f,
+            action_test.thigh_target[2]), action_test.thigh_target[2], 0.002f);
+    tau_rb = pid_calc(&action_test.thigh_pid[3],
+        Action_Test_Equivalent_Angle_Feedback(leg_r.input.hip_b,
+            action_test.thigh_target[3]), action_test.thigh_target[3], 0.002f);
+
+    torque[RL_TQ_L_THIGH] = -tau_lf;
+    torque[RL_TQ_L_SHANK] = -tau_lb;
+    torque[RL_TQ_R_THIGH] = -tau_rf;
+    torque[RL_TQ_R_SHANK] = -tau_rb;
+}
+
+#if 0 /* 旧测试力矩限幅，暂时停用并保留 */
 static float Force_Test_Clip(float value)
 {
-    if (value > FORCE_TEST_MOTOR_LIMIT)
-    {
-        return FORCE_TEST_MOTOR_LIMIT;
-    }
-    if (value < -FORCE_TEST_MOTOR_LIMIT)
-    {
-        return -FORCE_TEST_MOTOR_LIMIT;
-    }
+    if (value > FORCE_TEST_MOTOR_LIMIT) return FORCE_TEST_MOTOR_LIMIT;
+    if (value < -FORCE_TEST_MOTOR_LIMIT) return -FORCE_TEST_MOTOR_LIMIT;
     return value;
 }
+#endif
 
 /* 清空动作 */
 static void Action_State_Clear(void)
@@ -215,9 +289,9 @@ static uint8_t RL_Control_Update_Observation(void)
     float joint_vel[6];     /* 关节速度 */
     uint8_t source_valid;
 
-    command[0] = command_state.vx;
-    command[1] = command_state.yaw_rate;
-    command[2] = command_state.height;
+    command[0] = input_command.vx_cmd;
+    command[1] = input_command.yaw_cmd;
+    command[2] = input_command.height_cmd;
 
     joint_pos[0] = leg_l.input.hip_f;
     joint_pos[1] = leg_l.output.virtual_shank;
@@ -429,94 +503,42 @@ uint8_t RL_Control_Select_Model(rl_model_t model)
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
-    int16_t vx_cmd;
-    int16_t yaw_cmd;
-    int16_t height_cmd;
-    uint8_t remote_online;
-    uint8_t enable_request;
-    uint8_t height_request;
-    uint32_t enable_faults;
 
     DR16_Process();
-    remote_online = (uint8_t)DR16_Online();
     remote = DR16_Snapshot();
-    remote_debug_online = remote_online;
-    remote_debug_s1 = remote.s1;
-    remote_debug_s2 = remote.s2;
-    remote_debug_ch3 = remote.ch3;
-    remote_debug_ch0 = remote.ch0;
-    enable_request = 0u;
-    height_request = 0u;
-    if (remote_online)
-    {
-        if (remote.s1 == DR16_SW_UP || remote.s1 == DR16_SW_MID)
-        {
-            enable_request = 1u;
-        }
-        if (remote.s2 == DR16_SW_UP)
-        {
-            height_request = 1u;
-        }
-    }
 
-    force_map_test.active = 0u;
-    force_map_test.mode = 0u;
-    force_map_test.leg = FORCE_TEST_NONE;
-    force_map_test.force = 0.0f;
-    force_map_test.torque = 0.0f;
-    if (remote_online && remote.s1 == DR16_SW_UP)
+    if (!remote.online || remote.s1 == DR16_SW_DOWN)
     {
-        force_map_test.mode = 1u;
-        if (remote.s2 == DR16_SW_UP)
-        {
-            force_map_test.leg = FORCE_TEST_LEFT;
-        }
-        else if (remote.s2 == DR16_SW_MID)
-        {
-            force_map_test.leg = FORCE_TEST_RIGHT;
-        }
-        if (force_map_test.leg != FORCE_TEST_NONE)
-        {
-            force_map_test.active = 1u;
-            force_map_test.force = (float)DR16_Command_Axis(remote.ch3)
-                / (float)DR16_CH_LIMIT * FORCE_TEST_FORCE_MAX;
-            force_map_test.torque = (float)DR16_Command_Axis(remote.ch0)
-                / (float)DR16_CH_LIMIT * FORCE_TEST_TORQUE_MAX;
-        }
-    }
-
-    if (remote_online)
-    {
-        vx_cmd = DR16_Command_Axis(remote.ch3);
-        yaw_cmd = DR16_Command_Axis(remote.ch0);
-        height_cmd = DR16_Command_Axis(remote.wheel);
-
-        command_state.vx       = (float)vx_cmd / (float)DR16_CH_LIMIT
-            * REMOTE_COMMAND_SCALE;
-        command_state.yaw_rate = (float)yaw_cmd / (float)DR16_CH_LIMIT
-            * REMOTE_COMMAND_SCALE;
-        command_state.height   = height_request
-            ? (float)height_cmd / (float)DR16_CH_LIMIT
-                * REMOTE_COMMAND_SCALE : 0.0f;
-        command_state.mode = remote.s1;
+        memset(action_test.action, 0, sizeof(action_test.action));
+        action_test.mode = 0u;
+        action_test.active = 0u;
+        action_test.latched = 0u;
+        action_test.thigh_pid_ready = 0u;
+        action_test.side = ACTION_TEST_NONE;
+        robot_state.rc_enable = DISABLE;
     }
     else
     {
-        command_state.vx = 0.0f;
-        command_state.yaw_rate = 0.0f;
-        command_state.height = 0.0f;
-        command_state.mode = 0u;
+        robot_state.rc_enable = ENABLE;
     }
 
-    robot_state.rc_enable = enable_request;
 
-    enable_faults = ctrl_fault;
-    if (!torque_output_enabled || force_map_test.mode)
+    if (remote.online)
     {
-        enable_faults &= ~FAULT_ACTION;
+        input_command.vx_cmd     = (float)DR16_Command_Axis(remote.ch3)   / (float)DR16_CH_LIMIT* REMOTE_COMMAND_SCALE;
+        input_command.yaw_cmd    = (float)DR16_Command_Axis(remote.ch0)   / (float)DR16_CH_LIMIT* REMOTE_COMMAND_SCALE;
+        input_command.height_cmd = (float)DR16_Command_Axis(remote.wheel) / (float)DR16_CH_LIMIT* REMOTE_COMMAND_SCALE;
+        input_command.mode = remote.s1;
     }
-    if (robot_state.rc_enable && enable_faults == FAULT_NONE
-        && !robot_state.fallen)
+    else
+    {
+        input_command.vx_cmd     = 0.0f;
+        input_command.yaw_cmd    = 0.0f;
+        input_command.height_cmd = 0.0f;
+        input_command.mode = 0u;
+    }
+
+    if (robot_state.rc_enable && !robot_state.fallen)
     {
         if (!robot_state.enabled)
         {
@@ -540,11 +562,11 @@ static void Motor_Output_Update(void)
 {
     float torque[RL_TQ_NUM];
     float wheel_vel[2];
-    float leg_torque[2];
     HAL_StatusTypeDef dm_status;
     HAL_StatusTypeDef dji_status;
     uint8_t action_fresh;
-    uint32_t i;
+    uint8_t action_ready;
+    const float *active_action;
 
     if (!robot_state.rc_enable)
     {
@@ -557,20 +579,46 @@ static void Motor_Output_Update(void)
 
     action_fresh = (uint8_t)(action_state.updated
         && (HAL_GetTick() - action_state.last_ok_tick) < 100u);
-    memset(torque, 0, sizeof(torque));
-    memset(force_map_test.motor_torque, 0, sizeof(force_map_test.motor_torque));
-    if (robot_state.enabled && action_fresh && !force_map_test.mode)
+    active_action = action_state.a;
+    action_ready = action_fresh;
+    if (action_test.mode)
     {
-        wheel_vel[0] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-        wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
-        (void)RL_Torque_Compute(&leg_l, &leg_r,
-            &rl_control.torque_param[rl_control.policy.selected_model],
-            wheel_vel, action_state.a, &rl_control.torque_state, torque);
+        active_action = action_test.action;
+        action_ready = action_test.active;
     }
+    memset(torque, 0, sizeof(torque));
+#if 0 /* 旧 force-map 直接输出路径，暂时停用并保留 */
+    memset(force_map_test.motor_torque, 0, sizeof(force_map_test.motor_torque));
+#endif
+    if (robot_state.enabled && action_ready)
+    {
+        if (action_test.mode)
+        {
+            /* 临时测试：大腿 action 分解为前后髋各自的位置目标；不使用虚拟小腿。 */
+            Action_Test_Thigh_Compute(torque);
+            rl_control.torque_state.virtual_torque[1] = 0.0f;
+            rl_control.torque_state.virtual_torque[4] = 0.0f;
+            torque[RL_TQ_L_WHEEL] = 0.0f;
+            torque[RL_TQ_R_WHEEL] = 0.0f;
+            rl_control.torque_state.virtual_torque[2] = 0.0f;
+            rl_control.torque_state.virtual_torque[5] = 0.0f;
+            RL_Torque_Clamp_Output(torque, ACTION_TEST_LEG_LIMIT, 0.0f);
+            memcpy(rl_control.torque_state.last_torque, torque,
+                sizeof(rl_control.torque_state.last_torque));
+        }
+        else
+        {
+            wheel_vel[0] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+            wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+            (void)RL_Torque_Compute(&leg_l, &leg_r,
+                &rl_control.torque_param[rl_control.policy.selected_model],
+                wheel_vel, active_action, &rl_control.torque_state, torque);
+        }
+    }
+#if 0 /* 旧 force-map 直接输出路径，暂时停用并保留 */
     if (robot_state.enabled && force_map_test.active)
     {
-        leg_torque[0] = 0.0f;
-        leg_torque[1] = 0.0f;
+        float leg_torque[2] = {0.0f, 0.0f};
         if (force_map_test.leg == FORCE_TEST_LEFT
             && Leg_Force_Map_Forward(&leg_l, force_map_test.force,
                 force_map_test.torque, leg_torque))
@@ -586,11 +634,7 @@ static void Motor_Output_Update(void)
             torque[RL_TQ_R_SHANK] = Force_Test_Clip(leg_torque[1]);
         }
     }
-    for (i = 0u; i < RL_TQ_NUM; i++)
-    {
-        force_map_test.motor_torque[i] = torque[i];
-    }
-
+#endif
     if (!robot_state.enabled || !torque_output_enabled)
     {
         output_debug_dm_sent = 0u;
@@ -629,30 +673,12 @@ void comm_task_body(void)
     uint32_t fault;
     uint8_t motors_ok;
     uint8_t motor_mask;
-    uint8_t gravity_valid;
     uint8_t i;
-    float gravity[3];
-    float gravity_norm;
-    float quat_norm;
 
     Dm_Parse();
     Dji_Parse();
     Motor_State_Update();
     Leg_State_Update();
-    gravity_valid = RL_Observation_Project_Gravity(imu_state.output.quat,
-        gravity);
-    if (!gravity_valid)
-    {
-        gravity[0] = 0.0f;
-        gravity[1] = 0.0f;
-        gravity[2] = 0.0f;
-    }
-    gravity_norm = sqrtf(gravity[0] * gravity[0] + gravity[1] * gravity[1]
-        + gravity[2] * gravity[2]);
-    quat_norm = sqrtf(imu_state.output.quat[0] * imu_state.output.quat[0]
-        + imu_state.output.quat[1] * imu_state.output.quat[1]
-        + imu_state.output.quat[2] * imu_state.output.quat[2]
-        + imu_state.output.quat[3] * imu_state.output.quat[3]);
     WS2812_RainbowBlink();
     Remote_Control_Update();
 
@@ -713,41 +739,60 @@ void comm_task_body(void)
     }
     vofa_div = 0u;
 
-    dbg[0] = imu_state.input.gyro_rad_s[0];
-    dbg[1] = imu_state.input.gyro_rad_s[1];
-    dbg[2] = imu_state.input.gyro_rad_s[2];
-    dbg[3] = imu_state.input.accel_g[0];
-    dbg[4] = imu_state.input.accel_g[1];
-    dbg[5] = imu_state.input.accel_g[2];
-    dbg[6] = imu_state.output.quat[0];
-    dbg[7] = imu_state.output.quat[1];
-    dbg[8] = imu_state.output.quat[2];
-    dbg[9] = imu_state.output.quat[3];
-    dbg[10] = gravity[0];
-    dbg[11] = gravity[1];
-    dbg[12] = gravity[2];
-    dbg[13] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-    dbg[14] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
-    dbg[15] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_LFT];
-    dbg[16] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_RGT];
-    dbg[17] = command_state.vx;
-    dbg[18] = command_state.yaw_rate;
-    dbg[19] = command_state.height;
-    dbg[20] = (float)remote_debug_s1;
-    dbg[21] = (float)remote_debug_s2;
-    dbg[22] = (float)motor_state.dji.current_raw[DJI_MOTOR_WHEEL_LFT];
-    dbg[23] = (float)motor_state.dji.current_raw[DJI_MOTOR_WHEEL_RGT];
-    dbg[24] = (float)imu_state.online;
-    dbg[25] = (float)gravity_valid;
-    dbg[26] = imu_state.output.euler_rad[ATTITUDE_ROLL];
-    dbg[27] = imu_state.output.euler_rad[ATTITUDE_PITCH];
-    dbg[28] = imu_state.output.euler_rad[ATTITUDE_YAW];
-    dbg[29] = gravity_norm;
-    dbg[30] = quat_norm;
-    dbg[31] = (float)((leg_l.output.force_valid ? 1u : 0u)
-        | (leg_r.output.valid ? 2u : 0u)
-        | (leg_l.output.force_valid ? 4u : 0u)
-        | (leg_r.output.force_valid ? 8u : 0u));
+    if (action_test.mode)
+    {
+        /* 显示 PID 实际使用的等效多圈反馈，避免原始单圈角跨界跳变。 */
+        dbg[0] = action_test.thigh_pid[0].get[NOW];
+        dbg[1] = action_test.thigh_pid[1].get[NOW];
+        dbg[2] = action_test.thigh_pid[2].get[NOW];
+        dbg[3] = action_test.thigh_pid[3].get[NOW];
+        dbg[4] = action_test.thigh_pid[0].set[NOW];
+        dbg[5] = action_test.thigh_pid[1].set[NOW];
+        dbg[6] = action_test.thigh_pid[2].set[NOW];
+        dbg[7] = action_test.thigh_pid[3].set[NOW];
+        dbg[8] = action_test.thigh_pid[0].err[NOW];
+        dbg[9] = action_test.thigh_pid[1].err[NOW];
+        dbg[10] = action_test.thigh_pid[2].err[NOW];
+        dbg[11] = action_test.thigh_pid[3].err[NOW];
+        dbg[12] = action_test.thigh_pid[0].pout;
+        dbg[13] = action_test.thigh_pid[1].pout;
+        dbg[14] = action_test.thigh_pid[2].pout;
+        dbg[15] = action_test.thigh_pid[3].pout;
+    }
+    else
+    {
+        dbg[0] = leg_l.input.hip_f;
+        dbg[1] = leg_l.output.virtual_shank;
+        dbg[2] = leg_r.input.hip_f;
+        dbg[3] = leg_r.output.virtual_shank;
+        dbg[4] = rl_control.torque_state.controller[0].set[NOW];
+        dbg[5] = rl_control.torque_state.controller[1].set[NOW];
+        dbg[6] = rl_control.torque_state.controller[3].set[NOW];
+        dbg[7] = rl_control.torque_state.controller[4].set[NOW];
+        dbg[8] = rl_control.torque_state.controller[0].err[NOW];
+        dbg[9] = rl_control.torque_state.controller[1].err[NOW];
+        dbg[10] = rl_control.torque_state.controller[3].err[NOW];
+        dbg[11] = rl_control.torque_state.controller[4].err[NOW];
+        dbg[12] = rl_control.torque_state.controller[0].pout;
+        dbg[13] = rl_control.torque_state.controller[1].pout;
+        dbg[14] = rl_control.torque_state.controller[3].pout;
+        dbg[15] = rl_control.torque_state.controller[4].pout;
+    }
+    dbg[16] = leg_l.output.l0;
+    dbg[17] = leg_r.output.l0;
+    dbg[18] = rl_control.torque_state.controller[3].dout;
+    dbg[19] = rl_control.torque_state.controller[4].dout;
+    dbg[20] = rl_control.torque_state.virtual_torque[0];
+    dbg[21] = rl_control.torque_state.virtual_torque[1];
+    dbg[22] = rl_control.torque_state.virtual_torque[3];
+    dbg[23] = rl_control.torque_state.virtual_torque[4];
+    dbg[24] = (float)action_test.mode;
+    dbg[25] = (float)action_test.side;
+    dbg[26] = rl_control.torque_state.last_torque[RL_TQ_L_THIGH];
+    dbg[27] = rl_control.torque_state.last_torque[RL_TQ_L_SHANK];
+    dbg[28] = rl_control.torque_state.last_torque[RL_TQ_R_THIGH];
+    dbg[29] = rl_control.torque_state.last_torque[RL_TQ_R_SHANK];
+    dbg[30] = (float)output_debug_dm_sent;
     motor_mask = 0u;
     for (i = 0u; i < DM_MOTOR_NUM; i++)
     {
