@@ -1,0 +1,9 @@
+ctrboard-h7_all\rl_torque.o: ../imcalib/Algorithm/rl_torque.c
+ctrboard-h7_all\rl_torque.o: ../imcalib/Algorithm/rl_torque.h
+ctrboard-h7_all\rl_torque.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
+ctrboard-h7_all\rl_torque.o: ../imcalib/Algorithm/leg_solver.h
+ctrboard-h7_all\rl_torque.o: ../imcalib/user-lib/pid.h
+ctrboard-h7_all\rl_torque.o: ../imcalib/Algorithm/rl_policy.h
+ctrboard-h7_all\rl_torque.o: ../imcalib/Algorithm/rl_observation.h
+ctrboard-h7_all\rl_torque.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h
+ctrboard-h7_all\rl_torque.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h

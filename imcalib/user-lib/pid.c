@@ -55,13 +55,13 @@ float pid_calc(pid_t *pid, float get, float set, float delta_time)
     {
         pid->pout = pid->p * e_now;
         pid->iout += pid->i * e_now * delta_time;
-        if (pid->d == 0.0f || delta_time < 1e-6f)
+        if (pid->d == 0.0f)
         {
             pid->dout = 0.0f;
         }
         else
         {
-            pid->dout = pid->d * (e_now - e_last) / delta_time;
+            pid->dout = pid->d * pid->vel_err;
         }
 
         abs_limit(&pid->iout, pid->IntegralLimit);

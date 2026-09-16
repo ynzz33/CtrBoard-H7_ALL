@@ -337,7 +337,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32H723xx,USE_PWR_LDO_SUPPLY</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../App/inc;../Bsp/inc;../vofa+;../Algorithm/inc;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
+              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../imcalib/user-lib;../imcalib/Algorithm;../imcalib/task/inc;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -391,11 +391,6 @@
         <Group>
           <GroupName>Application/User/Core</GroupName>
           <Files>
-            <File>
-              <FileName>vofa.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\vofa+\vofa.c</FilePath>
-            </File>
             <File>
               <FileName>main.c</FileName>
               <FileType>1</FileType>
@@ -1250,87 +1245,122 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>Bsp</GroupName>
+          <GroupName>imcalib/user-lib</GroupName>
           <Files>
-            <File>
-              <FileName>bsp_user_key.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Bsp\bsp_user_key.c</FilePath>
-            </File>
-            <File>
-              <FileName>bsp_buzzer.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Bsp\bsp_buzzer.c</FilePath>
-            </File>
-            <File>
-              <FileName>lcd.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Bsp\lcd.c</FilePath>
-            </File>
-            <File>
-              <FileName>ws2812.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\Bsp\ws2812.c</FilePath>
-            </File>
             <File>
               <FileName>BMI088driver.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\BMI088driver.c</FilePath>
+              <FilePath>../imcalib/user-lib/BMI088driver.c</FilePath>
             </File>
             <File>
               <FileName>BMI088Middleware.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\BMI088Middleware.c</FilePath>
+              <FilePath>../imcalib/user-lib/BMI088Middleware.c</FilePath>
             </File>
             <File>
-              <FileName>can_bsp.c</FileName>
+              <FileName>can_bus.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\can_bsp.c</FilePath>
+              <FilePath>../imcalib/user-lib/can_bus.c</FilePath>
             </File>
             <File>
-              <FileName>w25q64.c</FileName>
+              <FileName>dji.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Bsp\w25q64.c</FilePath>
+              <FilePath>../imcalib/user-lib/dji.c</FilePath>
+            </File>
+            <File>
+              <FileName>dm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/dm.c</FilePath>
+            </File>
+            <File>
+              <FileName>dr16.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/dr16.c</FilePath>
+            </File>
+            <File>
+              <FileName>hi229.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/hi229.c</FilePath>
+            </File>
+            <File>
+              <FileName>pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/pid.c</FilePath>
+            </File>
+            <File>
+              <FileName>uart_idle.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/uart_idle.c</FilePath>
+            </File>
+            <File>
+              <FileName>Vofa_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/Vofa_send.c</FilePath>
+            </File>
+            <File>
+              <FileName>ws2812.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/ws2812.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>App</GroupName>
+          <GroupName>imcalib/Algorithm</GroupName>
           <Files>
             <File>
-              <FileName>key_task.c</FileName>
+              <FileName>Attitude_Algorithm.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\App\key_task.c</FilePath>
+              <FilePath>../imcalib/Algorithm/Attitude_Algorithm.c</FilePath>
             </File>
             <File>
-              <FileName>lcd_task.c</FileName>
+              <FileName>leg_solver.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\App\lcd_task.c</FilePath>
+              <FilePath>../imcalib/Algorithm/leg_solver.c</FilePath>
             </File>
             <File>
-              <FileName>imu_task.c</FileName>
+              <FileName>rl_observation.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\App\imu_task.c</FilePath>
+              <FilePath>../imcalib/Algorithm/rl_observation.c</FilePath>
             </File>
             <File>
-              <FileName>fun_test_task.c</FileName>
+              <FileName>rl_policy.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\App\fun_test_task.c</FilePath>
+              <FilePath>../imcalib/Algorithm/rl_policy.c</FilePath>
+            </File>
+            <File>
+              <FileName>rl_torque.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/rl_torque.c</FilePath>
             </File>
           </Files>
         </Group>
         <Group>
-          <GroupName>Algprithm</GroupName>
+          <GroupName>imcalib/task</GroupName>
           <Files>
             <File>
-              <FileName>MahonyAHRS.c</FileName>
+              <FileName>robot_control.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Algorithm\MahonyAHRS.c</FilePath>
+              <FilePath>../imcalib/task/robot_control.c</FilePath>
             </File>
             <File>
-              <FileName>user_lib.c</FileName>
+              <FileName>task_imu.c</FileName>
               <FileType>1</FileType>
-              <FilePath>..\Algorithm\user_lib.c</FilePath>
+              <FilePath>../imcalib/task/task_imu.c</FilePath>
+            </File>
+            <File>
+              <FileName>task_policy.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/task_policy.c</FilePath>
+            </File>
+            <File>
+              <FileName>task_actuation.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/task_actuation.c</FilePath>
+            </File>
+            <File>
+              <FileName>task_comm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/task_comm.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1454,6 +1484,11 @@
                   <ComprImg>1</ComprImg>
                 </CommonProperty>
               </FileOption>
+            </File>
+            <File>
+              <FileName>upstairs_generate_report.txt</FileName>
+              <FileType>5</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_generate_report.txt</FilePath>
             </File>
           </Files>
         </Group>
@@ -2075,6 +2110,21 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>upstairs.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs.c</FilePath>
+            </File>
+            <File>
+              <FileName>upstairs_data.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_data.c</FilePath>
+            </File>
+            <File>
+              <FileName>upstairs_data_params.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_data_params.c</FilePath>
             </File>
           </Files>
         </Group>

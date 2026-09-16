@@ -87,8 +87,7 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
     {
         return 0u;
     }
-    norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1]
-        + quat[2] * quat[2] + quat[3] * quat[3]);
+    norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
     if (!isfinite(norm) || norm < RL_QUAT_EPS)
     {
         return 0u;

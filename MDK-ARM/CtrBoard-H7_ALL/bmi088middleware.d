@@ -1,5 +1,5 @@
-ctrboard-h7_all\bmi088middleware.o: ..\Bsp\BMI088Middleware.c
-ctrboard-h7_all\bmi088middleware.o: ../Bsp/inc/BMI088Middleware.h
+ctrboard-h7_all\bmi088middleware.o: ../imcalib/user-lib/BMI088Middleware.c
+ctrboard-h7_all\bmi088middleware.o: ../imcalib/user-lib/BMI088Middleware.h
 ctrboard-h7_all\bmi088middleware.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
 ctrboard-h7_all\bmi088middleware.o: ../Core/Inc/main.h
 ctrboard-h7_all\bmi088middleware.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h

@@ -46,6 +46,7 @@ typedef struct __pid_t {
     float last_delta_out;
     float max_err;
     float deadband;
+    float vel_err;
     uint8_t angle_wrap;
     void (*f_param_init)(struct __pid_t *pid, uint8_t pid_mode,
                          float maxOutput, float integralLimit,

@@ -47,3 +47,5 @@ ctrboard-h7_all\stm32h7xx_it.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ha
 ctrboard-h7_all\stm32h7xx_it.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\stm32h7xx_it.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
 ctrboard-h7_all\stm32h7xx_it.o: ../Core/Inc/stm32h7xx_it.h
+ctrboard-h7_all\stm32h7xx_it.o: ../imcalib/user-lib/uart_idle.h
+ctrboard-h7_all\stm32h7xx_it.o: ../imcalib/user-lib/dma_cache.h

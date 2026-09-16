@@ -273,8 +273,9 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
         }
         uint16_t trq_raw = Dm_Float_To_Uint(command_torque,
             DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
-        if (Dm_Mit_Control(i, dm_motor_feedback[i].angle_raw,
-                           0u, 0u, 0u, trq_raw) != HAL_OK)
+        /* 纯力矩模式：角度/速度发最大值，电机内部PD不介入 */
+        if (Dm_Mit_Control(i, DM_MIT_FIELD_MAX,
+                           DM_MIT_FIELD_MAX, 0u, 0u, trq_raw) != HAL_OK)
         {
             status = HAL_ERROR;
         }

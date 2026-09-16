@@ -1,6 +1,6 @@
 # AI 协作规范 — 轮腿平衡步兵 RL 部署
 
-> 最后更新：2026-09-14
+> 最后更新：2026-09-16
 > 适用：Claude / Cursor / Copilot / Codex / Gemini 等任何 AI 助手。
 > 接手本仓库前**先读完这一篇**，再动手。
 
@@ -48,7 +48,7 @@
 ### 任务与模块分层约束
 
 - `freertos.c` 只负责任务创建、初始化调用、循环节拍、`osDelay` 和信号量等待；不放协议解析、运动学、控制器或电机报文代码。
-- `robot_tasks.c` 只负责任务编排和周期调用；任务函数应是“单周期入口”，不在其中重新实现协议、运动学、RL、CAN 报文或电机量化细节。
+- `imcalib/task/robot_control.c` 负责共享状态定义、总初始化、动作清零和模型切换；各 `task_*.c` 只实现对应任务的单周期逻辑。
 - `commTask` 负责通信输入输出：DR16/DM/DJI 接收解析、状态刷新、在线/故障监测和 VOFA 调试发送；HI229 姿态链路归 `imuTask`。它不等同于纯故障监视任务，因此命名使用 `comm`/`communication`，不要继续使用含义过窄的 `monitor`。
 - `policyTask` 负责观测构建和 RL 策略推理；`actuationTask` 负责按实时节拍读取已准备状态并完成执行链路。
 - 五连杆几何和雅可比只能写在 `leg_solver.c/h`；姿态只能写在 `Attitude_Algorithm.c/h`；观测、策略、力矩映射分别归属对应 Algorithm 模块。任务文件只调用这些接口。
@@ -113,8 +113,14 @@ CtrBoard-H7_ALL/
 │   │   ├── rl_observation.c/h     ← RL 观测构建 + 5帧历史
 │   │   ├── rl_policy.c/h          ← CubeAI 四模型推理封装
 │   │   └── rl_torque.c/h          ← 动作→力矩执行层
+│   ├── task/
+│   │   ├── inc/robot_control.h    ← 共享状态与跨任务接口
+│   │   ├── robot_control.c        ← 总初始化、动作清零、模型切换
+│   │   ├── task_imu.c             ← HI229 与姿态更新
+│   │   ├── task_policy.c          ← 观测构建与策略推理
+│   │   ├── task_actuation.c       ← 力矩计算与电机下发
+│   │   └── task_comm.c            ← 通信、状态、遥控、故障与 VOFA
 │   └── user-lib/
-│       ├── robot_tasks.c/h        ← 单周期任务编排 + 状态接口
 │       ├── uart_idle.c/h          ← UART IDLE+DMA 底层框架
 │       ├── dr16.c/h               ← DR16 遥控器
 │       ├── hi229.c/h              ← HI229 IMU
@@ -151,7 +157,7 @@ CtrBoard-H7_ALL/
 | RL 观测 | rl_observation.c/h | ✅ 完成 (参数待实测, 默认门控) |
 | CubeAI 推理 | rl_policy.c/h | ✅ 完成 |
 | 力矩执行层 | rl_torque.c/h | ✅ 完成 (下发待实测开启) |
-| 任务框架 | robot_tasks.c/h | ✅ 使能机+故障门完成 |
+| 任务框架 | task/robot_control.c + task_*.c | 🟡 分层迁移与 Keil/eIDE 配置完成，待重新构建确认 |
 | 离线测试 | tests/offline_test.c | ✅ 完成 |
 
 ---

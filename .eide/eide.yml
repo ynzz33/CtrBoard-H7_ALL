@@ -4,7 +4,9 @@ type: ARM
 deviceName: null
 packDir: null
 srcDirs:
-  - imcalib
+  - imcalib/user-lib
+  - imcalib/Algorithm
+  - imcalib/task
   - X-CUBE-AI
 virtualFolder:
   name: <virtual_root>
@@ -22,7 +24,6 @@ virtualFolder:
           folders:
             - name: Core
               files:
-                - path: vofa+/vofa.c
                 - path: Core/Src/main.c
                 - path: Core/Src/gpio.c
                 - path: Core/Src/freertos.c
@@ -64,9 +65,9 @@ virtualFolder:
                     - path: X-CUBE-AI/App/stable.c
                     - path: X-CUBE-AI/App/stable_data.c
                     - path: X-CUBE-AI/App/stable_data_params.c
-                    - path: X-CUBE-AI/App/stairs.c
-                    - path: X-CUBE-AI/App/stairs_data.c
-                    - path: X-CUBE-AI/App/stairs_data_params.c
+                    - path: X-CUBE-AI/App/upstairs.c
+                    - path: X-CUBE-AI/App/upstairs_data.c
+                    - path: X-CUBE-AI/App/upstairs_data_params.c
                   folders: []
     - name: Drivers
       files: []
@@ -138,7 +139,7 @@ virtualFolder:
         - path: X-CUBE-AI/App/jump_generate_report.txt
         - path: X-CUBE-AI/App/pin_generate_report.txt
         - path: X-CUBE-AI/App/stable_generate_report.txt
-        - path: X-CUBE-AI/App/stairs_generate_report.txt
+        - path: X-CUBE-AI/App/upstairs_generate_report.txt
       folders: []
     - name: Lib
       files:
@@ -168,11 +169,9 @@ targets:
         - Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
         - Drivers/CMSIS/Device/ST/STM32H7xx/Include
         - Drivers/CMSIS/Include
-        - App/inc
-        - Bsp/inc
         - imcalib/user-lib
-        - vofa+
         - imcalib/Algorithm
+        - imcalib/task/inc
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
         - .cmsis/include
