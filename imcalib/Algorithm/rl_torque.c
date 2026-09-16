@@ -3,14 +3,11 @@
 #include <math.h>
 #include <string.h>
 
-#define RL_TQ_ACTION_CLIP      100.0f
 #define RL_TQ_POS_SCALE        0.5f
-#define RL_TQ_VEL_SCALE        10.0f
-#define RL_TQ_SERIAL_LIMIT     1000.0f
+#define RL_TQ_VEL_SCALE        0.5f
 #define RL_TQ_LEG_LIMIT        10.0f
 #define RL_TQ_WHEEL_LIMIT      5.0f
 #define RL_TQ_JUMP_WHEEL_LIMIT 4.0f
-#define RL_TQ_TWO_PI           6.283185307179586f
 /* VSHANK 物理范围，待配置后启用限幅 */
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
@@ -36,11 +33,11 @@ static float Nearest_Angle(float target, float current)
 
     while (error > 3.141592653589793f)
     {
-        error -= RL_TQ_TWO_PI;
+        error -= LEG_2PI;
     }
     while (error <= -3.141592653589793f)
     {
-        error += RL_TQ_TWO_PI;
+        error += LEG_2PI;
     }
     return current + error;
 }
@@ -74,7 +71,7 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     if (model == RL_MODEL_JUMP)
     {
         const float dof_pos[6] = { 0.2f, 0.4f, 0.0f, -0.2f, -0.4f, 0.0f};
-        const float p_gains[6] = { 3.0f, 3.0f, 0.0f, 3.0f, 3.0f, 0.0f};
+        const float p_gains[6] = { 0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.0f};
         const float d_gains[6] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
@@ -87,7 +84,7 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     else if (model == RL_MODEL_PIN)
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
-        const float p_gains[6] = {3.0f, 3.0f, 0.0f, 3.0f, 3.0f, 0.0f};
+        const float p_gains[6] = {0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.0f};
         const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
@@ -100,8 +97,8 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     else
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
-        const float p_gains[6] = {2.0f, 2.0f, 0.0f, 2.0f, 2.0f, 0.0f};
-        const float d_gains[6] = {0.1f, 0.1f, 0.0f, 0.1f, 0.1f, 0.0f};
+        const float p_gains[6] = {0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.0f};
+        const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
         memcpy(param->p_gains, p_gains, sizeof(p_gains));
@@ -120,17 +117,17 @@ void RL_Torque_State_Init(rl_torque_state_t *state,
         return;
     }
     memset(state, 0, sizeof(*state));
-    PID_struct_init(&state->controller[0], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[0], POSITION_PID, 1000.0f,
         0.0f, param->p_gains[0], 0.0f, param->d_gains[0], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[1], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[1], POSITION_PID, 1000.0f,
         0.0f, param->p_gains[1], 0.0f, param->d_gains[1], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[2], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[2], POSITION_PID, 1000.0f,
         0.0f, param->wheel_kp[0], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[3], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[3], POSITION_PID, 1000.0f,
         0.0f, param->p_gains[3], 0.0f, param->d_gains[3], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[4], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[4], POSITION_PID, 1000.0f,
         0.0f, param->p_gains[4], 0.0f, param->d_gains[4], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[5], POSITION_PID, RL_TQ_SERIAL_LIMIT,
+    PID_struct_init(&state->controller[5], POSITION_PID, 1000.0f,
         0.0f, param->wheel_kp[1], 0.0f, 0.0f, 0.0f, 0.0f);
 }
 
@@ -169,7 +166,6 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     float tau_f[2];
     float tau_b[2];
     float wheel_limit;
-    float position_target;
 
     for (uint32_t i = 0u; i < RL_TQ_NUM; i++)
     {
@@ -193,21 +189,21 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     /* 动作限幅 */
     for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
     {
-        act[i] = RL_Torque_Clip(action[i], RL_TQ_ACTION_CLIP);
+        act[i] = action[i];
     }
 
     /* 交错布局 */
     q[0] = leg_l->input.hip_f;
-    q[1] = leg_l->output.virtual_shank;
+    q[1] = leg_l->output.virtual_shank_angle;
     q[2] = 0.0f;
     q[3] = leg_r->input.hip_f;
-    q[4] = leg_r->output.virtual_shank;
+    q[4] = leg_r->output.virtual_shank_angle;
     q[5] = 0.0f;
     qd[0] = leg_l->input.d_hip_f;
-    qd[1] = leg_l->output.d_virtual_shank;
+    qd[1] = leg_l->output.d_virtual_shank_angle;
     qd[2] = wheel_vel[0];
     qd[3] = leg_r->input.d_hip_f;
-    qd[4] = leg_r->output.d_virtual_shank;
+    qd[4] = leg_r->output.d_virtual_shank_angle;
     qd[5] = wheel_vel[1];
 
     /* 位置/速度目标 */
@@ -233,11 +229,17 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
         }
         else
         {
-            float err = pos_ref[i] + param->dof_pos[i] - q[i];
-            while (err > 3.14159f)  err -= 6.28318f;
-            while (err < -3.14159f) err += 6.28318f;
+            float target = pos_ref[i] + param->dof_pos[i];
+            float err = fmodf(target - q[i] + LEG_PI, LEG_2PI) - LEG_PI;
             tau_v[i] = param->p_gains[i] * err
                       - param->d_gains[i] * qd[i];
+            /* 左腿 PID debug */
+            if (i < 2u)
+            {
+                state->pid_target[i] = target;
+                state->pid_err[i] = err;
+                state->pid_output[i] = tau_v[i];
+            }
         }
     }
     memcpy(state->virtual_torque, tau_v, sizeof(state->virtual_torque));

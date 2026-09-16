@@ -41,19 +41,22 @@ int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm)
     float per_raw;
     int32_t raw;
 
-    if (index >= DJI_MOTOR_NUM) return 0;
+    if (index >= DJI_MOTOR_NUM)
+    {
+        return 0;
+    }
     per_raw = (dji_motor_config[index].type == DJI_M2006)
         ? DJI_NM_PER_RAW_M2006 : DJI_NM_PER_RAW_M3508;
     raw = (int32_t)(torque_nm / per_raw);
     if (dji_motor_config[index].type == DJI_M2006)
     {
-        if (raw > DJI_CURRENT_MAX_M2006) raw = DJI_CURRENT_MAX_M2006;
-        if (raw < -DJI_CURRENT_MAX_M2006) raw = -DJI_CURRENT_MAX_M2006;
+        if (raw > DJI_CURRENT_MAX_M2006) { raw = DJI_CURRENT_MAX_M2006; }
+        if (raw < -DJI_CURRENT_MAX_M2006) { raw = -DJI_CURRENT_MAX_M2006; }
     }
     else
     {
-        if (raw > DJI_CURRENT_MAX_M3508) raw = DJI_CURRENT_MAX_M3508;
-        if (raw < -DJI_CURRENT_MAX_M3508) raw = -DJI_CURRENT_MAX_M3508;
+        if (raw > DJI_CURRENT_MAX_M3508) { raw = DJI_CURRENT_MAX_M3508; }
+        if (raw < -DJI_CURRENT_MAX_M3508) { raw = -DJI_CURRENT_MAX_M3508; }
     }
     return (int16_t)raw;
 }
@@ -78,11 +81,16 @@ static void Dji_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
 {
     dji_motor_feedback_t *feedback = (dji_motor_feedback_t *)ctx;
 
-    if (feedback == NULL || data == NULL || dlc < 8u) return;
+    if (feedback == NULL || data == NULL || dlc < 8u)
+    {
+        return;
+    }
     (void)id;
 
     for (uint8_t i = 0; i < 8u; i++)
+    {
         feedback->raw_data[i] = data[i];
+    }
     feedback->raw_pending = 1u;
     feedback->last_rx_tick = HAL_GetTick();
 }
@@ -97,8 +105,9 @@ void Dji_Init(void)
 
         if (config->handle == NULL || config->motor_id < 1u
             || config->motor_id > 8u || config->feedback_id > 0x7FFu)
+        {
             continue;
-
+        }
         Can_Bus_Register(config->handle, config->feedback_id, Dji_Read, feedback);
     }
 }
@@ -112,25 +121,30 @@ void Dji_Parse(void)
         uint8_t raw_data[8];
         uint32_t primask;
 
-        if (!feedback->raw_pending) continue;
+        if (!feedback->raw_pending)
+        {
+            continue;
+        }
 
         primask = __get_PRIMASK();
         __disable_irq();
         for (uint8_t j = 0; j < 8u; j++)
+        {
             raw_data[j] = feedback->raw_data[j];
+        }
         feedback->raw_pending = 0u;
         __set_PRIMASK(primask);
 
-        feedback->angle_raw = DJI_FB_ANGLE(raw_data);
-        feedback->vel_raw = DJI_FB_VEL(raw_data);
-        feedback->current_raw = DJI_FB_CURRENT(raw_data);
-        feedback->temp_raw = DJI_FB_TEMP(raw_data);
+        feedback->angle_raw   = ((uint16_t)raw_data[0] << 8) | (uint16_t)raw_data[1];
+        feedback->vel_raw     = (int16_t)(((uint16_t)raw_data[2] << 8) | (uint16_t)raw_data[3]);
+        feedback->current_raw = (int16_t)(((uint16_t)raw_data[4] << 8) | (uint16_t)raw_data[5]);
+        feedback->temp_raw    = (int8_t)raw_data[6];
+
         if (dji_motor_config[i].feedback_sign < 0)
         {
             if (feedback->angle_raw != 0u)
             {
-                feedback->angle_raw = (uint16_t)(DJI_ANGLE_CPR
-                    - feedback->angle_raw);
+                feedback->angle_raw = (uint16_t)(DJI_ANGLE_CPR - feedback->angle_raw);
             }
             feedback->vel_raw = (int16_t)-feedback->vel_raw;
             feedback->current_raw = (int16_t)-feedback->current_raw;
@@ -153,7 +167,10 @@ void Dji_Circle_Calculate(void)
         dji_motor_feedback_t *feedback = &dji_motor_feedback[i];
         int32_t delta;
 
-        if (!feedback->angle_pending) continue;
+        if (!feedback->angle_pending)
+        {
+            continue;
+        }
         feedback->angle_pending = 0u;
 
         if (!(inited & (1UL << i)))
@@ -165,8 +182,14 @@ void Dji_Circle_Calculate(void)
         }
 
         delta = (int32_t)feedback->angle_raw - (int32_t)last_angle[i];
-        if (delta > (DJI_ANGLE_CPR / 2L)) turns[i]--;
-        else if (delta < -(DJI_ANGLE_CPR / 2L)) turns[i]++;
+        if (delta > (DJI_ANGLE_CPR / 2L))
+        {
+            turns[i]--;
+        }
+        else if (delta < -(DJI_ANGLE_CPR / 2L))
+        {
+            turns[i]++;
+        }
 
         last_angle[i] = feedback->angle_raw;
         feedback->angle_total = turns[i] * DJI_ANGLE_CPR + feedback->angle_raw;
@@ -180,8 +203,9 @@ HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     uint8_t data[8];
 
     if (hfdcan == NULL || current_raw == NULL || can_id > 0x7FFu)
+    {
         return HAL_ERROR;
-
+    }
     for (uint8_t i = 0; i < 4u; i++)
     {
         int16_t raw = current_raw[i];
@@ -218,7 +242,10 @@ HAL_StatusTypeDef Dji_All_Stop(void)
 /* 查在线 */
 bool Dji_Is_Online(uint8_t index)
 {
-    if (index >= DJI_MOTOR_NUM) return false;
+    if (index >= DJI_MOTOR_NUM)
+    {
+        return false;
+    }
     return (HAL_GetTick() - dji_motor_feedback[index].last_rx_tick)
            <= DJI_OFFLINE_MS;
 }

@@ -51,14 +51,6 @@ typedef struct {
     volatile uint32_t last_rx_tick;
 } dji_motor_feedback_t;
 
-#define DJI_FB_ANGLE(data) \
-    ((uint16_t)(((uint16_t)(data)[0] << 8) | (uint16_t)(data)[1]))
-#define DJI_FB_VEL(data) \
-    ((int16_t)(((uint16_t)(data)[2] << 8) | (uint16_t)(data)[3]))
-#define DJI_FB_CURRENT(data) \
-    ((int16_t)(((uint16_t)(data)[4] << 8) | (uint16_t)(data)[5]))
-#define DJI_FB_TEMP(data) ((int8_t)(data)[6])
-
 extern const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM];
 extern dji_motor_feedback_t dji_motor_feedback[DJI_MOTOR_NUM];
 

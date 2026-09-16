@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-#define MANUAL_ACTION_SCALE 6.0f
+#define MANUAL_ACTION_SCALE 1.0f
 
 static uint8_t base_locked;
 static uint8_t was_enabled;
@@ -43,19 +43,19 @@ static uint8_t RL_Control_Update_Observation(void)
     command[1] = input_command.yaw_cmd;
     command[2] = input_command.height_cmd;
     joint_pos[0] = leg_l.input.hip_f;
-    joint_pos[1] = leg_l.output.virtual_shank;
+    joint_pos[1] = leg_l.output.virtual_shank_angle;
     joint_pos[2] = leg_r.input.hip_f;
-    joint_pos[3] = leg_r.output.virtual_shank;
+    joint_pos[3] = leg_r.output.virtual_shank_angle;
     joint_vel[0] = leg_l.input.d_hip_f;
-    joint_vel[1] = leg_l.output.d_virtual_shank;
+    joint_vel[1] = leg_l.output.d_virtual_shank_angle;
     joint_vel[2] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
     joint_vel[3] = leg_r.input.d_hip_f;
-    joint_vel[4] = leg_r.output.d_virtual_shank;
+    joint_vel[4] = leg_r.output.d_virtual_shank_angle;
     joint_vel[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
     source_valid = (uint8_t)(imu_state.online && leg_l.output.valid
         && leg_r.output.valid && RL_Motors_Online());
     if (!RL_Observation_Build(&rl_control.observation, &rl_control.param,
-        imu_state.input.gyro_rad_s, imu_state.output.quat, command,
+        imu_state.gyro_rad_s, imu_state.quat, command,
         joint_pos, joint_vel, source_valid))
     {
         return 0u;
@@ -64,8 +64,8 @@ static uint8_t RL_Control_Update_Observation(void)
     return rl_control.observation.history_ready;
 }
 
-/* 摇杆归一化 */
-static float Manual_Axis(int16_t raw)
+/* 摇杆归一化 (死区+限幅→[-1,1]) */
+static float RC_Axis(int16_t raw)
 {
     int16_t value;
 
@@ -89,17 +89,16 @@ static void Manual_Lock_On_Enable(void)
 {
     const rl_torque_param_t *param;
 
-    if (robot_state.enabled && !was_enabled)
+    if (robot_state.motor_enabled && !was_enabled)
     {
-        /* 使能边沿：立刻锁存 */
         if (leg_l.output.valid && leg_r.output.valid)
         {
             param = &rl_control.torque_param[rl_control.policy.selected_model];
             base_action[0] = (leg_l.input.hip_f - param->dof_pos[0]) * 2.0f;
-            base_action[1] = (leg_l.output.virtual_shank - param->dof_pos[1]) * 2.0f;
+            base_action[1] = (leg_l.output.virtual_shank_angle - param->dof_pos[1]) * 2.0f;
             base_action[2] = 0.0f;
             base_action[3] = (leg_r.input.hip_f - param->dof_pos[3]) * 2.0f;
-            base_action[4] = (leg_r.output.virtual_shank - param->dof_pos[4]) * 2.0f;
+            base_action[4] = (leg_r.output.virtual_shank_angle - param->dof_pos[4]) * 2.0f;
             base_action[5] = 0.0f;
             base_locked = 1u;
         }
@@ -108,36 +107,44 @@ static void Manual_Lock_On_Enable(void)
             base_locked = 0u;
         }
     }
-    else if (!robot_state.enabled)
+    else if (!robot_state.motor_enabled)
     {
         base_locked = 0u;
     }
-    was_enabled = robot_state.enabled;
+    was_enabled = robot_state.motor_enabled;
 }
 
-/* 摇杆偏移叠加 */
-static void Manual_Action_Apply(float action[RL_ACTION_SIZE])
+/*
+ * 统一遥控处理: 更新 input_command + 手动偏移叠加
+ * DR16_Process() 已在 commTask 调用, 此处只读快照
+ */
+static void Remote_Command_Apply(float action[RL_ACTION_SIZE])
 {
     dr16_t remote;
     float stick_thigh;
     float stick_shank;
 
-    if (!base_locked)
-    {
-        return;
-    }
-    DR16_Process();
     remote = DR16_Snapshot();
     if (!remote.online)
     {
         return;
     }
-    stick_thigh = Manual_Axis(remote.ch3) * MANUAL_ACTION_SCALE;
-    stick_shank = Manual_Axis(remote.wheel) * MANUAL_ACTION_SCALE;
-    action[0] = base_action[0] + stick_thigh;
-    action[1] = base_action[1] + stick_shank;
-    action[3] = base_action[3] + stick_thigh;
-    action[4] = base_action[4] + stick_shank;
+
+    /* RL obs 指令 */
+    input_command.vx_cmd     = RC_Axis(remote.ch3) * REMOTE_COMMAND_SCALE;
+    input_command.yaw_cmd    = RC_Axis(remote.ch0) * REMOTE_COMMAND_SCALE;
+    input_command.height_cmd = RC_Axis(remote.wheel) * REMOTE_COMMAND_SCALE;
+
+    /* 手动偏移叠加 */
+    if (base_locked)
+    {
+        stick_thigh = RC_Axis(remote.ch3) * MANUAL_ACTION_SCALE;
+        stick_shank = RC_Axis(remote.wheel) * MANUAL_ACTION_SCALE;
+        action[0] = base_action[0] + stick_thigh;
+        action[1] = base_action[1] + stick_shank;
+        action[3] = base_action[3] + stick_thigh;
+        action[4] = base_action[4] + stick_shank;
+    }
 }
 
 /* 策略初始化 */
@@ -151,11 +158,9 @@ void ctrl_task_body(void)
 {
     float action[RL_ACTION_SIZE] = {0};
 
-    RL_Control_Update_Observation();
     Manual_Lock_On_Enable();
-
-    memcpy(action, base_action, sizeof(action));
-    Manual_Action_Apply(action);
+    Remote_Command_Apply(action);
+    RL_Control_Update_Observation();
 
     RL_Observation_Set_Last_Action(&rl_control.observation, action);
     memcpy(action_state.a, action, sizeof(action_state.a));

@@ -4,7 +4,7 @@
 #include "main.h"
 #include "usart.h"
 
-#define VOFA_MAX_CH  32
+#define VOFA_MAX_CH  48
 
 /* 串口号 */
 #define VOFA_UART   &huart8

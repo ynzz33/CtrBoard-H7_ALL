@@ -12,17 +12,21 @@ typedef enum {
 } dm_motor_type_t;
 
 /* 电机序 */
-#define DM_MOTOR_LEG_F_LFT  0u
-#define DM_MOTOR_LEG_B_LFT  1u
-#define DM_MOTOR_LEG_F_RGT  2u
-#define DM_MOTOR_LEG_B_RGT  3u
-#define DM_MOTOR_NUM        4u
+typedef enum {
+    DM_MOTOR_LEG_F_LFT = 0,
+    DM_MOTOR_LEG_B_LFT,
+    DM_MOTOR_LEG_F_RGT,
+    DM_MOTOR_LEG_B_RGT,
+    DM_MOTOR_NUM,
+} dm_motor_idx_t;
 
 /* 命令码 */
-#define DM_CMD_CLEAR_ERROR  0xFBu
-#define DM_CMD_ENABLE       0xFCu
-#define DM_CMD_DISABLE      0xFDu
-#define DM_CMD_SET_ZERO     0xFEu
+typedef enum {
+    DM_CMD_CLEAR_ERROR = 0xFBu,
+    DM_CMD_ENABLE      = 0xFCu,
+    DM_CMD_DISABLE     = 0xFDu,
+    DM_CMD_SET_ZERO    = 0xFEu,
+} dm_cmd_t;
 
 /* 编码值 */
 #define DM_ANGLE_CPR        65536L

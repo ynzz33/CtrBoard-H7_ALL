@@ -49,8 +49,8 @@ uint16_t Dm_Float_To_Uint(float value, float min, float max, uint8_t bits)
     uint32_t max_raw = (1UL << bits) - 1UL;
     float scaled;
 
-    if (value < min) value = min;
-    if (value > max) value = max;
+    if (value < min) { value = min; }
+    if (value > max) { value = max; }
     scaled = (value - min) / (max - min) * (float)max_raw;
     return (uint16_t)(uint32_t)scaled;
 }
@@ -73,8 +73,14 @@ static void Dm_Update_Angle(uint8_t index)
     }
 
     delta = (int32_t)feedback->angle_raw - (int32_t)last_angle[index];
-    if (delta > (DM_ANGLE_CPR / 2L)) turns[index]--;
-    else if (delta < -(DM_ANGLE_CPR / 2L)) turns[index]++;
+    if (delta > (DM_ANGLE_CPR / 2L))
+    {
+        turns[index]--;
+    }
+    else if (delta < -(DM_ANGLE_CPR / 2L))
+    {
+        turns[index]++;
+    }
 
     last_angle[index] = feedback->angle_raw;
     feedback->angle_total = turns[index] * DM_ANGLE_CPR + feedback->angle_raw;
@@ -85,11 +91,16 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
 {
     dm_motor_feedback_t *feedback = (dm_motor_feedback_t *)ctx;
 
-    if (feedback == NULL || data == NULL || dlc < 8u) return;
+    if (feedback == NULL || data == NULL || dlc < 8u)
+    {
+        return;
+    }
     (void)id;
 
     for (uint8_t i = 0; i < 8u; i++)
+    {
         feedback->raw_data[i] = data[i];
+    }
     feedback->last_rx_tick = HAL_GetTick();
     feedback->raw_pending = 1u;
 }
@@ -103,8 +114,9 @@ void Dm_Init(void)
 
         if (config->handle == NULL || config->type >= DM_MOTOR_TYPE_NUM
             || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
+        {
             continue;
-
+        }
         Can_Bus_Register(config->handle, config->feedback_id, Dm_Read,
                          &dm_motor_feedback[i]);
     }
@@ -120,7 +132,10 @@ void Dm_Parse(void)
         uint8_t raw_data[8];
         uint32_t primask;
 
-        if (!feedback->raw_pending) continue;
+        if (!feedback->raw_pending)
+        {
+            continue;
+        }
 
         primask = __get_PRIMASK();
         __disable_irq();
@@ -128,12 +143,12 @@ void Dm_Parse(void)
         feedback->raw_pending = 0u;
         __set_PRIMASK(primask);
 
-        feedback->err_raw = raw_data[0] >> 4;
-        feedback->motor_id = raw_data[0] & 0x0Fu;
-        feedback->angle_raw = ((uint16_t)raw_data[1] << 8) | raw_data[2];
-        feedback->vel_raw = ((uint16_t)raw_data[3] << 4) | (raw_data[4] >> 4);
-        feedback->trq_raw = ((uint16_t)(raw_data[4] & 0x0Fu) << 8) | raw_data[5];
-        feedback->temp_mos = raw_data[6];
+        feedback->err_raw    = raw_data[0] >> 4;
+        feedback->motor_id   = raw_data[0] & 0x0Fu;
+        feedback->angle_raw  = ((uint16_t)raw_data[1] << 8) | raw_data[2];
+        feedback->vel_raw    = ((uint16_t)raw_data[3] << 4) | (raw_data[4] >> 4);
+        feedback->trq_raw    = ((uint16_t)(raw_data[4] & 0x0Fu) << 8) | raw_data[5];
+        feedback->temp_mos   = raw_data[6];
         feedback->temp_rotor = raw_data[7];
         if (config->feedback_sign < 0)
         {
@@ -157,7 +172,10 @@ void Dm_Parse(void)
 /* 查在线 */
 bool Dm_Is_Online(uint8_t index)
 {
-    if (index >= DM_MOTOR_NUM) return false;
+    if (index >= DM_MOTOR_NUM)
+    {
+        return false;
+    }
     return (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick)
            <= DM_OFFLINE_MS;
 }
@@ -170,10 +188,15 @@ HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,
     const dm_motor_config_t *config;
     uint8_t data[8];
 
-    if (index >= DM_MOTOR_NUM) return HAL_ERROR;
+    if (index >= DM_MOTOR_NUM)
+    {
+        return HAL_ERROR;
+    }
     if (vel_raw > DM_MIT_FIELD_MAX || kp_raw > DM_MIT_FIELD_MAX
         || kd_raw > DM_MIT_FIELD_MAX || trq_raw > DM_MIT_FIELD_MAX)
+    {
         return HAL_ERROR;
+    }
 
     config = &dm_motor_config[index];
 
@@ -196,10 +219,15 @@ HAL_StatusTypeDef Dm_Send_Command(uint8_t index, uint8_t command)
     uint8_t data[8] = {0xFFu, 0xFFu, 0xFFu, 0xFFu,
                        0xFFu, 0xFFu, 0xFFu, 0x00u};
 
-    if (index >= DM_MOTOR_NUM) return HAL_ERROR;
+    if (index >= DM_MOTOR_NUM)
+    {
+        return HAL_ERROR;
+    }
     if (command != DM_CMD_CLEAR_ERROR && command != DM_CMD_ENABLE
         && command != DM_CMD_DISABLE && command != DM_CMD_SET_ZERO)
+    {
         return HAL_ERROR;
+    }
 
     config = &dm_motor_config[index];
     data[7] = command;
@@ -273,7 +301,6 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
         }
         uint16_t trq_raw = Dm_Float_To_Uint(command_torque,
             DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
-        /* 纯力矩模式：角度/速度发最大值，电机内部PD不介入 */
         if (Dm_Mit_Control(i, DM_MIT_FIELD_MAX,
                            DM_MIT_FIELD_MAX, 0u, 0u, trq_raw) != HAL_OK)
         {

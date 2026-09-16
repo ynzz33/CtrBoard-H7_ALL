@@ -26,13 +26,6 @@
 #error "jump dimension mismatch"
 #endif
 
-typedef struct {
-    ai_handle network;   /* 网络句柄 */
-    ai_buffer *inputs;   /* 输入缓存 */
-    ai_buffer *outputs;  /* 输出缓存 */
-    uint8_t ready;       /* 网络有效 */
-} rl_network_t;
-
 static rl_network_t rl_network[RL_MODEL_COUNT];
 
 AI_ALIGNED(4) static ai_u8 stable_activations[AI_STABLE_DATA_ACTIVATION_1_SIZE];

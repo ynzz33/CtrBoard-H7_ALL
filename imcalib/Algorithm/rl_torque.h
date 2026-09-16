@@ -31,6 +31,10 @@ typedef struct {
     float last_torque[RL_TQ_NUM];
     float virtual_torque[RL_ACTION_SIZE];
     pid_t controller[RL_ACTION_SIZE];
+    /* PID debug: [0]=L_thigh [1]=L_shank */
+    float pid_target[2];
+    float pid_err[2];
+    float pid_output[2];
 } rl_torque_state_t;
 
 void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model);

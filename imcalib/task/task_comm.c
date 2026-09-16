@@ -9,20 +9,6 @@
 
 #include <math.h>
 
-#define LEG_GEOMETRY_PI      3.14159265358979f
-#define REMOTE_COMMAND_SCALE 0.1f
-
-typedef struct {
-    float l0;
-    float phi0;
-    float virtual_shank;
-    float measured[3];
-    float predicted[3];
-    float residual[3];
-    uint32_t tick_ms;
-    uint8_t ready;
-} leg_debug_history_t;
-
 static leg_debug_history_t leg_debug_l;
 static leg_debug_history_t leg_debug_r;
 
@@ -59,9 +45,9 @@ static void Leg_Debug_Validate(const leg_state_t *leg, leg_debug_history_t *hist
     now_ms = HAL_GetTick();
     if (!history->ready)
     {
-        history->l0 = leg->output.l0;
-        history->phi0 = leg->output.phi0;
-        history->virtual_shank = leg->output.virtual_shank;
+        history->virtual_leg_length = leg->output.virtual_leg_length;
+        history->virtual_leg_angle = leg->output.virtual_leg_angle;
+        history->virtual_shank_angle = leg->output.virtual_shank_angle;
         history->tick_ms = now_ms;
         history->ready = 1u;
         return;
@@ -72,18 +58,18 @@ static void Leg_Debug_Validate(const leg_state_t *leg, leg_debug_history_t *hist
     }
 
     dt_s = (float)(now_ms - history->tick_ms) * 0.001f;
-    history->measured[0] = (leg->output.l0 - history->l0) / dt_s;
-    history->measured[1] = Leg_Debug_Angle_Diff(leg->output.phi0, history->phi0) / dt_s;
-    history->measured[2] = Leg_Debug_Angle_Diff(leg->output.virtual_shank, history->virtual_shank) / dt_s;
-    history->predicted[0] = leg->output.dl0;
-    history->predicted[1] = leg->output.dphi0;
-    history->predicted[2] = leg->output.d_virtual_shank;
+    history->measured[0] = (leg->output.virtual_leg_length - history->virtual_leg_length) / dt_s;
+    history->measured[1] = Leg_Debug_Angle_Diff(leg->output.virtual_leg_angle, history->virtual_leg_angle) / dt_s;
+    history->measured[2] = Leg_Debug_Angle_Diff(leg->output.virtual_shank_angle, history->virtual_shank_angle) / dt_s;
+    history->predicted[0] = leg->output.d_virtual_leg_length;
+    history->predicted[1] = leg->output.d_virtual_leg_angle;
+    history->predicted[2] = leg->output.d_virtual_shank_angle;
     history->residual[0] = history->predicted[0] - history->measured[0];
     history->residual[1] = history->predicted[1] - history->measured[1];
     history->residual[2] = history->predicted[2] - history->measured[2];
-    history->l0 = leg->output.l0;
-    history->phi0 = leg->output.phi0;
-    history->virtual_shank = leg->output.virtual_shank;
+    history->virtual_leg_length = leg->output.virtual_leg_length;
+    history->virtual_leg_angle = leg->output.virtual_leg_angle;
+    history->virtual_shank_angle = leg->output.virtual_shank_angle;
     history->tick_ms = now_ms;
 }
 
@@ -121,7 +107,7 @@ static void Leg_State_Update(void)
     if (leg_map_l.configured)
     {
         leg_l.input.hip_f = motor_state.dm.pos_rad[leg_map_l.dm_front]
-            + LEG_GEOMETRY_PI + leg_l.config.offset_f;
+            + LEG_PI + leg_l.config.offset_f;
         leg_l.input.hip_b = motor_state.dm.pos_rad[leg_map_l.dm_rear] + leg_l.config.offset_b;
         leg_l.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_l.dm_front];
         leg_l.input.d_hip_b = motor_state.dm.vel_rad_s[leg_map_l.dm_rear];
@@ -129,7 +115,7 @@ static void Leg_State_Update(void)
     if (leg_map_r.configured)
     {
         leg_r.input.hip_f = motor_state.dm.pos_rad[leg_map_r.dm_front]
-            + LEG_GEOMETRY_PI + leg_r.config.offset_f;
+            + LEG_PI + leg_r.config.offset_f;
         leg_r.input.hip_b = motor_state.dm.pos_rad[leg_map_r.dm_rear] + leg_r.config.offset_b;
         leg_r.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_r.dm_front];
         leg_r.input.d_hip_b = motor_state.dm.vel_rad_s[leg_map_r.dm_rear];
@@ -140,24 +126,7 @@ static void Leg_State_Update(void)
     Leg_Debug_Validate(&leg_r, &leg_debug_r);
 }
 
-/* 遥控死区 */
-static int16_t DR16_Command_Axis(int16_t input)
-{
-    int16_t value;
-
-    value = DR16_Deadline(input, 20u);
-    if (value > DR16_CH_LIMIT)
-    {
-        value = DR16_CH_LIMIT;
-    }
-    else if (value < -DR16_CH_LIMIT)
-    {
-        value = -DR16_CH_LIMIT;
-    }
-    return value;
-}
-
-/* 更新遥控指令 */
+/* 更新遥控使能 (指令由 policyTask 统一处理) */
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
@@ -165,23 +134,7 @@ static void Remote_Control_Update(void)
     DR16_Process();
     remote = DR16_Snapshot();
     robot_state.rc_enable = (uint8_t)(remote.online && remote.s1 != DR16_SW_DOWN);
-    if (remote.online)
-    {
-        input_command.vx_cmd = (float)DR16_Command_Axis(remote.ch3)
-            / (float)DR16_CH_LIMIT * REMOTE_COMMAND_SCALE;
-        input_command.yaw_cmd = (float)DR16_Command_Axis(remote.ch0)
-            / (float)DR16_CH_LIMIT * REMOTE_COMMAND_SCALE;
-        input_command.height_cmd = (float)DR16_Command_Axis(remote.wheel)
-            / (float)DR16_CH_LIMIT * REMOTE_COMMAND_SCALE;
-        input_command.mode = remote.s1;
-    }
-    else
-    {
-        input_command.vx_cmd = 0.0f;
-        input_command.yaw_cmd = 0.0f;
-        input_command.height_cmd = 0.0f;
-        input_command.mode = 0u;
-    }
+    input_command.mode = remote.online ? remote.s1 : 0u;
 }
 
 /* 更新故障状态 */
@@ -235,7 +188,7 @@ static void Robot_Fallen_Update(void)
 {
     float pitch_abs;
 
-    pitch_abs = fabsf(imu_state.output.euler_rad[ATTITUDE_PITCH]);
+    pitch_abs = fabsf(imu_state.euler_rad[ATTITUDE_PITCH]);
     if (pitch_abs > 1.4f)
     {
         robot_state.fallen = 1u;
@@ -253,14 +206,14 @@ static void Robot_Enable_Update(void)
 
     enable_request = (uint8_t)(robot_state.rc_enable
         && ctrl_fault == FAULT_NONE && !robot_state.fallen);
-    if (enable_request && !robot_state.enabled)
+    if (enable_request && !robot_state.motor_enabled)
     {
-        robot_state.enabled = 1u;
+        robot_state.motor_enabled = 1u;
         (void)Dm_All_Enable();
     }
-    else if (!enable_request && robot_state.enabled)
+    else if (!enable_request && robot_state.motor_enabled)
     {
-        robot_state.enabled = 0u;
+        robot_state.motor_enabled = 0u;
         (void)Dji_All_Stop();
         (void)Dm_All_Disable();
     }
@@ -270,8 +223,8 @@ static void Robot_Enable_Update(void)
 static void Robot_Control_Send_Vofa(void)
 {
     static uint8_t vofa_div;
-    static float dbg[36];
-    uint8_t motor_mask;
+    static float dbg[48];
+    uint8_t online_mask;
 
     vofa_div++;
     if (vofa_div < 5u)
@@ -280,69 +233,66 @@ static void Robot_Control_Send_Vofa(void)
     }
     vofa_div = 0u;
 
-    dbg[0] = leg_l.input.hip_f;
-    dbg[1] = leg_l.output.virtual_shank;
-    dbg[2] = leg_r.input.hip_f;
-    dbg[3] = leg_r.output.virtual_shank;
-    dbg[4] = rl_control.torque_state.controller[0].set[NOW];
-    dbg[5] = rl_control.torque_state.controller[1].set[NOW];
-    dbg[6] = rl_control.torque_state.controller[3].set[NOW];
-    dbg[7] = rl_control.torque_state.controller[4].set[NOW];
-    dbg[8] = rl_control.torque_state.controller[0].err[NOW];
-    dbg[9] = rl_control.torque_state.controller[1].err[NOW];
-    dbg[10] = rl_control.torque_state.controller[3].err[NOW];
-    dbg[11] = rl_control.torque_state.controller[4].err[NOW];
-    dbg[12] = rl_control.torque_state.controller[0].pout;
-    dbg[13] = rl_control.torque_state.controller[1].pout;
-    dbg[14] = rl_control.torque_state.controller[3].pout;
-    dbg[15] = rl_control.torque_state.controller[4].pout;
-    dbg[16] = leg_l.output.l0;
-    dbg[17] = leg_r.output.l0;
-    dbg[18] = rl_control.torque_state.controller[3].dout;
-    dbg[19] = rl_control.torque_state.controller[4].dout;
-    dbg[20] = rl_control.torque_state.virtual_torque[0];
-    dbg[21] = rl_control.torque_state.virtual_torque[1];
-    dbg[22] = rl_control.torque_state.virtual_torque[3];
-    dbg[23] = rl_control.torque_state.virtual_torque[4];
-    dbg[24] = leg_l.output.vshank_jac[0];
-    dbg[25] = leg_l.output.vshank_jac[1];
-    dbg[26] = rl_control.torque_state.last_torque[RL_TQ_L_THIGH];
-    dbg[27] = rl_control.torque_state.last_torque[RL_TQ_L_SHANK];
-    dbg[28] = rl_control.torque_state.last_torque[RL_TQ_R_THIGH];
-    dbg[29] = rl_control.torque_state.last_torque[RL_TQ_R_SHANK];
-    dbg[30] = leg_l.output.phi0;           /* 大腿方向角 */
-    /* dbg[31] reserved for motor_mask */
-    dbg[32] = leg_l.output.virtual_shank;  /* 虚拟小腿 */
-    dbg[33] = rl_control.torque_state.virtual_torque[1]; /* vshank tau_v */
-    dbg[34] = rl_control.torque_state.last_torque[RL_TQ_L_THIGH]; /* tau_f */
-    dbg[35] = rl_control.torque_state.last_torque[RL_TQ_L_SHANK]; /* tau_b */
-    dbg[30] = (float)output_debug_dm_sent;
-
-    motor_mask = 0u;
+    /* 在线掩码 (始终 dbg[0]) */
+    online_mask  = imu_state.online ? 0x01u : 0x00u;
+    online_mask |= DR16_Online()    ? 0x02u : 0x00u;
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
-        if (motor_state.dm.online[i])
-        {
-            motor_mask |= (uint8_t)(1u << i);
-        }
+        online_mask |= motor_state.dm.online[i] ? (uint8_t)(0x04u << i) : 0x00u;
     }
     for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
     {
-        if (motor_state.dji.online[i])
-        {
-            motor_mask |= (uint8_t)(1u << (4u + i));
-        }
+        online_mask |= motor_state.dji.online[i] ? (uint8_t)(0x40u << i) : 0x00u;
     }
-    if (robot_state.enabled)
-    {
-        motor_mask |= (uint8_t)(1u << 6);
-    }
-    if (torque_output_enabled)
-    {
-        motor_mask |= (uint8_t)(1u << 7);
-    }
-    dbg[31] = (float)motor_mask;
-    Vofa_Send(dbg, 36u);
+    dbg[0]  = (float)online_mask;
+
+    /* 左腿 */
+    dbg[1]  = motor_state.dm.pos_rad[0];           /* F_LFT 电机角 */
+    dbg[2]  = motor_state.dm.pos_rad[1];           /* B_LFT 电机角 */
+    dbg[3]  = leg_l.input.hip_f;                   /* 前髋角 */
+    dbg[4]  = leg_l.input.hip_b;                   /* 后髋角 */
+    dbg[5]  = leg_l.output.thigh_angle;              /* 大腿角 */
+    dbg[6]  = leg_l.output.virtual_leg_length;       /* 虚拟腿长 */
+    dbg[7]  = leg_l.output.virtual_leg_angle;        /* 虚拟腿摆角 */
+    dbg[8]  = leg_l.output.virtual_shank_angle;      /* 虚拟小腿角 */
+    dbg[9]  = leg_l.output.d_virtual_shank_angle;    /* 虚拟小腿角速度 */
+    dbg[10] = leg_l.output.vshank_jac[0];            /* jac_b */
+    dbg[11] = leg_l.output.vshank_jac[1];            /* jac_a */
+    /* 右腿 */
+    dbg[12] = motor_state.dm.pos_rad[2];           /* F_RGT 电机角 */
+    dbg[13] = motor_state.dm.pos_rad[3];           /* B_RGT 电机角 */
+    dbg[14] = leg_r.input.hip_f;
+    dbg[15] = leg_r.input.hip_b;
+    dbg[16] = leg_r.output.thigh_angle;
+    dbg[17] = leg_r.output.virtual_leg_length;
+    dbg[18] = leg_r.output.virtual_leg_angle;
+    dbg[19] = leg_r.output.virtual_shank_angle;
+    dbg[20] = leg_r.output.d_virtual_shank_angle;
+    dbg[21] = leg_r.output.vshank_jac[0];
+    dbg[22] = leg_r.output.vshank_jac[1];
+    /* 状态 */
+    dbg[23] = imu_state.euler_rad[1];              /* pitch */
+    dbg[24] = (float)leg_l.output.valid;
+    dbg[25] = (float)leg_r.output.valid;
+    /* 力矩调试链路 */
+    dbg[26] = input_command.vx_cmd;                  /* 遥控 vx */
+    dbg[27] = input_command.height_cmd;              /* 遥控 height */
+    dbg[28] = action_state.a[0];                     /* action 左大腿 */
+    dbg[29] = action_state.a[1];                     /* action 左小腿 */
+    dbg[30] = rl_control.torque_state.virtual_torque[0]; /* tau_v 左大腿 */
+    dbg[31] = rl_control.torque_state.virtual_torque[1]; /* tau_v 左小腿 */
+    dbg[32] = leg_l.input.hip_f;                          /* 当前大腿角 */
+    dbg[33] = leg_l.output.virtual_shank_angle;           /* 当前虚拟小腿角 */
+    dbg[34] = (float)action_state.base_action_locked;    /* 锁存标志 */
+    dbg[35] = (float)robot_state.motor_enabled;          /* 使能标志 */
+    /* PID debug: 左腿 */
+    dbg[36] = rl_control.torque_state.pid_target[0];     /* L_thigh target */
+    dbg[37] = rl_control.torque_state.pid_err[0];        /* L_thigh error */
+    dbg[38] = rl_control.torque_state.pid_output[0];     /* L_thigh tau_v */
+    dbg[39] = rl_control.torque_state.pid_target[1];     /* L_shank target */
+    dbg[40] = rl_control.torque_state.pid_err[1];        /* L_shank error */
+    dbg[41] = rl_control.torque_state.pid_output[1];     /* L_shank tau_v */
+    Vofa_Send(dbg, 42u);
 }
 
 /* 通信单周期 */

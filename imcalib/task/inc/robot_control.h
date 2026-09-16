@@ -50,7 +50,7 @@ typedef struct {
 
 typedef struct {
     uint8_t rc_enable;
-    uint8_t enabled;
+    uint8_t motor_enabled;
     uint8_t fallen;
 } robot_state_t;
 
@@ -70,6 +70,18 @@ typedef struct {
     float shin_delta[2];
     uint8_t mode;
 } input_command_t;
+
+/* 腿部调试历史 */
+typedef struct {
+    float virtual_leg_length;
+    float virtual_leg_angle;
+    float virtual_shank_angle;
+    float measured[3];
+    float predicted[3];
+    float residual[3];
+    uint32_t tick_ms;
+    uint8_t ready;
+} leg_debug_history_t;
 
 #define FAULT_NONE    0u
 #define FAULT_IMU     0x01u

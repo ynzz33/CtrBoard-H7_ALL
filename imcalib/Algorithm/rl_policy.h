@@ -4,7 +4,9 @@
 #include <stdint.h>
 
 #include "rl_observation.h"
+#include "ai_platform.h"
 
+#define REMOTE_COMMAND_SCALE 0.1f
 typedef enum {
     RL_MODEL_STABLE = 0,
     RL_MODEL_UPSTAIRS,
@@ -18,6 +20,14 @@ typedef struct {
     uint8_t model_ready[RL_MODEL_COUNT]; /* 模型状态 */
     uint8_t ready;                  /* 全部有效 */
 } rl_policy_t;
+
+/* CubeAI 网络 */
+typedef struct {
+    ai_handle network;
+    ai_buffer *inputs;
+    ai_buffer *outputs;
+    uint8_t ready;
+} rl_network_t;
 
 void RL_Policy_Reset(rl_policy_t *policy);
 uint8_t RL_Policy_Init(rl_policy_t *policy);
