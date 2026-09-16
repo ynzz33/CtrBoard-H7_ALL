@@ -8,6 +8,14 @@
 #define LEG_2PI      6.28318530717959f
 #define LEG_HALF_PI  1.57079632679490f
 
+/* 通用限幅 */
+static inline float clampf(float value, float min, float max)
+{
+    if (value > max) return max;
+    if (value < min) return min;
+    return value;
+}
+
 /* 几何参数 */
 typedef struct {
     float lu;           /* 上杆长 */

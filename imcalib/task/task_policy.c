@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-#define MANUAL_ACTION_SCALE 1.0f
+#define MANUAL_ACTION_SCALE 10.0f
 
 static uint8_t base_locked;
 static uint8_t was_enabled;

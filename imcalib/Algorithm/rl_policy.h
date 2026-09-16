@@ -6,7 +6,7 @@
 #include "rl_observation.h"
 #include "ai_platform.h"
 
-#define REMOTE_COMMAND_SCALE 0.1f
+#define REMOTE_COMMAND_SCALE 3.0f
 typedef enum {
     RL_MODEL_STABLE = 0,
     RL_MODEL_UPSTAIRS,

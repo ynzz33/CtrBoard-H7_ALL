@@ -30,12 +30,12 @@ float Deadband_Soften(float err, float deadband)
     return 0.0f;
 }
 
-/* 环绕角度 */
-float Angle_Wrap_180(float deg)
+/* 环绕角度 [-π, π] (最短路径) */
+float Angle_Wrap_180(float angle)
 {
-    while (deg > 180.0f) deg -= 360.0f;
-    while (deg < -180.0f) deg += 360.0f;
-    return deg;
+    while (angle > 3.14159265f) angle -= 6.28318530f;
+    while (angle < -3.14159265f) angle += 6.28318530f;
+    return angle;
 }
 
 /* 计算PID */
@@ -61,7 +61,7 @@ float pid_calc(pid_t *pid, float get, float set, float delta_time)
         }
         else
         {
-            pid->dout = pid->d * pid->vel_err;
+            pid->dout = pid->d * (pid->err[NOW] - pid->err[LAST]);
         }
 
         abs_limit(&pid->iout, pid->IntegralLimit);

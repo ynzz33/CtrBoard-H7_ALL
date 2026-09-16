@@ -35,13 +35,15 @@ typedef struct {
     float pid_target[2];
     float pid_err[2];
     float pid_output[2];
+    /* encoder 解包状态 */
+    float q_unwrapped[RL_ACTION_SIZE];
+    float q_prev[RL_ACTION_SIZE];
+    uint8_t q_init;
 } rl_torque_state_t;
 
 void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model);
 void RL_Torque_State_Init(rl_torque_state_t *state,
                           const rl_torque_param_t *param);
-void RL_Torque_Clamp_Output(float torque[RL_TQ_NUM], float leg_limit,
-                            float wheel_limit);
 uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                           const rl_torque_param_t *param,
                           const float wheel_vel[2],

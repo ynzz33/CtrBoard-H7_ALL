@@ -246,53 +246,53 @@ static void Robot_Control_Send_Vofa(void)
     }
     dbg[0]  = (float)online_mask;
 
-    /* 左腿 */
-    dbg[1]  = motor_state.dm.pos_rad[0];           /* F_LFT 电机角 */
-    dbg[2]  = motor_state.dm.pos_rad[1];           /* B_LFT 电机角 */
-    dbg[3]  = leg_l.input.hip_f;                   /* 前髋角 */
-    dbg[4]  = leg_l.input.hip_b;                   /* 后髋角 */
-    dbg[5]  = leg_l.output.thigh_angle;              /* 大腿角 */
-    dbg[6]  = leg_l.output.virtual_leg_length;       /* 虚拟腿长 */
-    dbg[7]  = leg_l.output.virtual_leg_angle;        /* 虚拟腿摆角 */
-    dbg[8]  = leg_l.output.virtual_shank_angle;      /* 虚拟小腿角 */
-    dbg[9]  = leg_l.output.d_virtual_shank_angle;    /* 虚拟小腿角速度 */
-    dbg[10] = leg_l.output.vshank_jac[0];            /* jac_b */
-    dbg[11] = leg_l.output.vshank_jac[1];            /* jac_a */
-    /* 右腿 */
-    dbg[12] = motor_state.dm.pos_rad[2];           /* F_RGT 电机角 */
-    dbg[13] = motor_state.dm.pos_rad[3];           /* B_RGT 电机角 */
-    dbg[14] = leg_r.input.hip_f;
-    dbg[15] = leg_r.input.hip_b;
-    dbg[16] = leg_r.output.thigh_angle;
-    dbg[17] = leg_r.output.virtual_leg_length;
-    dbg[18] = leg_r.output.virtual_leg_angle;
-    dbg[19] = leg_r.output.virtual_shank_angle;
-    dbg[20] = leg_r.output.d_virtual_shank_angle;
-    dbg[21] = leg_r.output.vshank_jac[0];
-    dbg[22] = leg_r.output.vshank_jac[1];
-    /* 状态 */
-    dbg[23] = imu_state.euler_rad[1];              /* pitch */
-    dbg[24] = (float)leg_l.output.valid;
-    dbg[25] = (float)leg_r.output.valid;
-    /* 力矩调试链路 */
-    dbg[26] = input_command.vx_cmd;                  /* 遥控 vx */
-    dbg[27] = input_command.height_cmd;              /* 遥控 height */
-    dbg[28] = action_state.a[0];                     /* action 左大腿 */
-    dbg[29] = action_state.a[1];                     /* action 左小腿 */
-    dbg[30] = rl_control.torque_state.virtual_torque[0]; /* tau_v 左大腿 */
-    dbg[31] = rl_control.torque_state.virtual_torque[1]; /* tau_v 左小腿 */
-    dbg[32] = leg_l.input.hip_f;                          /* 当前大腿角 */
-    dbg[33] = leg_l.output.virtual_shank_angle;           /* 当前虚拟小腿角 */
-    dbg[34] = (float)action_state.base_action_locked;    /* 锁存标志 */
-    dbg[35] = (float)robot_state.motor_enabled;          /* 使能标志 */
-    /* PID debug: 左腿 */
-    dbg[36] = rl_control.torque_state.pid_target[0];     /* L_thigh target */
-    dbg[37] = rl_control.torque_state.pid_err[0];        /* L_thigh error */
-    dbg[38] = rl_control.torque_state.pid_output[0];     /* L_thigh tau_v */
-    dbg[39] = rl_control.torque_state.pid_target[1];     /* L_shank target */
-    dbg[40] = rl_control.torque_state.pid_err[1];        /* L_shank error */
-    dbg[41] = rl_control.torque_state.pid_output[1];     /* L_shank tau_v */
-    Vofa_Send(dbg, 42u);
+    /* 左腿运动学 (ch1-5) */
+    dbg[1]  = leg_l.input.hip_f;                   /* 前髋角 */
+    dbg[2]  = leg_l.input.hip_b;                   /* 后髋角 */
+    dbg[3]  = leg_l.output.thigh_angle;            /* 大腿角 */
+    dbg[4]  = leg_l.output.virtual_leg_length;     /* 虚拟腿长 */
+    dbg[5]  = leg_l.output.virtual_shank_angle;    /* 虚拟小腿角 */
+
+    /* 右腿运动学 (ch6-10) */
+    dbg[6]  = leg_r.input.hip_f;
+    dbg[7]  = leg_r.input.hip_b;
+    dbg[8]  = leg_r.output.thigh_angle;
+    dbg[9]  = leg_r.output.virtual_leg_length;
+    dbg[10] = leg_r.output.virtual_shank_angle;
+
+    /* 机体状态 (ch11-13) */
+    dbg[11] = imu_state.euler_rad[1];              /* pitch */
+    dbg[12] = (float)leg_l.output.valid;
+    dbg[13] = (float)leg_r.output.valid;
+
+    /* 遥控输入 (ch14-15) */
+    dbg[14] = input_command.vx_cmd;
+    dbg[15] = input_command.height_cmd;
+
+    /* RL 动作输出 (ch16-17) */
+    dbg[16] = action_state.a[0];                   /* action 左大腿 */
+    dbg[17] = action_state.a[1];                   /* action 左小腿 */
+
+    /* 左大腿 PID 链路 (ch18-21): 目标 → 当前 → 误差 → 输出 */
+    dbg[18] = rl_control.torque_state.pid_target[0];
+    dbg[19] = leg_l.input.hip_f;
+    dbg[20] = rl_control.torque_state.pid_err[0];
+    dbg[21] = rl_control.torque_state.pid_output[0];
+
+    /* 左小腿 PID 链路 (ch22-25): 目标 → 当前 → 误差 → 输出 */
+    dbg[22] = rl_control.torque_state.pid_target[1];
+    dbg[23] = leg_l.output.virtual_shank_angle;
+    dbg[24] = rl_control.torque_state.pid_err[1];
+    dbg[25] = rl_control.torque_state.pid_output[1];
+
+    /* 最终力矩 (ch26-27) */
+    dbg[26] = rl_control.torque_state.last_torque[0];  /* tau_f → DM */
+    dbg[27] = rl_control.torque_state.last_torque[1];  /* tau_b → DM */
+
+    /* 标志位 (ch28-29) */
+    dbg[28] = (float)action_state.base_action_locked;
+    dbg[29] = (float)robot_state.motor_enabled;
+    Vofa_Send(dbg, 30u);
 }
 
 /* 通信单周期 */
