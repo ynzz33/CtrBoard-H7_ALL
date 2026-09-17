@@ -12,7 +12,7 @@ void output_task_init(void)
 /* 输出单周期 */
 void output_task_body(void)
 {
-    float torque[RL_TQ_NUM] = {0.0f};
+    torque_output_t torque;
     float wheel_vel[2];
 
     if (robot_state.rc_enable && robot_state.motor_enabled
@@ -23,14 +23,11 @@ void output_task_body(void)
         wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
         (void)RL_Torque_Compute(&leg_l, &leg_r,
             &rl_control.torque_param[rl_control.policy.selected_model],
-            wheel_vel, action_state.a, &rl_control.torque_state, torque);
+            wheel_vel, action_state.a, &rl_control.torque_state, &torque);
 
-        /* [TEST] 轮子置零 */
-        torque[RL_TQ_DJI_LFT] = 0.0f;
-        torque[RL_TQ_DJI_RGT] = 0.0f;
-
-        output_debug_dm_sent = Dm_Send_Torque(torque);
-        output_debug_dji_sent = 0u;
+        output_debug_dm_sent = Dm_Send_Torque(torque.dm);
+        output_debug_dji_sent = (uint8_t)Dji_Send_Wheel_Torque(
+            torque.dji[DJI_MOTOR_WHEEL_LFT], torque.dji[DJI_MOTOR_WHEEL_RGT]);
     }
     else
     {

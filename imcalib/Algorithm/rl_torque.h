@@ -3,33 +3,31 @@
 
 #include <stdint.h>
 
+#include "dm.h"
+#include "dji.h"
 #include "leg_solver.h"
 #include "pid.h"
 #include "rl_policy.h"
 
-/* 物理电机输出通道: 与 DM/DJI 电机顺序一致 */
-enum {
-    RL_TQ_DM_F_LFT = 0,   /* 左前髋 DM电机 */
-    RL_TQ_DM_B_LFT = 1,   /* 左后髋 DM电机 */
-    RL_TQ_DJI_LFT  = 2,   /* 左轮 DJI电机 */
-    RL_TQ_DM_F_RGT = 3,   /* 右前髋 DM电机 */
-    RL_TQ_DM_B_RGT = 4,   /* 右后髋 DM电机 */
-    RL_TQ_DJI_RGT  = 5,   /* 右轮 DJI电机 */
-    RL_TQ_NUM      = 6,
-};
+/* 力矩输出: DM 与 DJI 分离，各自用本驱动的索引 */
+typedef struct {
+    float dm[DM_MOTOR_NUM];
+    float dji[DJI_MOTOR_NUM];
+} torque_output_t;
 
 typedef struct {
     float dof_pos[6];
     float p_gains[6];
     float d_gains[6];
-    float wheel_kp[2];
+    float wheel_pid[2][3]; /* [左/右][kp, ki, kd] */
     uint8_t spin_mode;
     uint8_t jump_mode;
 } rl_torque_param_t;
 
 typedef struct {
-    float last_torque[RL_TQ_NUM];
+    torque_output_t last_torque;
     float virtual_torque[RL_ACTION_SIZE];
+    float pos_target[RL_ACTION_SIZE];
     pid_t controller[RL_ACTION_SIZE];
 } rl_torque_state_t;
 
@@ -41,6 +39,6 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                           const float wheel_vel[2],
                           const float action[RL_ACTION_SIZE],
                           rl_torque_state_t *state,
-                          float torque[RL_TQ_NUM]);
+                          torque_output_t *torque);
 
 #endif

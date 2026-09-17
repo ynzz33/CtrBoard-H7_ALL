@@ -4,30 +4,23 @@
 #include <string.h>
 
 #define RL_TQ_POS_SCALE        0.5f
-#define RL_TQ_VEL_SCALE        0.5f
+#define RL_TQ_WHEEL_VEL_SCALE  20.0f
 #define RL_TQ_LEG_LIMIT        5.0f
 #define RL_TQ_WHEEL_LIMIT      5.0f
 #define RL_TQ_JUMP_WHEEL_LIMIT 4.0f
-/* VSHANK 物理范围，待配置后启用限幅 */
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
 
-
-/* 最短路径目标 */
-static float Nearest_Angle(float target, float current)
-{
-    float error = target - current;
-
-    while (error > 3.141592653589793f)
-    {
-        error -= LEG_2PI;
-    }
-    while (error <= -3.141592653589793f)
-    {
-        error += LEG_2PI;
-    }
-    return current + error;
-}
+/* 虚拟关节索引 (仅限本文件内部) */
+enum {
+    VJ_L_THIGH = 0,
+    VJ_L_SHANK = 1,
+    VJ_L_WHEEL = 2,
+    VJ_R_THIGH = 3,
+    VJ_R_SHANK = 4,
+    VJ_R_WHEEL = 5,
+    VJ_NUM     = 6,
+};
 
 /* 检查数组 */
 static uint8_t RL_Torque_Array_Finite(const float *data, uint32_t count)
@@ -59,39 +52,39 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
         const float p_gains[6] = {2.0f, 2.0f, 0.0f, 2.0f, 2.0f, 0.0f};
-        const float d_gains[6] = {0.1f, 0.1f, 0.0f, 0.1f, 0.1f, 0.0f};
+        const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
         memcpy(param->p_gains, p_gains, sizeof(p_gains));
         memcpy(param->d_gains, d_gains, sizeof(d_gains));
-        param->wheel_kp[0] = 0.1f;
-        param->wheel_kp[1] = 0.1f;
+        param->wheel_pid[0][0] = 5.0f; param->wheel_pid[0][1] = 0.0f; param->wheel_pid[0][2] = 0.0f;
+        param->wheel_pid[1][0] = 5.0f; param->wheel_pid[1][1] = 0.0f; param->wheel_pid[1][2] = 0.0f;
         param->jump_mode = 1u;
     }
     else if (model == RL_MODEL_PIN)
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
         const float p_gains[6] = {2.0f, 2.0f, 0.0f, 2.0f, 2.0f, 0.0f};
-        const float d_gains[6] = {0.1f, 0.1f, 0.0f, 0.1f, 0.1f, 0.0f};
-
-        memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
-        memcpy(param->p_gains, p_gains, sizeof(p_gains));
-        memcpy(param->d_gains, d_gains, sizeof(d_gains));
-        param->wheel_kp[0] = 0.1f;
-        param->wheel_kp[1] = 0.1f;
-        param->spin_mode = 1u;
-    }
-    else
-    {
-        const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
-        const float p_gains[6] = {1.5f, 1.5f, 0.0f, 1.5f, 1.5f, 0.0f};
         const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
         memcpy(param->p_gains, p_gains, sizeof(p_gains));
         memcpy(param->d_gains, d_gains, sizeof(d_gains));
-        param->wheel_kp[0] = 0.1f;
-        param->wheel_kp[1] = 0.1f;
+        param->wheel_pid[0][0] = 5.0f; param->wheel_pid[0][1] = 0.0f; param->wheel_pid[0][2] = 0.0f;
+        param->wheel_pid[1][0] = 5.0f; param->wheel_pid[1][1] = 0.0f; param->wheel_pid[1][2] = 0.0f;
+        param->spin_mode = 1u;
+    }
+    else
+    {
+        const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
+        const float p_gains[6] = {3.5f, 3.5f, 0.0f, 3.5f, 3.5f, 0.0f};
+        const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+        memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
+        memcpy(param->p_gains, p_gains, sizeof(p_gains));
+        memcpy(param->d_gains, d_gains, sizeof(d_gains));
+        param->wheel_pid[0][0] = 8.0f; param->wheel_pid[0][1] = 0.0f; param->wheel_pid[0][2] = 0.0000f;
+        param->wheel_pid[1][0] = 8.0f; param->wheel_pid[1][1] = 0.0f; param->wheel_pid[1][2] = 0.0000f;
     }
 }
 
@@ -104,23 +97,29 @@ void RL_Torque_State_Init(rl_torque_state_t *state,
         return;
     }
     memset(state, 0, sizeof(*state));
-    PID_struct_init(&state->controller[0], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[0], 0.0f, param->d_gains[0], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[1], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[1], 0.0f, param->d_gains[1], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[2], POSITION_PID, 1000.0f,
-        0.0f, param->wheel_kp[0], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[3], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[3], 0.0f, param->d_gains[3], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[4], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[4], 0.0f, param->d_gains[4], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[5], POSITION_PID, 1000.0f,
-        0.0f, param->wheel_kp[1], 0.0f, 0.0f, 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_L_THIGH], POSITION_PID, 1000.0f,
+        0.0f, param->p_gains[VJ_L_THIGH], 0.0f, param->d_gains[VJ_L_THIGH], 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_L_SHANK], POSITION_PID, 1000.0f,
+        0.0f, param->p_gains[VJ_L_SHANK], 0.0f, param->d_gains[VJ_L_SHANK], 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_L_WHEEL], POSITION_PID, 1000.0f,
+        0.0f, param->wheel_pid[0][0], param->wheel_pid[0][1], param->wheel_pid[0][2], 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_R_THIGH], POSITION_PID, 1000.0f,
+        0.0f, param->p_gains[VJ_R_THIGH], 0.0f, param->d_gains[VJ_R_THIGH], 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_R_SHANK], POSITION_PID, 1000.0f,
+        0.0f, param->p_gains[VJ_R_SHANK], 0.0f, param->d_gains[VJ_R_SHANK], 0.0f, 0.0f);
+    PID_struct_init(&state->controller[VJ_R_WHEEL], POSITION_PID, 1000.0f,
+        0.0f, param->wheel_pid[1][0], param->wheel_pid[1][1], param->wheel_pid[1][2], 0.0f, 0.0f);
     /* 关节 PID 开启角度环绕 */
-    state->controller[0].angle_wrap = 1u;
-    state->controller[1].angle_wrap = 1u;
-    state->controller[3].angle_wrap = 1u;
-    state->controller[4].angle_wrap = 1u;
+    state->controller[VJ_L_THIGH].angle_wrap = 1u;
+    state->controller[VJ_L_SHANK].angle_wrap = 1u;
+    state->controller[VJ_R_THIGH].angle_wrap = 1u;
+    state->controller[VJ_R_SHANK].angle_wrap = 1u;
+
+    /* pos_target 初始化为静息位 */
+    state->pos_target[VJ_L_THIGH] = param->dof_pos[VJ_L_THIGH];
+    state->pos_target[VJ_L_SHANK] = param->dof_pos[VJ_L_SHANK];
+    state->pos_target[VJ_R_THIGH] = param->dof_pos[VJ_R_THIGH];
+    state->pos_target[VJ_R_SHANK] = param->dof_pos[VJ_R_SHANK];
 }
 
 /* 计算力矩 */
@@ -129,24 +128,27 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                           const float wheel_vel[2],
                           const float action[RL_ACTION_SIZE],
                           rl_torque_state_t *state,
-                          float torque[RL_TQ_NUM])
+                          torque_output_t *torque)
 {
-    float act[RL_ACTION_SIZE];
-    float pos_ref[RL_ACTION_SIZE];
-    float vel_ref[RL_ACTION_SIZE];
-    float q[RL_ACTION_SIZE];
-    float qd[RL_ACTION_SIZE];
-    float tau_v[RL_ACTION_SIZE];
+    float act[VJ_NUM];
+    float pos_ref[VJ_NUM];
+    float vel_ref[VJ_NUM];
+    float q[VJ_NUM];
+    float qd[VJ_NUM];
+    float tau_v[VJ_NUM];
     float tau_f[2];
     float tau_b[2];
     float wheel_limit;
 
-    for (uint32_t i = 0u; i < RL_TQ_NUM; i++)
-    {
-        torque[i] = 0.0f;
-    }
+    torque->dm[DM_MOTOR_LEG_F_LFT] = 0.0f;
+    torque->dm[DM_MOTOR_LEG_B_LFT] = 0.0f;
+    torque->dm[DM_MOTOR_LEG_F_RGT] = 0.0f;
+    torque->dm[DM_MOTOR_LEG_B_RGT] = 0.0f;
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = 0.0f;
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = 0.0f;
+
     if (leg_l == NULL || leg_r == NULL || param == NULL || state == NULL
-        || wheel_vel == NULL || action == NULL)
+        || wheel_vel == NULL || action == NULL || torque == NULL)
     {
         return 0u;
     }
@@ -161,71 +163,74 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     }
 
     /* 动作限幅 */
-    for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
+    for (uint32_t i = 0u; i < VJ_NUM; i++)
     {
         act[i] = action[i];
     }
 
-    /* 交错布局: Leg_Wrap 输出 [-π, π]，不再 clamp */
-    q[0] = leg_l->output.thigh_angle;
-    q[1] = leg_l->output.virtual_shank_angle;
-    q[2] = 0.0f;
-    q[3] = leg_r->output.thigh_angle;
-    q[4] = leg_r->output.virtual_shank_angle;
-    q[5] = 0.0f;
-    qd[0] = leg_l->input.d_hip_f;
-    qd[1] = leg_l->output.d_virtual_shank_angle;
-    qd[2] = wheel_vel[0];
-    qd[3] = leg_r->input.d_hip_f;
-    qd[4] = leg_r->output.d_virtual_shank_angle;
-    qd[5] = wheel_vel[1];
+    /* 虚拟关节状态 */
+    q[VJ_L_THIGH] = leg_l->output.thigh_angle;
+    q[VJ_L_SHANK] = leg_l->output.virtual_shank_angle;
+    q[VJ_L_WHEEL] = 0.0f;
+    q[VJ_R_THIGH] = leg_r->output.thigh_angle;
+    q[VJ_R_SHANK] = leg_r->output.virtual_shank_angle;
+    q[VJ_R_WHEEL] = 0.0f;
+    qd[VJ_L_THIGH] = leg_l->input.d_hip_f;
+    qd[VJ_L_SHANK] = leg_l->output.d_virtual_shank_angle;
+    qd[VJ_L_WHEEL] = wheel_vel[0];
+    qd[VJ_R_THIGH] = leg_r->input.d_hip_f;
+    qd[VJ_R_SHANK] = leg_r->output.d_virtual_shank_angle;
+    qd[VJ_R_WHEEL] = wheel_vel[1];
 
     /* 位置/速度目标 */
-    for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
+    for (uint32_t i = 0u; i < VJ_NUM; i++)
     {
         pos_ref[i] = 0.0f;
         vel_ref[i] = 0.0f;
     }
-    pos_ref[0] = act[0] * RL_TQ_POS_SCALE;
-    pos_ref[1] = act[1] * RL_TQ_POS_SCALE;
-    pos_ref[3] = act[3] * RL_TQ_POS_SCALE;
-    pos_ref[4] = act[4] * RL_TQ_POS_SCALE;
-    vel_ref[2] = act[2] * RL_TQ_VEL_SCALE;
-    vel_ref[5] = act[5] * RL_TQ_VEL_SCALE;
+    pos_ref[VJ_L_THIGH] = act[VJ_L_THIGH] * RL_TQ_POS_SCALE;
+    pos_ref[VJ_L_SHANK] = act[VJ_L_SHANK] * RL_TQ_POS_SCALE;
+    pos_ref[VJ_R_THIGH] = act[VJ_R_THIGH] * RL_TQ_POS_SCALE;
+    pos_ref[VJ_R_SHANK] = act[VJ_R_SHANK] * RL_TQ_POS_SCALE;
+    vel_ref[VJ_L_WHEEL] = act[VJ_L_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
+    vel_ref[VJ_R_WHEEL] = act[VJ_R_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
 
     /* 虚拟关节 PD */
-    for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
+    for (uint32_t i = 0u; i < VJ_NUM; i++)
     {
-        if (i == 2u || i == 5u)
+        if (i == VJ_L_WHEEL || i == VJ_R_WHEEL)
         {
+            state->pos_target[i] = vel_ref[i];
             tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i],
                 0.002f);
         }
         else
         {
             float target = pos_ref[i] + param->dof_pos[i];
-            float adj_target = q[i] + fmodf(target - q[i] + LEG_PI, LEG_2PI)
-                               - LEG_PI;
-            tau_v[i] = pid_calc(&state->controller[i], q[i], adj_target,
+            state->pos_target[i] = target;
+            tau_v[i] = pid_calc(&state->controller[i], q[i], target,
                 0.002f);
         }
     }
     memcpy(state->virtual_torque, tau_v, sizeof(state->virtual_torque));
 
     /* 虚拟力矩映射: vshank_jac[0]→后髋, [1]→前髋 */
-    tau_f[0] = tau_v[0] + tau_v[1] * leg_l->output.vshank_jac[1];
-    tau_b[0] = tau_v[1] * leg_l->output.vshank_jac[0];
-    tau_f[1] = tau_v[3] + tau_v[4] * leg_r->output.vshank_jac[1];
-    tau_b[1] = tau_v[4] * leg_r->output.vshank_jac[0];
+    tau_f[0] = tau_v[VJ_L_THIGH] + tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[1];
+    tau_b[0] = tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[0];
+    tau_f[1] = tau_v[VJ_R_THIGH] + tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[1];
+    tau_b[1] = tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[0];
 
-    torque[RL_TQ_DM_F_LFT] = clampf(tau_f[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_DM_B_LFT] = clampf(tau_b[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_DM_F_RGT] = clampf(tau_f[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_DM_B_RGT] = clampf(tau_b[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    /* DM 输出 */
+    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau_f[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau_b[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau_f[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau_b[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+
+    /* DJI 输出 */
     wheel_limit = param->jump_mode ? RL_TQ_JUMP_WHEEL_LIMIT : RL_TQ_WHEEL_LIMIT;
-    torque[RL_TQ_DJI_LFT] = clampf(-tau_v[2], -wheel_limit, wheel_limit);
-    torque[RL_TQ_DJI_RGT] = clampf(-tau_v[5], -wheel_limit, wheel_limit);
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = clampf(tau_v[VJ_L_WHEEL], -wheel_limit, wheel_limit);
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(-tau_v[VJ_R_WHEEL], -wheel_limit, wheel_limit);
 
-    memcpy(state->last_torque, torque, sizeof(state->last_torque));
+    memcpy(&state->last_torque, torque, sizeof(state->last_torque));
     return 1u;
 }

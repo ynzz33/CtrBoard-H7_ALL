@@ -16,8 +16,9 @@ typedef enum {
 #define DJI_NM_PER_RAW_M2006   (0.18f * 10.0f / 10000.0f)
 #define DJI_NM_PER_RAW_M3508   (0.30f * 20.0f / 16384.0f)
 #define DJI_ANGLE_CPR          8192L
-#define DJI_RAD_PER_COUNT      (0.0007669903939f)
-#define DJI_RPM_TO_RAD_S       (0.1047197551f)
+#define DJI_GEAR_RATIO         36.0f
+#define DJI_RAD_PER_COUNT      (0.0007669903939f / DJI_GEAR_RATIO)
+#define DJI_RPM_TO_RAD_S       (0.1047197551f / DJI_GEAR_RATIO)
 #define DJI_OFFLINE_MS         10u
 
 /* 电机序 */

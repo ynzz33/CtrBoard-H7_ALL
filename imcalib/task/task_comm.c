@@ -233,7 +233,7 @@ static void Robot_Control_Send_Vofa(void)
     }
     vofa_div = 0u;
 
-    /* 在线掩码 (始终 dbg[0]) */
+    /* 在线掩码 (ch0) */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
     online_mask |= DR16_Online()    ? 0x02u : 0x00u;
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
@@ -246,53 +246,53 @@ static void Robot_Control_Send_Vofa(void)
     }
     dbg[0]  = (float)online_mask;
 
-    /* 左腿运动学 (ch1-5) */
-    dbg[1]  = leg_l.input.hip_f;                   /* 前髋角 */
-    dbg[2]  = leg_l.input.hip_b;                   /* 后髋角 */
-    dbg[3]  = leg_l.output.thigh_angle;            /* 大腿角 */
-    dbg[4]  = leg_l.output.virtual_leg_length;     /* 虚拟腿长 */
-    dbg[5]  = leg_l.output.virtual_shank_angle;    /* 虚拟小腿角 */
+    /* 机体状态 (ch1-3) */
+    dbg[1]  = imu_state.euler_rad[ATTITUDE_PITCH];
+    dbg[2]  = (float)leg_l.output.valid + (float)leg_r.output.valid * 2.0f;
+    dbg[3]  = (float)robot_state.motor_enabled
+            + (float)action_state.base_action_locked * 2.0f;
 
-    /* 右腿运动学 (ch6-10) */
-    dbg[6]  = leg_r.input.hip_f;
-    dbg[7]  = leg_r.input.hip_b;
-    dbg[8]  = leg_r.output.thigh_angle;
-    dbg[9]  = leg_r.output.virtual_leg_length;
-    dbg[10] = leg_r.output.virtual_shank_angle;
+    /* 左大腿 (ch4-7): 当前 目标 误差 虚拟力矩 */
+    dbg[4]  = leg_l.output.thigh_angle;
+    dbg[5]  = rl_control.torque_state.pos_target[0];
+    dbg[6]  = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[0],
+                                    leg_l.output.thigh_angle);
+    dbg[7]  = rl_control.torque_state.virtual_torque[0];
 
-    /* 机体状态 (ch11-13) */
-    dbg[11] = imu_state.euler_rad[1];              /* pitch */
-    dbg[12] = (float)leg_l.output.valid;
-    dbg[13] = (float)leg_r.output.valid;
+    /* 左小腿 (ch8-11): 当前 目标 误差 虚拟力矩 */
+    dbg[8]  = leg_l.output.virtual_shank_angle;
+    dbg[9]  = rl_control.torque_state.pos_target[1];
+    dbg[10] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[1],
+                                    leg_l.output.virtual_shank_angle);
+    dbg[11] = rl_control.torque_state.virtual_torque[1];
 
-    /* 遥控输入 (ch14-15) */
-    dbg[14] = input_command.vx_cmd;
-    dbg[15] = input_command.height_cmd;
+    /* 右大腿 (ch12-15): 当前 目标 误差 虚拟力矩 */
+    dbg[12] = leg_r.output.thigh_angle;
+    dbg[13] = rl_control.torque_state.pos_target[3];
+    dbg[14] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[3],
+                                    leg_r.output.thigh_angle);
+    dbg[15] = rl_control.torque_state.virtual_torque[3];
 
-    /* RL 动作输出 (ch16-17) */
-    dbg[16] = action_state.a[0];                   /* action 左大腿 */
-    dbg[17] = action_state.a[1];                   /* action 左小腿 */
+    /* 右小腿 (ch16-19): 当前 目标 误差 虚拟力矩 */
+    dbg[16] = leg_r.output.virtual_shank_angle;
+    dbg[17] = rl_control.torque_state.pos_target[4];
+    dbg[18] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[4],
+                                    leg_r.output.virtual_shank_angle);
+    dbg[19] = rl_control.torque_state.virtual_torque[4];
 
-    /* 左大腿 PID (ch18-19): 目标 → 输出 */
-    dbg[18] = rl_control.torque_state.controller[0].set[NOW];
-    dbg[19] = rl_control.torque_state.controller[0].pos_out;
+    /* 最终电机力矩 (ch20-23): 左前 左后 右前 右后 */
+    dbg[20] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_LFT];
+    dbg[21] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_LFT];
+    dbg[22] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_RGT];
+    dbg[23] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_RGT];
 
-    /* 左小腿 PID (ch20-21): 目标 → 输出 */
-    dbg[20] = rl_control.torque_state.controller[1].set[NOW];
-    dbg[21] = rl_control.torque_state.controller[1].pos_out;
-
-    /* 最终力矩 (ch22-23) */
-    dbg[22] = rl_control.torque_state.last_torque[RL_TQ_DM_F_LFT];
-    dbg[23] = rl_control.torque_state.last_torque[RL_TQ_DM_B_LFT];
-
-    /* 标志位 (ch24-25) */
-    dbg[24] = (float)action_state.base_action_locked;
-    dbg[25] = (float)robot_state.motor_enabled;
-    /* ch26-29 保留 */
-    dbg[26] = 0.0f;
-    dbg[27] = 0.0f;
-    dbg[28] = 0.0f;
-    dbg[29] = 0.0f;
+    /* 轮子 (ch24-29): 左目标 左当前 左力矩 右目标 右当前 右力矩 */
+    dbg[24] = rl_control.torque_state.pos_target[2];
+    dbg[25] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[26] = rl_control.torque_state.virtual_torque[2];
+    dbg[27] = rl_control.torque_state.pos_target[5];
+    dbg[28] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    dbg[29] = rl_control.torque_state.virtual_torque[5];
     Vofa_Send(dbg, 30u);
 }
 

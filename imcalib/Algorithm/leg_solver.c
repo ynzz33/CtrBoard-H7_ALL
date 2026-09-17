@@ -96,8 +96,8 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     leg->output.virtual_leg_angle = Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs
                             + leg->config.offset_phi0);
 
-    /* 大腿角 = φ_a + π/2 (竖直向下为0°, 环绕点在竖直处消除跳变) */
-    leg->output.thigh_angle = Leg_Wrap(cache->phi_a + LEG_HALF_PI);
+    /* 大腿角 = qf (前髋上连杆, 去镜像后与 hip_f 一致) */
+    leg->output.thigh_angle = Leg_Wrap(cache->qf);
 
     /* 虚拟小腿角 = φ_a - qf - π/2 (小腿相对大腿) */
     vs_raw = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
