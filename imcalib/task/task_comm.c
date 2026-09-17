@@ -273,25 +273,26 @@ static void Robot_Control_Send_Vofa(void)
     dbg[16] = action_state.a[0];                   /* action 左大腿 */
     dbg[17] = action_state.a[1];                   /* action 左小腿 */
 
-    /* 左大腿 PID 链路 (ch18-21): 目标 → 当前 → 误差 → 输出 */
-    dbg[18] = rl_control.torque_state.pid_target[0];
-    dbg[19] = leg_l.input.hip_f;
-    dbg[20] = rl_control.torque_state.pid_err[0];
-    dbg[21] = rl_control.torque_state.pid_output[0];
+    /* 左大腿 PID (ch18-19): 目标 → 输出 */
+    dbg[18] = rl_control.torque_state.controller[0].set[NOW];
+    dbg[19] = rl_control.torque_state.controller[0].pos_out;
 
-    /* 左小腿 PID 链路 (ch22-25): 目标 → 当前 → 误差 → 输出 */
-    dbg[22] = rl_control.torque_state.pid_target[1];
-    dbg[23] = leg_l.output.virtual_shank_angle;
-    dbg[24] = rl_control.torque_state.pid_err[1];
-    dbg[25] = rl_control.torque_state.pid_output[1];
+    /* 左小腿 PID (ch20-21): 目标 → 输出 */
+    dbg[20] = rl_control.torque_state.controller[1].set[NOW];
+    dbg[21] = rl_control.torque_state.controller[1].pos_out;
 
-    /* 最终力矩 (ch26-27) */
-    dbg[26] = rl_control.torque_state.last_torque[0];  /* tau_f → DM */
-    dbg[27] = rl_control.torque_state.last_torque[1];  /* tau_b → DM */
+    /* 最终力矩 (ch22-23) */
+    dbg[22] = rl_control.torque_state.last_torque[RL_TQ_DM_F_LFT];
+    dbg[23] = rl_control.torque_state.last_torque[RL_TQ_DM_B_LFT];
 
-    /* 标志位 (ch28-29) */
-    dbg[28] = (float)action_state.base_action_locked;
-    dbg[29] = (float)robot_state.motor_enabled;
+    /* 标志位 (ch24-25) */
+    dbg[24] = (float)action_state.base_action_locked;
+    dbg[25] = (float)robot_state.motor_enabled;
+    /* ch26-29 保留 */
+    dbg[26] = 0.0f;
+    dbg[27] = 0.0f;
+    dbg[28] = 0.0f;
+    dbg[29] = 0.0f;
     Vofa_Send(dbg, 30u);
 }
 

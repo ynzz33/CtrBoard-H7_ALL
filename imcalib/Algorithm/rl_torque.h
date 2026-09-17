@@ -7,15 +7,15 @@
 #include "pid.h"
 #include "rl_policy.h"
 
-/* 物理通道: 与 DM/DJI 数组下标一致 */
+/* 物理电机输出通道: 与 DM/DJI 电机顺序一致 */
 enum {
-    RL_TQ_L_THIGH = 0,
-    RL_TQ_L_SHANK = 1,
-    RL_TQ_R_THIGH = 2,
-    RL_TQ_R_SHANK = 3,
-    RL_TQ_L_WHEEL = 4,
-    RL_TQ_R_WHEEL = 5,
-    RL_TQ_NUM     = 6,
+    RL_TQ_DM_F_LFT = 0,   /* 左前髋 DM电机 */
+    RL_TQ_DM_B_LFT = 1,   /* 左后髋 DM电机 */
+    RL_TQ_DJI_LFT  = 2,   /* 左轮 DJI电机 */
+    RL_TQ_DM_F_RGT = 3,   /* 右前髋 DM电机 */
+    RL_TQ_DM_B_RGT = 4,   /* 右后髋 DM电机 */
+    RL_TQ_DJI_RGT  = 5,   /* 右轮 DJI电机 */
+    RL_TQ_NUM      = 6,
 };
 
 typedef struct {
@@ -31,14 +31,6 @@ typedef struct {
     float last_torque[RL_TQ_NUM];
     float virtual_torque[RL_ACTION_SIZE];
     pid_t controller[RL_ACTION_SIZE];
-    /* PID debug: [0]=L_thigh [1]=L_shank */
-    float pid_target[2];
-    float pid_err[2];
-    float pid_output[2];
-    /* encoder 解包状态 */
-    float q_unwrapped[RL_ACTION_SIZE];
-    float q_prev[RL_ACTION_SIZE];
-    uint8_t q_init;
 } rl_torque_state_t;
 
 void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model);

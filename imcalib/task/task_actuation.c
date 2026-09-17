@@ -26,8 +26,8 @@ void output_task_body(void)
             wheel_vel, action_state.a, &rl_control.torque_state, torque);
 
         /* [TEST] 轮子置零 */
-        torque[RL_TQ_L_WHEEL] = 0.0f;
-        torque[RL_TQ_R_WHEEL] = 0.0f;
+        torque[RL_TQ_DJI_LFT] = 0.0f;
+        torque[RL_TQ_DJI_RGT] = 0.0f;
 
         output_debug_dm_sent = Dm_Send_Torque(torque);
         output_debug_dji_sent = 0u;

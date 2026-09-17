@@ -208,30 +208,23 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                                - LEG_PI;
             tau_v[i] = pid_calc(&state->controller[i], q[i], adj_target,
                 0.002f);
-            /* 左腿 PID debug */
-            if (i < 2u)
-            {
-                state->pid_target[i] = adj_target;
-                state->pid_err[i] = adj_target - q[i];
-                state->pid_output[i] = tau_v[i];
-            }
         }
     }
     memcpy(state->virtual_torque, tau_v, sizeof(state->virtual_torque));
 
-    /* 虚拟力矩映射 (参考: vshank_jac[0]=后髋(小腿电机), [1]=前髋(大腿电机)) */
+    /* 虚拟力矩映射: vshank_jac[0]→后髋, [1]→前髋 */
     tau_f[0] = tau_v[0] + tau_v[1] * leg_l->output.vshank_jac[1];
     tau_b[0] = tau_v[1] * leg_l->output.vshank_jac[0];
     tau_f[1] = tau_v[3] + tau_v[4] * leg_r->output.vshank_jac[1];
     tau_b[1] = tau_v[4] * leg_r->output.vshank_jac[0];
 
-    torque[RL_TQ_L_THIGH] = clampf(tau_f[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_L_SHANK] = clampf(tau_b[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_R_THIGH] = clampf(tau_f[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque[RL_TQ_R_SHANK] = clampf(tau_b[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque[RL_TQ_DM_F_LFT] = clampf(tau_f[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque[RL_TQ_DM_B_LFT] = clampf(tau_b[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque[RL_TQ_DM_F_RGT] = clampf(tau_f[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    torque[RL_TQ_DM_B_RGT] = clampf(tau_b[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
     wheel_limit = param->jump_mode ? RL_TQ_JUMP_WHEEL_LIMIT : RL_TQ_WHEEL_LIMIT;
-    torque[RL_TQ_L_WHEEL] = clampf(-tau_v[2], -wheel_limit, wheel_limit);
-    torque[RL_TQ_R_WHEEL] = clampf(-tau_v[5], -wheel_limit, wheel_limit);
+    torque[RL_TQ_DJI_LFT] = clampf(-tau_v[2], -wheel_limit, wheel_limit);
+    torque[RL_TQ_DJI_RGT] = clampf(-tau_v[5], -wheel_limit, wheel_limit);
 
     memcpy(state->last_torque, torque, sizeof(state->last_torque));
     return 1u;
