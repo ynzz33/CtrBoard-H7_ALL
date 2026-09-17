@@ -70,7 +70,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 
 | 任务 | 频率 | 节拍方式 | 职责 |
 |------|------|----------|------|
-| `actuationTask` | 500Hz | TIM6 信号量（硬实时） | 读取已更新状态 → 力矩计算 → CAN 下发 |
+| `actuationTask` | 500Hz | TIM6 信号量（硬实时） | 策略仲裁（LQR / 手动遥操）→ 力矩计算 → CAN 下发 |
 | `policyTask` | 100Hz | osDelay | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 500Hz | osDelay(2ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
 | `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA |
@@ -219,6 +219,19 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 **总开关**：`torque_output_enabled`（当前测试初始化为 1）
 
 `torque_output_enabled=0` 时执行任务保持 DJI 零电流和 DM 零力矩；遥控、动作、IMU、CAN、电机在线与翻倒保护仍有效。
+
+### 3.7 LQR 平衡模式
+
+actuationTask 里新增了策略仲裁：**左拨杆中位 = LQR 平衡，上位 = 手动遥操/RL，下位 = 失能**。
+
+LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只在 `task_actuation.c` 的分支处交汇，两条链路互不 include。完整设计、参数来源、台架验证顺序与遗留项见 **[LQR_PLAN.md](LQR_PLAN.md)**。
+
+要点速记：
+- LQR 是**第一套真正能站的自动控制器**（RL 推理尚未启用）
+- 遥控在 LQR 模式下换语义：右摇杆 X=转向，右摇杆 Y=前后速度，拨轮=升降
+- LQR 模式不检查 `base_action_locked`，改查 `imu_state.online && leg_l.valid && leg_r.valid`
+- LQR 不满足条件时直接零力矩，**不自动降级**到别的策略
+- LQR 的腿长/横滚/防劈叉 PID 的 KD 是按 500Hz 折算过的，改频率要同步改
 
 ---
 

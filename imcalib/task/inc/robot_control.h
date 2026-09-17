@@ -10,6 +10,14 @@
 #include "rl_observation.h"
 #include "rl_policy.h"
 #include "rl_torque.h"
+#include "lqr_balance.h"
+#include "leg_balance.h"
+
+/* 控制策略 */
+typedef enum {
+    CTRL_STRATEGY_MANUAL = 0,   /* 手动遥操 / RL */
+    CTRL_STRATEGY_LQR,          /* LQR 平衡 */
+} ctrl_strategy_t;
 
 typedef struct {
     float pos_rad[DM_MOTOR_NUM];
@@ -100,6 +108,9 @@ extern leg_map_t leg_map_l;
 extern leg_map_t leg_map_r;
 extern robot_state_t robot_state;
 extern rl_control_state_t rl_control;
+extern lqr_state_t lqr_state;
+extern leg_balance_t leg_balance;
+extern volatile ctrl_strategy_t ctrl_strategy;
 extern volatile uint32_t ctrl_fault;
 extern volatile uint8_t output_debug_dm_sent;
 extern volatile uint8_t output_debug_dji_sent;

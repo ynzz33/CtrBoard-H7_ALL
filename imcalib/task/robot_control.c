@@ -12,6 +12,9 @@ leg_map_t leg_map_l;
 leg_map_t leg_map_r;
 robot_state_t robot_state;
 rl_control_state_t rl_control;
+lqr_state_t lqr_state;
+leg_balance_t leg_balance;
+volatile ctrl_strategy_t ctrl_strategy;
 volatile uint32_t ctrl_fault;
 volatile uint8_t output_debug_dm_sent;
 volatile uint8_t output_debug_dji_sent;
@@ -68,6 +71,10 @@ void Robot_Control_Init(void)
     RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_JUMP], RL_MODEL_JUMP);
     RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STABLE]);
     Action_State_Clear();
+
+    LQR_Init(&lqr_state);
+    Leg_Balance_Init(&leg_balance);
+    ctrl_strategy = CTRL_STRATEGY_MANUAL;
 }
 
 /* 切换模型 */

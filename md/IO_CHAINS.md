@@ -531,7 +531,7 @@ rl_observation_state_t:
            ▼               ▼
      ┌───────────┐  ┌────────────┐
      │   LQR     │  │ rl_torque  │
-     │ 摆角控制  │  │ 力矩分解   │
+     │ 平衡控制  │  │ 力矩分解   │
      └─────┬─────┘  └─────┬──────┘
            │               │
            ▼               ▼
@@ -540,3 +540,40 @@ rl_observation_state_t:
       │  DM/DJI 力矩下发        │
       └─────────────────────────┘
 ```
+
+---
+
+## 8. LQR 平衡链路（task_actuation 内，@500Hz）
+
+只在左拨杆中位时激活。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
+
+```
+imu_state (pitch/roll/yaw/gyro)    leg_l / leg_r (Leg_Solve 输出)
+motor_state.dji.vel_rad_s          DR16_Snapshot()
+        │                                  │
+        ▼                                  ▼
+  LQR_State_Update()  ←──────────  LQR_Target_Update()
+  x[10] 状态组装 + 速度运动学 + 位移积分     target[10] + 腿长目标
+        │                                  │
+        └──────────────┬───────────────────┘
+                       ▼
+              LQR_Control_Update()
+              腿长变化>0.5mm → LQR_K_WBR(h_l,h_r) 求 40 个增益
+              u[i] = Σ K[i][j]·(target[j] − x[j])   → [T_wl,T_wr,T_bl,T_br]
+                       │
+                       ▼
+              Leg_Balance_Compute()
+              腿长PID + 防劈叉PID + 横滚PID → 足端力 F
+              Leg_Force_Map_Forward(&leg, F, Tp) → 前/后髋力矩
+              限幅 → torque_output_t（右轮取反）
+                       │
+                       ▼
+        Dm_Send_Torque() + Dji_Send_Wheel_Torque()
+```
+
+**状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ（偏航角）不参与控制，只控角速度。
+**腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。
+（本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
+**速度**：`ω_轮·R_w + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）。
+**腿长限制**：0.13~0.21 m（K 表拟合域 0.13~0.23）。
+**符号责任**：右髋在 `dm.c` 驱动边界取反，调用方不要重复取反；右轮 `dji.c` 不处理，负号在 `leg_balance.c`。详见 [LQR_PLAN.md](LQR_PLAN.md)。

@@ -8,12 +8,7 @@
 #include "leg_solver.h"
 #include "pid.h"
 #include "rl_policy.h"
-
-/* 力矩输出: DM 与 DJI 分离，各自用本驱动的索引 */
-typedef struct {
-    float dm[DM_MOTOR_NUM];
-    float dji[DJI_MOTOR_NUM];
-} torque_output_t;
+#include "torque_output.h"
 
 typedef struct {
     float dof_pos[6];

@@ -293,7 +293,27 @@ static void Robot_Control_Send_Vofa(void)
     dbg[27] = rl_control.torque_state.pos_target[5];
     dbg[28] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
     dbg[29] = rl_control.torque_state.virtual_torque[5];
-    Vofa_Send(dbg, 30u);
+
+    /* LQR (ch30-47): 策略 u[4] 力向量 腿长 速度 腿摆角 */
+    dbg[30] = (float)ctrl_strategy;
+    dbg[31] = lqr_state.u[LQR_U_WL];
+    dbg[32] = lqr_state.u[LQR_U_WR];
+    dbg[33] = lqr_state.u[LQR_U_BL];
+    dbg[34] = lqr_state.u[LQR_U_BR];
+    dbg[35] = leg_balance.F[0];
+    dbg[36] = leg_balance.Tp[0];
+    dbg[37] = leg_balance.F[1];
+    dbg[38] = leg_balance.Tp[1];
+    dbg[39] = lqr_state.len[0];
+    dbg[40] = lqr_state.leg_len_tgt[0];
+    dbg[41] = lqr_state.len[1];
+    dbg[42] = lqr_state.leg_len_tgt[1];
+    dbg[43] = lqr_state.x[LQR_X_DS];
+    dbg[44] = lqr_state.x[LQR_X_DTHB];
+    dbg[45] = lqr_state.x[LQR_X_THL];
+    dbg[46] = lqr_state.x[LQR_X_DTHL];
+    dbg[47] = lqr_state.x[LQR_X_THR];
+    Vofa_Send(dbg, 48u);
 }
 
 /* 通信单周期 */

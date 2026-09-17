@@ -1283,6 +1283,11 @@
               <FilePath>../imcalib/user-lib/hi229.c</FilePath>
             </File>
             <File>
+              <FileName>lowpass.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/lowpass.c</FilePath>
+            </File>
+            <File>
               <FileName>pid.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/user-lib/pid.c</FilePath>
@@ -1316,6 +1321,21 @@
               <FileName>leg_solver.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/leg_solver.c</FilePath>
+            </File>
+            <File>
+              <FileName>leg_balance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/leg_balance.c</FilePath>
+            </File>
+            <File>
+              <FileName>lqr_balance.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/lqr_balance.c</FilePath>
+            </File>
+            <File>
+              <FileName>lqr_gain_table.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/lqr_gain_table.c</FilePath>
             </File>
             <File>
               <FileName>rl_observation.c</FileName>
