@@ -1,7 +1,7 @@
 # AI 协作规范 — 轮腿平衡步兵 RL 部署
 
-> 最后更新：2026-09-16
-> 适用：Claude / Cursor / Copilot / Codex / Gemini 等任何 AI 助手。
+> 最后更新：2026-09-17
+> 适用：Claude / Cursor / Copilot / Codex / Gemini / Kimi Code 等任何 AI 助手。
 > 接手本仓库前**先读完这一篇**，再动手。
 
 ---
@@ -149,17 +149,18 @@ CtrBoard-H7_ALL/
 |------|------|------|
 | 姿态解算 | Attitude_Algorithm.c/h | ✅ 完成 |
 | 串口底层 | uart_idle.c/h | ✅ 完成 |
-| 遥控器解析 | dr16.c/h | ✅ 完成 (待实测) |
+| 遥控器解析 | dr16.c/h | ✅ 完成，已实测 |
 | HI229 IMU | hi229.c/h | ✅ 完成 |
-| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成 |
+| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，30 通道 FireWater DMA |
 | FDCAN 总线 | can_bus.c/h | ✅ 完成 |
 | DM 电机 | dm.c/h | ✅ 完成 |
-| DJI 轮电机 | dji.c/h | ✅ 完成 |
-| 五连杆 | leg_solver.c/h | ✅ 完成 (参数待实测, 默认门控) |
-| RL 观测 | rl_observation.c/h | ✅ 完成 (参数待实测, 默认门控) |
-| CubeAI 推理 | rl_policy.c/h | ✅ 完成 |
-| 力矩执行层 | rl_torque.c/h | ✅ 完成 (下发待实测开启) |
-| 任务框架 | task/robot_control.c + task_*.c | 🟡 分层迁移与 Keil/eIDE 配置完成，待重新构建确认 |
+| DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
+| 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证 |
+| RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置 |
+| CubeAI 推理 | rl_policy.c/h | ✅ 完成；🟡 推理未在任务中调用 |
+| 力矩执行层 | rl_torque.c/h | ✅ 完成，DM/DJI 分离输出 + 轮子 PID |
+| 任务框架 | task/robot_control.c + task_*.c | ✅ 完成，已上机验证 |
+| 遥控映射 | task_policy.c | ✅ 手动遥操模式 |
 | 离线测试 | tests/offline_test.c | ✅ 完成 |
 
 ---
@@ -172,6 +173,8 @@ CtrBoard-H7_ALL/
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
+- **VOFA 调试**：30 通道 FireWater，commTask 每 5 周期发送一次 (200Hz/5=40Hz)
+- **DJI 力矩常数**：`DJI_NM_PER_RAW_M2006 = 0.00018`，待实测验证
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。
 
 ---

@@ -1,6 +1,6 @@
 # 输入输出链路总览
 
-> 最后更新：2026-09-16
+> 最后更新：2026-09-17
 > 本文档记录各传感器/执行器的完整数据链路，从硬件到消费端。
 
 ---
@@ -88,8 +88,8 @@ motor_state.dm:
     │
     │  RL 推理 → rl_torque.c
     ▼
-输出: torque[0..3] → task_actuation.c
-    Dm_Send_Torque(torque):
+输出: torque_output_t → task_actuation.c
+    torque.dm[0..3] → Dm_Send_Torque(torque.dm):
       if sign<0: command_torque = -torque[i]
       trq_raw = float_to_uint(command_torque, -10, +10, 12)
       Dm_Mit_Control(i, FIELD_MAX, FIELD_MAX, 0, 0, trq_raw)
@@ -155,10 +155,11 @@ motor_state.dji:
     │
     │  RL 推理 → 力矩输出
     ▼
-输出: torque[L_WHEEL, R_WHEEL] → task_actuation.c
-    Dji_Send_Wheel_Torque(left_nm, right_nm):
+输出: torque_output_t → task_actuation.c
+    torque.dm[DM_MOTOR_*] → Dm_Send_Torque(torque.dm)
+    torque.dji[DJI_MOTOR_*] → Dji_Send_Wheel_Torque(left_nm, right_nm)
       Dji_Torque_To_Current():
-        M2006: raw = torque_nm / 0.0018, clamp ±10000
+        M2006: raw = torque_nm / 0.00018, clamp ±10000
       wheel_current[0..3] → Dji_Send_Current(FDCAN2, 0x200, current)
         → 8 字节: 4×int16 大端打包
     Dji_All_Stop():
@@ -232,10 +233,10 @@ task_comm.c:
   Robot_Control_Output():
     !rc_enable → Dm_All_Disable + Dji_All_Stop (安全)
 
-task_policy.c (手动测试):
-  Manual_Action_Apply():
-    ch3  → thigh 偏移 (±0.5)
-    wheel → shank 偏移 (±0.5)
+task_policy.c (手动遥操):
+  ch3    → thigh 偏移 (×4.0 叠加 base_action)
+  wheel  → shank 偏移 (×4.0 叠加 base_action)
+  ch1    → wheel 速度 (×4.0 直接赋值, 宽死区100)
 ```
 
 **dr16_t 字段:**
@@ -377,7 +378,7 @@ leg_l / leg_r (leg_state_t):
     B = (lu·cos qb, lu·sin qb)    后杆端点
     求 P 点 (两圆交点) → phi_a, phi_b
     输出:
-      thigh_angle          = Leg_Wrap(phi_a + π/2)         大腿角(竖直=0°)
+      thigh_angle          = Leg_Wrap(qf)                        大腿角(前髋上连杆, 去镜像后与 hip_f 一致)
       virtual_leg_length   = |OP|                           虚拟腿长
       virtual_leg_angle    = π/2 - atan2(y_p,x_p) + offset_phi0  虚拟腿摆角
       virtual_shank_angle  = mirror × (phi_a - qf - π/2)   虚拟小腿角
@@ -395,11 +396,13 @@ leg_l / leg_r (leg_state_t):
 task_policy.c:
   virtual_shank_angle    → obs.joint_pos (虚拟小腿)
   d_virtual_shank_angle  → obs.joint_vel (虚拟小腿)
-  thigh_angle            → Manual_Action_Apply 偏移基准
+  thigh_angle            → 手动遥操偏移基准 (base_action)
 rl_torque.c:
   virtual_shank_angle    → q[1,4] (RL 关节位置)
   d_virtual_shank_angle  → qd[1,4] (RL 关节速度)
+  thigh_angle            → q[0,3] (RL 关节位置)
   vshank_jac             → 力矩分解 tau_f/tau_b
+  输出: torque_output_t {dm[4], dji[2]}
 task_comm.c:
   virtual_leg_length, virtual_leg_angle, virtual_shank_angle → VOFA 调试
 ```
@@ -419,7 +422,7 @@ task_comm.c:
 
 | 字段 | 含义 | 用途 |
 |------|------|------|
-| thigh_angle | 大腿角 (竖直=0°) | VOFA 调试 |
+| thigh_angle | 大腿角 (前髋上连杆, qf) | RL obs + PD + VOFA |
 | virtual_leg_length | 虚拟腿长 \|OP\| | VOFA 调试 |
 | virtual_leg_angle | 虚拟腿摆角 (相对竖直) | LQR |
 | virtual_shank_angle | 虚拟小腿角 (小腿相对大腿) | RL obs + PD |
@@ -429,21 +432,21 @@ task_comm.c:
 | vshank_jac[2] | 虚拟小腿雅可比 | RL 力矩分解 |
 | force_map[2][2] | 力矩映射矩阵 | 力矩输出 |
 
-**VOFA 通道:**
+**VOFA 通道 (30ch):**
 
-| ch | 左腿 | 右腿 |
-|:--:|------|------|
-| 0 | online_mask | |
-| 1-2 | dm.pos_rad[0,1] | dm.pos_rad[2,3] |
-| 3-4 | hip_f, hip_b | hip_f, hip_b |
-| 5 | thigh_angle | thigh_angle |
-| 6 | virtual_leg_length | virtual_leg_length |
-| 7 | virtual_leg_angle | virtual_leg_angle |
-| 8 | virtual_shank_angle | virtual_shank_angle |
-| 9 | d_virtual_shank_angle | d_virtual_shank_angle |
-| 10-11 | vshank_jac[0,1] | vshank_jac[0,1] |
-| 23 | pitch (IMU) | |
-| 24-25 | leg_l.valid | leg_r.valid |
+| ch | 内容 |
+|:--:|------|
+| 0 | online_mask |
+| 1 | pitch |
+| 2 | leg_valid |
+| 3 | motor_enabled + base_action_locked |
+| 4-7 | 左大腿: 当前/目标/误差/虚拟力矩 |
+| 8-11 | 左小腿: 当前/目标/误差/虚拟力矩 |
+| 12-15 | 右大腿: 当前/目标/误差/虚拟力矩 |
+| 16-19 | 右小腿: 当前/目标/误差/虚拟力矩 |
+| 20-23 | DM 力矩: 左前/左后/右前/右后 |
+| 24-26 | 左轮: 目标速度/当前速度/力矩 |
+| 27-29 | 右轮: 目标速度/当前速度/力矩 |
 
 ---
 
