@@ -17,6 +17,7 @@
 typedef enum {
     CTRL_STRATEGY_MANUAL = 0,   /* 手动遥操 / RL */
     CTRL_STRATEGY_LQR,          /* LQR 平衡 */
+    CTRL_STRATEGY_SYSID,        /* 测试模式 */
 } ctrl_strategy_t;
 
 typedef struct {

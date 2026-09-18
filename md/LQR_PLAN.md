@@ -60,7 +60,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
   ② LQR_State_Update()      x[10]：姿态 + 腿摆角世界系 + 轮速运动学速度 + 位移积分
   ③ LQR_Control_Update()    腿长变化 >0.5mm 求值 40 个增益 → u[i] = Σ K[i][j]·(target[j] − x[j])
   ④ Leg_Balance_Compute()   腿长/防劈叉/横滚 PID → F；Leg_Force_Map_Forward(F, Tp) → 前后髋
-                            → torque_output_t（右轮取反）
+                            → torque_output_t（输出极性在驱动边界处理）
   ⑤ Dm_Send_Torque() + Dji_Send_Wheel_Torque()
 ```
 
@@ -72,7 +72,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 | 1 | ds | 轮速运动学 + 低通：`ω_轮·R_w + L·dθ·cosθ + dL·sinθ` |
 | 2 | φ | IMU 偏航角（**不参与控制**，与参考一致） |
 | 3 | dφ | IMU 偏航角速度 + 低通 |
-| 4/5 | θ_ll / dθ_ll | `−virtual_leg_angle + pitch` / `−d_virtual_leg_angle + omg_pitch`（**整体取反再加 pitch**，见 §3.1） |
+| 4/5 | θ_ll / dθ_ll | `leg_l.virtual_leg_angle + pitch` / `+ omg_pitch` |
 | 6/7 | θ_lr / dθ_lr | 同上，右腿 |
 | 8/9 | θ_b / dθ_b | IMU 俯仰角 / 俯仰角速度 + 低通 |
 

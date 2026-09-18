@@ -5,12 +5,6 @@
 #include "can_bus.h"
 #include <stdbool.h>
 
-/* 电机型 */
-typedef enum {
-    DM_MOTOR_J4310 = 0,
-    DM_MOTOR_TYPE_NUM,
-} dm_motor_type_t;
-
 /* 电机序 */
 typedef enum {
     DM_MOTOR_LEG_F_LFT = 0,
@@ -32,25 +26,13 @@ typedef enum {
 #define DM_ANGLE_CPR        65536L
 #define DM_MIT_FIELD_MAX    0x0FFFu
 
-/* MIT量程 */
-#define DM_MIT_POS_MIN      (-3.14159f)
-#define DM_MIT_POS_MAX      ( 3.14159f)
-#define DM_MIT_VEL_MIN      (-30.0f)
-#define DM_MIT_VEL_MAX      ( 30.0f)
-#define DM_MIT_TRQ_MIN      (-10.0f)
-#define DM_MIT_TRQ_MAX      ( 10.0f)
+/* MIT量程: 见 machine_config.h (dm.c 内引用) */
 
 /* 超时值 */
 #define DM_OFFLINE_MS       10u
 
-/* 固定参 */
-typedef struct {
-    FDCAN_HandleTypeDef *handle;
-    dm_motor_type_t      type;
-    uint16_t             feedback_id;
-    uint16_t             control_id;
-    int8_t               feedback_sign;
-} dm_motor_config_t;
+/* 固定参 (与 dji 同结构) */
+typedef motor_cfg_t dm_motor_config_t;
 
 /* 反馈值 */
 typedef struct {

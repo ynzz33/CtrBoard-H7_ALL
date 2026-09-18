@@ -1,13 +1,11 @@
 #include "rl_torque.h"
+#include "machine_config.h"
 
 #include <math.h>
 #include <string.h>
 
 #define RL_TQ_POS_SCALE        0.5f
 #define RL_TQ_WHEEL_VEL_SCALE  20.0f
-#define RL_TQ_LEG_LIMIT        5.0f
-#define RL_TQ_WHEEL_LIMIT      5.0f
-#define RL_TQ_JUMP_WHEEL_LIMIT 4.0f
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
 
@@ -138,6 +136,7 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     float tau_v[VJ_NUM];
     float tau_f[2];
     float tau_b[2];
+    float leg_limit;
     float wheel_limit;
 
     torque->dm[DM_MOTOR_LEG_F_LFT] = 0.0f;
@@ -220,16 +219,17 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     tau_f[1] = tau_v[VJ_R_THIGH] + tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[1];
     tau_b[1] = tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[0];
 
-    /* DM 输出 */
-    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau_f[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau_b[0], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau_f[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
-    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau_b[1], -RL_TQ_LEG_LIMIT, RL_TQ_LEG_LIMIT);
+    /* DM 输出 (满限幅) */
+    leg_limit = machine->dm_trq_clamp;
+    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau_f[0], -leg_limit, leg_limit);
+    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau_b[0], -leg_limit, leg_limit);
+    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau_f[1], -leg_limit, leg_limit);
+    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau_b[1], -leg_limit, leg_limit);
 
-    /* DJI 输出 */
-    wheel_limit = param->jump_mode ? RL_TQ_JUMP_WHEEL_LIMIT : RL_TQ_WHEEL_LIMIT;
+    /* DJI 输出 (满限幅) */
+    wheel_limit = machine->dji_trq_clamp;
     torque->dji[DJI_MOTOR_WHEEL_LFT] = clampf(tau_v[VJ_L_WHEEL], -wheel_limit, wheel_limit);
-    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(-tau_v[VJ_R_WHEEL], -wheel_limit, wheel_limit);
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(tau_v[VJ_R_WHEEL], -wheel_limit, wheel_limit);
 
     memcpy(&state->last_torque, torque, sizeof(state->last_torque));
     return 1u;

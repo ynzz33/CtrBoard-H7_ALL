@@ -7,6 +7,7 @@ srcDirs:
   - imcalib/user-lib
   - imcalib/Algorithm
   - imcalib/task
+  - imcalib/Sysid
   - X-CUBE-AI
 virtualFolder:
   name: <virtual_root>
@@ -172,6 +173,7 @@ targets:
         - imcalib/user-lib
         - imcalib/Algorithm
         - imcalib/task/inc
+        - imcalib/Sysid
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
         - .cmsis/include

@@ -37,8 +37,10 @@
 #include "hi229.h"
 #include "Attitude_Algorithm.h"
 #include "dji.h"
+#include "mono_ns.h"
 #include "dm.h"
 #include "robot_control.h"
+#include "machine_config.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -129,12 +131,15 @@ int main(void)
   MX_TIM6_Init();
   MX_UART8_Init();
   /* USER CODE BEGIN 2 */
+  Machine_Select(MACHINE_DEFAULT);  /* 机器: 见 machine_config.h */
+  Mono_Ns_Init();   /* 单调 ns 时钟 */
   DR16_Init();
   HI229_Init();
   Can_Bus_Init();
   // IMU_Init();       // BMI088 板载IMU (SPI2) —— 暂不使用
   Dji_Init();       // DJI电机 CAN回调注册
   Dm_Init();        // DM电机 CAN回调注册
+  /* 机器: 见 machine_config.h 的 MACHINE_DEFAULT */
   HAL_GPIO_WritePin(GPIOC, POWER_24V_2_Pin|POWER_24V_1_Pin, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
@@ -239,6 +244,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
   if (htim->Instance == TIM6)
   {
+    Mono_Ns_Tick();   /* 周期扩展 */
     osSemaphoreRelease(ctrl_tick_sem_handle);   /* 500Hz 唤醒输出任务 */
   }
   /* USER CODE END Callback 0 */

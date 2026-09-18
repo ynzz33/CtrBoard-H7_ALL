@@ -20,6 +20,13 @@ typedef enum {
     CAN_BUS_STATE_DEAD,
 } can_bus_state_t;
 
+/* 电机固定参 (DM / DJI 共用): 总线与报文 ID */
+typedef struct {
+    FDCAN_HandleTypeDef *handle;
+    uint16_t             feedback_id;
+    uint16_t             control_id;
+} motor_cfg_t;
+
 /* 路由条目 */
 typedef struct {
     uint32_t       can_id;

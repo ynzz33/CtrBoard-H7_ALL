@@ -11,30 +11,24 @@ typedef enum {
     DJI_M3508 = 1,
 } dji_motor_type_t;
 
+#define DJI_ANGLE_CPR          8192L
+#define DJI_OFFLINE_MS         10u
+
+/* 电机固有参数 (按型号, 与机器无关) */
 #define DJI_CURRENT_MAX_M2006  10000
 #define DJI_CURRENT_MAX_M3508  16384
 #define DJI_NM_PER_RAW_M2006   (0.18f * 10.0f / 10000.0f)
 #define DJI_NM_PER_RAW_M3508   (0.30f * 20.0f / 16384.0f)
-#define DJI_ANGLE_CPR          8192L
-#define DJI_GEAR_RATIO         36.0f
-#define DJI_RAD_PER_COUNT      (0.0007669903939f / DJI_GEAR_RATIO)
-#define DJI_RPM_TO_RAD_S       (0.1047197551f / DJI_GEAR_RATIO)
-#define DJI_OFFLINE_MS         10u
+
+/* 型号与减速比: 见 machine_config.c (按机器选择) */
 
 /* 电机序 */
 #define DJI_MOTOR_WHEEL_LFT    0u
 #define DJI_MOTOR_WHEEL_RGT    1u
 #define DJI_MOTOR_NUM          2u
 
-/* 固定参 */
-typedef struct {
-    FDCAN_HandleTypeDef *handle;
-    dji_motor_type_t     type;
-    uint8_t              motor_id;
-    uint16_t             feedback_id;
-    uint16_t             control_id;
-    int8_t               feedback_sign;
-} dji_motor_config_t;
+/* 固定参 (与 dm 同结构) */
+typedef motor_cfg_t dji_motor_config_t;
 
 /* 反馈值 */
 typedef struct {

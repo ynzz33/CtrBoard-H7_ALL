@@ -1,22 +1,20 @@
 #include "dji.h"
+#include "machine_config.h"
 
-/* 固定参 */
+/* 编译期检查: 极性表长度对齐 */
+typedef char dji_num_check[(MACHINE_WHEEL_NUM == DJI_MOTOR_NUM) ? 1 : -1];
+
+/* 固定参 (极性见 machine_config.c) */
 const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM] = {
     [DJI_MOTOR_WHEEL_LFT] = {
         .handle = &hfdcan2,
-        .type = DJI_M2006,
-        .motor_id = 1u,
         .feedback_id = 0x201u,
         .control_id = 0x200u,
-        .feedback_sign = 1,
     },
     [DJI_MOTOR_WHEEL_RGT] = {
         .handle = &hfdcan2,
-        .type = DJI_M2006,
-        .motor_id = 2u,
         .feedback_id = 0x202u,
         .control_id = 0x200u,
-        .feedback_sign = -1,
     },
 };
 
@@ -26,37 +24,44 @@ dji_motor_feedback_t dji_motor_feedback[DJI_MOTOR_NUM];
 /* 转换角度 */
 float Dji_Encoder_To_Rad(int32_t encoder_count)
 {
-    return (float)encoder_count * DJI_RAD_PER_COUNT;
+    return (float)encoder_count * (0.0007669903939f / machine->dji_gear_ratio);
 }
 
 /* 转换速度 */
 float Dji_Rpm_To_Rad_S(int16_t rpm)
 {
-    return (float)rpm * DJI_RPM_TO_RAD_S;
+    return (float)rpm * (0.1047197551f / machine->dji_gear_ratio);
 }
 
 /* 力矩转电流 */
 int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm)
 {
-    float per_raw;
+    float   per_raw;
+    int32_t raw_max;
     int32_t raw;
 
     if (index >= DJI_MOTOR_NUM)
     {
         return 0;
     }
-    per_raw = (dji_motor_config[index].type == DJI_M2006)
-        ? DJI_NM_PER_RAW_M2006 : DJI_NM_PER_RAW_M3508;
-    raw = (int32_t)(torque_nm / per_raw);
-    if (dji_motor_config[index].type == DJI_M2006)
+    if (machine->dji_type == (uint8_t)DJI_M2006)
     {
-        if (raw > DJI_CURRENT_MAX_M2006) { raw = DJI_CURRENT_MAX_M2006; }
-        if (raw < -DJI_CURRENT_MAX_M2006) { raw = -DJI_CURRENT_MAX_M2006; }
+        per_raw = DJI_NM_PER_RAW_M2006;
+        raw_max = DJI_CURRENT_MAX_M2006;
     }
     else
     {
-        if (raw > DJI_CURRENT_MAX_M3508) { raw = DJI_CURRENT_MAX_M3508; }
-        if (raw < -DJI_CURRENT_MAX_M3508) { raw = -DJI_CURRENT_MAX_M3508; }
+        per_raw = DJI_NM_PER_RAW_M3508;
+        raw_max = DJI_CURRENT_MAX_M3508;
+    }
+    raw = (int32_t)(torque_nm / per_raw);
+    if (raw > raw_max)
+    {
+        raw = raw_max;
+    }
+    if (raw < -raw_max)
+    {
+        raw = -raw_max;
     }
     return (int16_t)raw;
 }
@@ -103,8 +108,7 @@ void Dji_Init(void)
         const dji_motor_config_t *config = &dji_motor_config[i];
         dji_motor_feedback_t *feedback = &dji_motor_feedback[i];
 
-        if (config->handle == NULL || config->motor_id < 1u
-            || config->motor_id > 8u || config->feedback_id > 0x7FFu)
+        if (config->handle == NULL || config->feedback_id > 0x7FFu)
         {
             continue;
         }
@@ -140,7 +144,7 @@ void Dji_Parse(void)
         feedback->current_raw = (int16_t)(((uint16_t)raw_data[4] << 8) | (uint16_t)raw_data[5]);
         feedback->temp_raw    = (int8_t)raw_data[6];
 
-        if (dji_motor_config[i].feedback_sign < 0)
+        if (machine->dji_sign[i].fb < 0)
         {
             if (feedback->angle_raw != 0u)
             {
@@ -216,18 +220,20 @@ HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     return Can_Bus_Transmit(hfdcan, can_id, data, sizeof(data));
 }
 
-/* 左右轮力矩 */
+/* 左右轮力矩 (输出极性按 machine->dji_sign 在驱动边界处理) */
 HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
                                         float right_torque_nm)
 {
     int16_t wheel_current[4] = {0};
-    const dji_motor_config_t *config = &dji_motor_config[DJI_MOTOR_WHEEL_LFT];
+    const dji_motor_config_t *cfg_l = &dji_motor_config[DJI_MOTOR_WHEEL_LFT];
 
     wheel_current[DJI_MOTOR_WHEEL_LFT] = Dji_Torque_To_Current(
-        DJI_MOTOR_WHEEL_LFT, left_torque_nm);
+        DJI_MOTOR_WHEEL_LFT,
+        left_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out);
     wheel_current[DJI_MOTOR_WHEEL_RGT] = Dji_Torque_To_Current(
-        DJI_MOTOR_WHEEL_RGT, right_torque_nm);
-    return Dji_Send_Current(config->handle, config->control_id, wheel_current);
+        DJI_MOTOR_WHEEL_RGT,
+        right_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out);
+    return Dji_Send_Current(cfg_l->handle, cfg_l->control_id, wheel_current);
 }
 
 /* 全停机 */

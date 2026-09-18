@@ -1,35 +1,32 @@
 #include "dm.h"
+#include "machine_config.h"
 #include <string.h>
+#include <math.h>
 
-/* 固定参 */
+/* 编译期检查: 极性表长度对齐 */
+typedef char dm_num_check[(MACHINE_LEG_NUM == DM_MOTOR_NUM) ? 1 : -1];
+
+/* 固定参 (极性见 machine_config.c) */
 const dm_motor_config_t dm_motor_config[DM_MOTOR_NUM] = {
     [DM_MOTOR_LEG_F_LFT] = {
         .handle = &hfdcan1,
-        .type = DM_MOTOR_J4310,
         .feedback_id = 0x11u,
         .control_id = 0x01u,
-        .feedback_sign = 1,
     },
     [DM_MOTOR_LEG_B_LFT] = {
         .handle = &hfdcan1,
-        .type = DM_MOTOR_J4310,
         .feedback_id = 0x13u,
         .control_id = 0x03u,
-        .feedback_sign = 1,
     },
     [DM_MOTOR_LEG_F_RGT] = {
         .handle = &hfdcan3,
-        .type = DM_MOTOR_J4310,
         .feedback_id = 0x12u,
         .control_id = 0x02u,
-        .feedback_sign = -1,
     },
     [DM_MOTOR_LEG_B_RGT] = {
         .handle = &hfdcan3,
-        .type = DM_MOTOR_J4310,
         .feedback_id = 0x14u,
         .control_id = 0x04u,
-        .feedback_sign = -1,
     },
 };
 
@@ -112,7 +109,7 @@ void Dm_Init(void)
     {
         const dm_motor_config_t *config = &dm_motor_config[i];
 
-        if (config->handle == NULL || config->type >= DM_MOTOR_TYPE_NUM
+        if (config->handle == NULL
             || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
         {
             continue;
@@ -127,7 +124,6 @@ void Dm_Parse(void)
 {
     for (uint8_t i = 0; i < DM_MOTOR_NUM; i++)
     {
-        const dm_motor_config_t *config = &dm_motor_config[i];
         dm_motor_feedback_t *feedback = &dm_motor_feedback[i];
         uint8_t raw_data[8];
         uint32_t primask;
@@ -150,7 +146,7 @@ void Dm_Parse(void)
         feedback->trq_raw    = ((uint16_t)(raw_data[4] & 0x0Fu) << 8) | raw_data[5];
         feedback->temp_mos   = raw_data[6];
         feedback->temp_rotor = raw_data[7];
-        if (config->feedback_sign < 0)
+        if (machine->dm_sign[i].fb < 0)
         {
             feedback->angle_raw = (uint16_t)(DM_ANGLE_CPR - 1L
                 - feedback->angle_raw);
@@ -160,11 +156,11 @@ void Dm_Parse(void)
                 - feedback->trq_raw);
         }
         feedback->pos_rad = Dm_Uint_To_Float(feedback->angle_raw,
-            DM_MIT_POS_MIN, DM_MIT_POS_MAX, 16u);
+            -machine->dm_pos_max, machine->dm_pos_max, 16u);
         feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw,
-            DM_MIT_VEL_MIN, DM_MIT_VEL_MAX, 12u);
+            -machine->dm_vel_max, machine->dm_vel_max, 12u);
         feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw,
-            DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
+            -machine->dm_trq_max, machine->dm_trq_max, 12u);
         Dm_Update_Angle(i);
     }
 }
@@ -268,7 +264,7 @@ HAL_StatusTypeDef Dm_All_Disable(void)
 HAL_StatusTypeDef Dm_Send_Zero(void)
 {
     const uint16_t zero_trq_raw = Dm_Float_To_Uint(0.0f,
-        DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
+        -machine->dm_trq_max, machine->dm_trq_max, 12u);
     HAL_StatusTypeDef status = HAL_OK;
 
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
@@ -295,12 +291,12 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         command_torque = torque[i];
-        if (dm_motor_config[i].feedback_sign < 0)
+        if (machine->dm_sign[i].out < 0)
         {
             command_torque = -command_torque;
         }
         uint16_t trq_raw = Dm_Float_To_Uint(command_torque,
-            DM_MIT_TRQ_MIN, DM_MIT_TRQ_MAX, 12u);
+            -machine->dm_trq_max, machine->dm_trq_max, 12u);
         if (Dm_Mit_Control(i, DM_MIT_FIELD_MAX,
                            DM_MIT_FIELD_MAX, 0u, 0u, trq_raw) != HAL_OK)
         {

@@ -75,11 +75,11 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau[0], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
     torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau[1], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
 
-    /* 4. 轮扭矩: 右轮取反 (dji.c 不做符号, 与 rl_torque 一致) */
+    /* 4. 轮扭矩 (输出极性在 dji.c 驱动边界统一处理) */
     torque->dji[DJI_MOTOR_WHEEL_LFT] =
         clampf(st->u[LQR_U_WL], -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
     torque->dji[DJI_MOTOR_WHEEL_RGT] =
-        clampf(-st->u[LQR_U_WR], -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
+        clampf(st->u[LQR_U_WR], -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
 
     return 1u;
 }

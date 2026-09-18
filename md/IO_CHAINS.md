@@ -74,9 +74,9 @@ dm.c: Dm_Parse()
       temp_mos   = data[6]
       temp_rotor = data[7]
     if sign<0: angle/vel/trq 取反
-    pos_rad   = uint_to_float(angle_raw, -π, +π, 16)
-    vel_rad_s = uint_to_float(vel_raw, -30, +30, 12)
-    trq_nm    = uint_to_float(trq_raw, -10, +10, 12)
+    pos_rad   = uint_to_float(angle_raw, -PMAX, +PMAX, 16)
+    vel_rad_s = uint_to_float(vel_raw, -VMAX, +VMAX, 12)
+    trq_nm    = uint_to_float(trq_raw, -TMAX, +TMAX, 12)   /* PMAX/VMAX/TMAX 见 machine_config.h */
     Dm_Update_Angle() → angle_total (计圈)
     │
     │  Motor_State_Update() @ task_comm.c
@@ -90,7 +90,7 @@ motor_state.dm:
     ▼
 输出: torque_output_t → task_actuation.c
     torque.dm[0..3] → Dm_Send_Torque(torque.dm):
-      if sign<0: command_torque = -torque[i]
+      if output_sign<0: command_torque = -torque[i]
       trq_raw = float_to_uint(command_torque, -10, +10, 12)
       Dm_Mit_Control(i, FIELD_MAX, FIELD_MAX, 0, 0, trq_raw)
         → 纯力矩模式 (kp=0, kd=0)
@@ -99,12 +99,14 @@ motor_state.dm:
 
 **电机映射:**
 
-| 索引 | 位置 | CAN | feedback_id | control_id | sign |
-|:----:|------|-----|:-----------:|:----------:|:----:|
-| 0 | F_LFT 左大腿 | FDCAN1 | 0x11 | 0x01 | +1 |
-| 1 | B_LFT 左小腿 | FDCAN1 | 0x13 | 0x03 | +1 |
-| 2 | F_RGT 右大腿 | FDCAN3 | 0x12 | 0x02 | -1 |
-| 3 | B_RGT 右小腿 | FDCAN3 | 0x14 | 0x04 | -1 |
+| 索引 | 位置 | CAN | feedback_id | control_id |
+|:----:|------|-----|:-----------:|:----------:|
+| 0 | F_LFT 左前髋 | FDCAN1 | 0x11 | 0x01 |
+| 1 | B_LFT 左后髋 | FDCAN1 | 0x13 | 0x03 |
+| 2 | F_RGT 右前髋 | FDCAN3 | 0x12 | 0x02 |
+| 3 | B_RGT 右后髋 | FDCAN3 | 0x14 | 0x04 |
+
+**极性不在驱动表里**：按机器存在 `machine_config.c` 的 `dm_sign[4]` / `dji_sign[2]`，每项是 `{反馈, 输出}` 一对。
 
 **关键函数:**
 
@@ -118,6 +120,13 @@ motor_state.dm:
 | Dm_All_Disable() | 全部失能 |
 | Dm_Send_Zero() | 零力矩 |
 | Dm_Send_Torque() | 发送力矩数组 |
+
+**ERR 状态码（不是故障位）**：`0` 失能 / `1` 使能 / `8` 过压 / `9` 欠压 / `A` 过流 / `B` MOS 过温 / `C` 线圈过温 / `D` 通信丢失 / `E` 过载。
+判据是"落在 8~E 内"，不能写成 `err != 0`。
+
+**满量程**：`PMAX`/`VMAX`/`TMAX` 是电机的量化刻度（出厂预设 ±12.5 / ±45 / ±54，可在上位机改），
+必须与 `machine_config.c` 中当前机器的 `dm_*_max` 一致，否则角度与力矩整列都错。
+核对方式：用达妙上位机读一次并与配置表比对（固件不做读参）。
 
 ---
 
@@ -168,10 +177,13 @@ motor_state.dji:
 
 **电机映射:**
 
-| 索引 | 位置 | CAN | feedback_id | motor_id | type | sign |
-|:----:|------|-----|:-----------:|:--------:|:----:|:----:|
-| 0 | 左轮 | FDCAN2 | 0x201 | 1 | M2006 | +1 |
-| 1 | 右轮 | FDCAN2 | 0x202 | 2 | M2006 | -1 |
+| 索引 | 位置 | CAN | feedback_id | control_id |
+|:----:|------|-----|:-----------:|:----------:|
+| 0 | 左轮 | FDCAN2 | 0x201 | 0x200 |
+| 1 | 右轮 | FDCAN2 | 0x202 | 0x200 |
+
+型号按机器取（`machine_config.c` 的 `dji_type`）：本机 M2006 / chuanliantui M3508。
+表结构与 DM 完全一致（`motor_cfg_t`，见 `can_bus.h`）；极性同样在 `machine_config.c` 的 `dji_sign[2]`。
 
 **关键函数:**
 
@@ -565,7 +577,7 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
               Leg_Balance_Compute()
               腿长PID + 防劈叉PID + 横滚PID → 足端力 F
               Leg_Force_Map_Forward(&leg, F, Tp) → 前/后髋力矩
-              限幅 → torque_output_t（右轮取反）
+              限幅 → torque_output_t（左右轮都直接传，极性在 dji.c 按 output_sign 处理）
                        │
                        ▼
         Dm_Send_Torque() + Dji_Send_Wheel_Torque()
@@ -576,4 +588,4 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
 （本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
 **速度**：`ω_轮·R_w + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）。
 **腿长限制**：0.13~0.21 m（K 表拟合域 0.13~0.23）。
-**符号责任**：右髋在 `dm.c` 驱动边界取反，调用方不要重复取反；右轮 `dji.c` 不处理，负号在 `leg_balance.c`。详见 [LQR_PLAN.md](LQR_PLAN.md)。
+**符号责任**：反馈极性按 `feedback_sign` 在驱动解码时统一到机体坐标；输出极性按 `output_sign` 在驱动下发时统一处理（`dm.c` / `dji.c`），调用方不要取反。详见 [LQR_PLAN.md](LQR_PLAN.md)。

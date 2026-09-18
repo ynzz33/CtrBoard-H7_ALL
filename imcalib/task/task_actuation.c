@@ -3,6 +3,10 @@
 #include "dji.h"
 #include "dr16.h"
 #include "tim.h"
+#include "../Sysid/sysid_config.h"   /* 相对路径: 不依赖包含路径 */
+#if SYSID_ENABLE
+#include "../Sysid/sysid_mode.h"
+#endif
 
 /* 控制周期 (500Hz) */
 #define OUTPUT_DT 0.002f
@@ -55,7 +59,14 @@ void output_task_body(void)
 
     remote = DR16_Snapshot();
 
-    /* 左拨杆: 上位 = 手动遥操/RL, 中位 = LQR, 下位 = 失能 */
+    /* 左拨杆: 上位 = 手动遥操/RL, 中位 = LQR, 下位 = 失能; 左中 + 右中 = 测试模式 */
+#if SYSID_ENABLE
+    if (remote.online && remote.s1 == DR16_SW_MID && remote.s2 == DR16_SW_MID)
+    {
+        ctrl_strategy = CTRL_STRATEGY_SYSID;
+    }
+    else
+#endif
     if (remote.online && remote.s1 == DR16_SW_MID)
     {
         ctrl_strategy = CTRL_STRATEGY_LQR;
@@ -64,6 +75,15 @@ void output_task_body(void)
     {
         ctrl_strategy = CTRL_STRATEGY_MANUAL;
     }
+
+#if SYSID_ENABLE
+    if (ctrl_strategy == CTRL_STRATEGY_SYSID)
+    {
+        lqr_running = 0u;
+        Sysid_Mode_Run();
+        return;
+    }
+#endif
 
     if (ctrl_strategy == CTRL_STRATEGY_LQR)
     {

@@ -57,7 +57,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 ### DJI 轮电机与遥控
 
 - DJI 左轮 `feedback_sign=+1`，右轮 `feedback_sign=-1`；轮速和多圈角已验证：机器人前进方向为正，后退方向为负。
-- 轮电机输出电流极性与反馈极性分层管理，后续修改轮子输出前必须单独台架确认，不得依据反馈符号重复取反。
+- 轮电机输出极性由 `dji.c` 按配置表的 `output_sign` 统一处理（与 `feedback_sign` 同号）；调用方不要再取反
 - 遥控接收方向已验证；普通 RL 指令当前统一缩放到 `±0.1` 用于安全测试，最终策略缩放以训练参数确认后再更新。
 
 以上定义已经过当前机械安装的腿部输入、腿长、腿角、虚拟小腿、速度/雅可比、虚拟力矩映射和实体运动联调确认。若物理行为再次异常，先检查反馈/下发链路和报文状态，不得直接改几何符号。
@@ -116,7 +116,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 VOFA 当前 30 通道用于全链路诊断：`dbg[0]` 为在线掩码，`dbg[1]` 为 pitch，`dbg[2]` 为 leg_valid，`dbg[3]` 为使能+锁存标志，`dbg[4..7]` 为左大腿（当前/目标/误差/虚拟力矩），`dbg[8..11]` 为左小腿，`dbg[12..15]` 为右大腿，`dbg[16..19]` 为右小腿，`dbg[20..23]` 为四个 DM 最终输出力矩，`dbg[24..26]` 为左轮（目标速度/当前速度/力矩），`dbg[27..29]` 为右轮。
 
-DM 反馈层已对右侧电机取反，力矩下发同步取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
+DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
 旧 F/T 与手动 action 测试入口已删除，执行链只保留策略动作→虚拟关节 PID→雅可比→实际电机。
 
@@ -177,7 +177,7 @@ DM 反馈层已对右侧电机取反，力矩下发同步取反，使逻辑侧�
 力矩输出结构 `torque_output_t` 将 DM 与 DJI 分离（已重构）：
 - `dm[DM_MOTOR_NUM]` — 4 个髋关节力矩，按 DM 驱动索引（F_LFT/B_LFT/F_RGT/B_RGT）
 - `dji[DJI_MOTOR_NUM]` — 2 个轮子力矩，按 DJI 驱动索引（WHEEL_LFT/WHEEL_RGT）
-- 右轮输出取反（`-tau_v[VJ_R_WHEEL]`），因反馈已取反
+- 右轮极性在 `dji.c` 驱动边界按 `output_sign` 处理，调用方不再取反（`tau_v[VJ_R_WHEEL]` 直接传）
 - `task_actuation.c` 直接调用 `Dm_Send_Torque(torque.dm)` + `Dji_Send_Wheel_Torque(torque.dji[0], torque.dji[1])`，无手动索引映射
 
 PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。控制器在总初始化和模型切换时逐个调用 `PID_struct_init`，不做运行时参数同步。当前不包含气弹簧补偿和输出斜率限制。
@@ -190,7 +190,7 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 | Pin | 2.0 | 0 | 5.0 | 0 | 0 |
 | Jump | 2.0 | 0 | 5.0 | 0 | 0 |
 
-**待解决**：DJI M2006 力矩常数 `DJI_NM_PER_RAW_M2006` 需实测确认（当前公式推导为 0.00018 Nm/raw，满量程 10A 对应 raw=10000）。
+**待解决**：DJI 力矩常数需实测确认（M2006 当前公式推导为 0.00018 Nm/raw，满量程 10A 对应 raw=10000）。型号/刻度/减速比已集中到 `imcalib/user-lib/machine_config.h`。
 
 ### 3.5 遥控映射 (`task_policy`)
 
@@ -243,6 +243,8 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只
 |------|------|------|
 | FDCAN 总线 | can_bus.c/h | ✅ 路由注册 + 批量接收 + bus-off 恢复 + RX 看门狗 |
 | DM 电机 | dm.c/h | ✅ MIT 协议 + 解码 + 在线检测 + 多圈计数 |
+| 机器配置表 | machine_config.c/h | ✅ 新增，两份表 + 运行时切换（M3508+J8009P / M2006+J4310） |
+| 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT CYCCNT + 500Hz 周期扩展 |
 | DJI 轮电机 | dji.c/h | ✅ 电流控制 + 解码 + 在线检测 + 减速比修正 |
 | UART 底层 | uart_idle.c/h | ✅ IDLE+DMA Circular |
 | DR16 遥控 | dr16.c/h | ✅ 解析 + 实测正常 |
