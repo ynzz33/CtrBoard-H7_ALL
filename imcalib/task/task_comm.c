@@ -81,6 +81,7 @@ static void Motor_State_Update(void)
         const dm_motor_feedback_t *feedback = &dm_motor_feedback[i];
 
         motor_state.dm.pos_rad[i] = feedback->pos_rad;
+        motor_state.dm.pos_zero_rad[i] = feedback->pos_zero_rad;
         motor_state.dm.vel_rad_s[i] = feedback->vel_rad_s;
         motor_state.dm.trq_nm[i] = feedback->trq_nm;
         motor_state.dm.last_rx_tick[i] = feedback->last_rx_tick;
@@ -106,17 +107,15 @@ static void Leg_State_Update(void)
 {
     if (leg_map_l.configured)
     {
-        leg_l.input.hip_f = motor_state.dm.pos_rad[leg_map_l.dm_front]
-            + LEG_PI + leg_l.config.offset_f;
-        leg_l.input.hip_b = motor_state.dm.pos_rad[leg_map_l.dm_rear] + leg_l.config.offset_b;
+        leg_l.input.hip_f = motor_state.dm.pos_zero_rad[leg_map_l.dm_front] + LEG_PI;
+        leg_l.input.hip_b = motor_state.dm.pos_zero_rad[leg_map_l.dm_rear];
         leg_l.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_l.dm_front];
         leg_l.input.d_hip_b = motor_state.dm.vel_rad_s[leg_map_l.dm_rear];
     }
     if (leg_map_r.configured)
     {
-        leg_r.input.hip_f = motor_state.dm.pos_rad[leg_map_r.dm_front]
-            + LEG_PI + leg_r.config.offset_f;
-        leg_r.input.hip_b = motor_state.dm.pos_rad[leg_map_r.dm_rear] + leg_r.config.offset_b;
+        leg_r.input.hip_f = motor_state.dm.pos_zero_rad[leg_map_r.dm_front] + LEG_PI;
+        leg_r.input.hip_b = motor_state.dm.pos_zero_rad[leg_map_r.dm_rear];
         leg_r.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_r.dm_front];
         leg_r.input.d_hip_b = motor_state.dm.vel_rad_s[leg_map_r.dm_rear];
     }
@@ -219,11 +218,11 @@ static void Robot_Enable_Update(void)
     }
 }
 
-/* 发送调试数据 */
+/* 发送调试数据 (27 通道: 状态 + 电机 + 解算) */
 static void Robot_Control_Send_Vofa(void)
 {
     static uint8_t vofa_div;
-    static float dbg[48];
+    static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
 
     vofa_div++;
@@ -233,7 +232,7 @@ static void Robot_Control_Send_Vofa(void)
     }
     vofa_div = 0u;
 
-    /* 在线掩码 (ch0) */
+    /* 状态 (ch0-2): 在线 解算有效 策略 */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
     online_mask |= DR16_Online()    ? 0x02u : 0x00u;
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
@@ -244,76 +243,37 @@ static void Robot_Control_Send_Vofa(void)
     {
         online_mask |= motor_state.dji.online[i] ? (uint8_t)(0x40u << i) : 0x00u;
     }
-    dbg[0]  = (float)online_mask;
+    dbg[0] = (float)online_mask;
+    dbg[1] = (float)(leg_l.output.valid + leg_r.output.valid * 2u);
+    dbg[2] = (float)ctrl_strategy;
 
-    /* 机体状态 (ch1-3) */
-    dbg[1]  = imu_state.euler_rad[ATTITUDE_PITCH];
-    dbg[2]  = (float)leg_l.output.valid + (float)leg_r.output.valid * 2.0f;
-    dbg[3]  = (float)robot_state.motor_enabled
-            + (float)action_state.base_action_locked * 2.0f;
+    /* 电机 (ch3-14): 前左 后左 前右 后右 */
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        dbg[3u + i]  = motor_state.dm.pos_rad[i];       /* 原始解码角 */
+        dbg[7u + i]  = motor_state.dm.pos_zero_rad[i];  /* 零点后 */
+        dbg[11u + i] = motor_state.dm.vel_rad_s[i];     /* 速度 */
+    }
 
-    /* 左大腿 (ch4-7): 当前 目标 误差 虚拟力矩 */
-    dbg[4]  = leg_l.output.thigh_angle;
-    dbg[5]  = rl_control.torque_state.pos_target[0];
-    dbg[6]  = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[0],
-                                    leg_l.output.thigh_angle);
-    dbg[7]  = rl_control.torque_state.virtual_torque[0];
+    /* 左腿解算 (ch15-18): 腿长 腿摆角 大腿角 小腿角 */
+    dbg[15] = leg_l.output.virtual_leg_length;
+    dbg[16] = leg_l.output.virtual_leg_angle;
+    dbg[17] = leg_l.output.thigh_angle;
+    dbg[18] = leg_l.output.virtual_shank_angle;
 
-    /* 左小腿 (ch8-11): 当前 目标 误差 虚拟力矩 */
-    dbg[8]  = leg_l.output.virtual_shank_angle;
-    dbg[9]  = rl_control.torque_state.pos_target[1];
-    dbg[10] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[1],
-                                    leg_l.output.virtual_shank_angle);
-    dbg[11] = rl_control.torque_state.virtual_torque[1];
+    /* 右腿解算 (ch19-22) */
+    dbg[19] = leg_r.output.virtual_leg_length;
+    dbg[20] = leg_r.output.virtual_leg_angle;
+    dbg[21] = leg_r.output.thigh_angle;
+    dbg[22] = leg_r.output.virtual_shank_angle;
 
-    /* 右大腿 (ch12-15): 当前 目标 误差 虚拟力矩 */
-    dbg[12] = leg_r.output.thigh_angle;
-    dbg[13] = rl_control.torque_state.pos_target[3];
-    dbg[14] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[3],
-                                    leg_r.output.thigh_angle);
-    dbg[15] = rl_control.torque_state.virtual_torque[3];
+    /* 下发力矩 (ch23-26): 前左 后左 前右 后右 */
+    dbg[23] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_LFT];
+    dbg[24] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_LFT];
+    dbg[25] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_RGT];
+    dbg[26] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_RGT];
 
-    /* 右小腿 (ch16-19): 当前 目标 误差 虚拟力矩 */
-    dbg[16] = leg_r.output.virtual_shank_angle;
-    dbg[17] = rl_control.torque_state.pos_target[4];
-    dbg[18] = Leg_Debug_Angle_Diff(rl_control.torque_state.pos_target[4],
-                                    leg_r.output.virtual_shank_angle);
-    dbg[19] = rl_control.torque_state.virtual_torque[4];
-
-    /* 最终电机力矩 (ch20-23): 左前 左后 右前 右后 */
-    dbg[20] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_LFT];
-    dbg[21] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_LFT];
-    dbg[22] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_RGT];
-    dbg[23] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_RGT];
-
-    /* 轮子 (ch24-29): 左目标 左当前 左力矩 右目标 右当前 右力矩 */
-    dbg[24] = rl_control.torque_state.pos_target[2];
-    dbg[25] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-    dbg[26] = rl_control.torque_state.virtual_torque[2];
-    dbg[27] = rl_control.torque_state.pos_target[5];
-    dbg[28] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
-    dbg[29] = rl_control.torque_state.virtual_torque[5];
-
-    /* LQR (ch30-47): 策略 u[4] 力向量 腿长 速度 腿摆角 */
-    dbg[30] = (float)ctrl_strategy;
-    dbg[31] = lqr_state.u[LQR_U_WL];
-    dbg[32] = lqr_state.u[LQR_U_WR];
-    dbg[33] = lqr_state.u[LQR_U_BL];
-    dbg[34] = lqr_state.u[LQR_U_BR];
-    dbg[35] = leg_balance.F[0];
-    dbg[36] = leg_balance.Tp[0];
-    dbg[37] = leg_balance.F[1];
-    dbg[38] = leg_balance.Tp[1];
-    dbg[39] = lqr_state.len[0];
-    dbg[40] = lqr_state.leg_len_tgt[0];
-    dbg[41] = lqr_state.len[1];
-    dbg[42] = lqr_state.leg_len_tgt[1];
-    dbg[43] = lqr_state.x[LQR_X_DS];
-    dbg[44] = lqr_state.x[LQR_X_DTHB];
-    dbg[45] = lqr_state.x[LQR_X_THL];
-    dbg[46] = lqr_state.x[LQR_X_DTHL];
-    dbg[47] = lqr_state.x[LQR_X_THR];
-    Vofa_Send(dbg, 48u);
+    Vofa_Send(dbg, 27u);
 }
 
 /* 通信单周期 */

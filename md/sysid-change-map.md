@@ -317,6 +317,264 @@ FDCAN2 RX 中断 → `HAL_FDCAN_RxFifo0Callback()`（`can_bus.c:114`）→ 路�
 
 ---
 
+## 变更 14 · 接上"总输出开关" + VOFA 串口改成可切换宏
+
+**① 总输出开关（原来只是死代码）**
+- 现状：`torque_output_enabled` 在 `robot_control.c` 里被声明并赋值，但**全工程没人读**（文档写了、实现没有）
+- 改法（第一版曾放在 `output_task_body()` 开头早退，会冻住所有目标/误差/LQR 通道 → 已按作者意见改掉）：
+  - `task_actuation.c` 新增 `output_send(const torque_output_t *)`，作为**唯一的下发点**
+  - 开关为 0 时 → 只发 `Dm_Send_Zero()` + `Dji_All_Stop()`；为 1 时 → 正常 `Dm_Send_Torque()` + `Dji_Send_Wheel_Torque()`
+  - LQR 链路与手动/RL 链路都改成调用 `output_send(&torque)`
+  - **控制链路本身照常运行**：策略仲裁、LQR 状态估计+控制、RL 力矩计算、目标的误差量都还在算 → VOFA 的 `dbg[5]/[9]/[13]/[17]`（目标）、`[7]/[11]/[15]/[19]`（虚拟力矩）、`[30]`（策略）、`[31..47]`（LQR）都会正常刷新
+- 当前值：`robot_control.c:39` = **0**（按作者要求关闭所有输出，供关节回馈测试）
+- 注意两点：
+  - 零力矩帧**必须继续发**，因为 DM 电机只在收到帧时才回状态帧；停了就收不到回馈
+  - 开关为 0 时 `dbg[20..23]` 显示的是"算出来的力矩"而不是"发出去的力矩"（实际发出去的是 0）；`output_debug_dm_sent` 标志为 0 才代表真的没发力矩
+- 恢复：把该行改回 `1u`
+
+**② VOFA 串口选择宏**
+- `Vofa_send.h` 由裸 `#define VOFA_UART &huart8` 改为 `VOFA_PORT` 数字选择（8=UART8 默认 / 1=USART1），`VOFA_UART` 由其推导
+- 支持构建系统覆盖：`-DVOFA_PORT=1`（Keil 的 Define / eIDE 的预定义宏），不必改文件
+- 填其它数字 **编译期报错**（`#error`），避免选到被占用/无 TX DMA 的口
+- 已确认各口：UART8（921600 + DMA1_Stream7 NORMAL ✓）、USART1（921600 + DMA1_Stream6 NORMAL ✓、无模块占用）、UART7（HI229 占用 + TX DMA CIRCULAR ✗）、UART9（DR16 占用 + 无 TX DMA ✗）
+
+**核对**：`VOFA_PORT=8`、`VOFA_PORT=1` 各 103 文件 0 fail / 0 warn；`VOFA_PORT=7` 如期报 `#error`。
+
+---
+
+## 变更 15 · CAN 总线分配也进机器配置表；IMU 新包核对结论
+
+**① 总线分配进配置表**
+- 接线差异：大机器 = 四个 DM 全在 **FDCAN1**、两个 3508 在 **FDCAN3**；小机器 = DM 左腿 FDCAN1 / 右腿 FDCAN3、轮 **FDCAN2**
+- `machine_config.h`：机器结构体加 `uint8_t dm_bus[MACHINE_LEG_NUM]`（1/2/3 = FDCANx）与 `uint8_t dji_bus`
+- `machine_config.c`：chuanliantui `{1,1,1,1}` + `3`；LOCAL `{1,1,3,3}` + `2`
+- `can_bus.h/.c`：新增 `Can_Bus_Handle(bus)`（复用原有句柄表）
+- `motor_cfg_t` 去掉 `handle` 字段 → 只剩 `feedback_id / control_id`（总线是机器级）
+- `dm.c` / `dji.c`：注册与发送统一用 `Can_Bus_Handle(machine->dm_bus[i])` / `Can_Bus_Handle(machine->dji_bus)`
+
+**核对**
+- 全量编译 103 文件 0 fail / 0 warn；驱动里 `->handle` 已无残留
+- 逐台脚本比对：LOCAL 腿 `[1,1,3,3]` / 轮 `2` 与 HEAD **完全一致** → 小机器行为不变 ✓
+- CHUANLIANTUI：腿全 `1`、轮 `3` ✓
+
+**② IMU 大机器新包：不需要改代码**
+- 旧包 `tag(1) id(1) rev[2] prs(4) ts(4) acc gyr mag eul quat` = 76 字节
+- 新包 `tag(1) status(2) tmp(1) prs(4) ts(4) acc gyr mag eul quat` = **同样 76 字节**
+- 两者只有 **offset 1-3** 的含义不同（`id+rev` ↔ `status+tmp`），而固件只读 `ts/acc/gyr/eul/quat`（offset 4 之后）→ **偏移完全一致**
+- 结论：只要帧头（0x5A 0xA5）、长度字段（76）、波特率（921600）不变，解析无需改动
+- 若之后要显示新包的 `status` / `tmp`，再加两个字段即可（暂缓）
+
+---
+
+## 变更 16 · DM 反馈 ID 兼容两种 Master ID
+
+**背景**：换大机器后 ch0=193（只有 IMU + 两轮在线），四台腿全离线；总线上没有匹配到任何反馈帧。
+原因：DM 回帧 ID = 电机里的 **Master ID + CAN ID**，表里假设的是 `0x10 + ID`（→ 0x11..0x14）；另一批电机的 Master ID 常为 **0**（→ 回帧就是 0x01..0x04）。
+
+**改动**：`dm.c` 的 `Dm_Init()` 对每台电机**注册两个反馈 ID**：`feedback_id`（0x11..0x14）与 `control_id`（0x01..0x04），两者都路由到同一 ctx。
+
+**核对**：编译 103 文件 0 fail / 0 warn；路由数仍在 `CAN_BUS_ROUTE_MAX = 8` 内（大机器 FDCAN1 恰好 8、FDCAN3 2；小机器 4/4/2）。
+
+**若仍离线**：说明电机 CAN ID 不是 0x01..0x04（我们发帧没人应答）或未上电/终端电阻缺失 → 用达妙上位机读每台的 CAN ID / Master ID。
+
+---
+
+## 变更 17 · DR16 接收放宽 + 加三个诊断通道
+
+**怀疑**：`DR16_Process()` 原来是 `if (len == DR16_FRAME_LEN)`（严格 18 字节）才解析；若 IDLE 分包导致 19 字节或丢 1 字节，会**整帧丢弃** → 现象正是"接收机通信正常但主控认不到"。
+
+**改动**
+- `dr16.c`：解析条件放宽为 `len >= DR16_FRAME_LEN`（尾部带下一帧字节也能解析）；帧长不足仍丢弃
+- `dr16.c/.h`：新增三个诊断量 `dr16_idle_cnt`（IDLE 事件数）、`dr16_last_len`（最近一帧字节数）、`dr16_ok_cnt`（解析成功帧数）
+- `task_comm.c`：把 **ch45/46/47**（原 LQR 左腿三个量）临时改为这三个诊断量；`md/VOFA_SEND.md` 已标注，调试完恢复
+
+**判定表**
+
+| ch45 (idle) | ch46 (len) | ch47 (ok) | 结论 |
+| --- | --- | --- | --- |
+| 不涨 | 0 | 0 | UART9 一个字节都没收到 → 数据线（**PD14**）/接收机模式（必须 DBUS，SBUS 收不到） |
+| 涨 | 恒 18 | 涨 | 一切正常（ch0 的 bit1 应亮） |
+| 涨 | 乱跳 | 不涨 | 分包/丢字节 → 本轮放宽后应恢复 |
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+---
+
+## 变更 18 · VOFA ch45~47 改为 FDCAN1 接收诊断
+
+**改动**
+- `can_bus.h/.c`：`can_bus_t` 增加 `last_rx_id`（RX 中断里记录）；新增 `Can_Bus_Rx_Count(bus)` / `Can_Bus_Last_Rx_Id(bus)`
+- `task_comm.c`：**替换**（不新增）ch45/46/47：
+  - ch45 = **FDCAN1 收帧计数**（累计）
+  - ch46 = **FDCAN1 最近一帧 CAN ID**
+  - ch47 = DR16 解析成功帧数（保留遥控诊断）
+- `md/VOFA_SEND.md` 同步标注
+
+**怎么读**
+| 现象 | 结论 |
+| --- | --- |
+| ch45 不涨、ch46 = 0 | FDCAN1 上一帧都收不到（经典配置下收到 FD 帧会被判格式错误，**这是现在 1 Mbps 配置的预期现象**） |
+| 改成 FD(1M/4M) 后 ch45 开始涨、ch46 在 17/18/19/20（0x11~0x14）跳 | **腿回馈通了** → ch0 四台腿应同时亮 |
+| ch45 涨但 ch46 是别的值 | 电机回帧 ID 不是 0x11~0x14 → 把该值告诉我，路由按它改 |
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+---
+
+## 变更 19 · ch42~47 改为六台电机反馈观测
+
+**改动**（`task_comm.c`，只替换、不新增通道）
+| 通道 | 内容 |
+| --- | --- |
+| ch42 | DM 左前髋位置 `dm.pos_rad[F_LFT]` |
+| ch43 | DM 左后髋位置 |
+| ch44 | DM 右前髋位置 |
+| ch45 | DM 右后髋位置 |
+| ch46 | 左轮位置 `dji.angle_total_rad[LFT]`（多圈累计） |
+| ch47 | 右轮位置 `dji.angle_total_rad[RGT]`（多圈累计） |
+
+**怎么读**：掰腿 → ch42~45 变化；转轮 → ch46/47 变化。**值在动 = 该电机通信正常**；一直不动 = 没通。
+六路都是位置（速度快看不出来）：DM 是逻辑坐标（右侧已取反）；轮是多圈累计角（转起来持续变化，不绕回）。
+
+**核对**：编译 103 文件 0 fail / 0 warn；`md/VOFA_SEND.md` 同步标注。
+
+---
+
+## 变更 20 · 腿几何（杆长 + 零位偏置）搬进机器配置表
+
+**改动**
+- `machine_config.h`：`machine_cfg_t` 增加
+  | 字段 | 含义 |
+  | --- | --- |
+  | `leg_lu` / `leg_lg` | 大腿杆长 / 小腿杆长（m） |
+  | `leg_off_f[2]` | 前髋零位偏置（左/右，rad） |
+  | `leg_off_b[2]` | 后髋零位偏置（左/右，rad） |
+  | `leg_off_phi0[2]` | 虚拟小腿零位偏置（左/右，rad） |
+- `machine_config.c`：两份机器表各填一组；大机器 `lu=0.21 / lg=0.25`，零点**照抄参考固件表** `{0.476998, -1.974491} / {1.974491, -0.476998}`（前左/前右 / 后左/后右）。
+- `robot_control.c`：五连杆几何与偏置从 `machine->leg_*` 读取（新增 `#include "machine_config.h"`），不再硬编码。
+
+**输入 / 输出 / 调用链**
+- 输入：`Machine_Select()` 选中的机器表
+- 输出：`leg_l/leg_r.config`（`lu/lg/offset_f/offset_b/offset_phi0`）
+- 调用链：`main.c:134` → `Machine_Select` → `freertos.c:117` → `Robot_Control_Init()` → `leg_*.config.*` → `task_comm.c` `Leg_State_Update()` 组 `input.hip_*` → `Leg_Solve()` → `output.*` → `rl_torque.c` / `lqr_balance.c` / `leg_balance.c` / `task_policy.c`
+
+**怎么读**：`leg.output.valid` 为 0 说明几何/偏置不成立（腿长落到 0.136~0.46 m 之外或开方为负）。
+
+**核对**：编译 103 文件 0 fail / 0 warn；换机器只改 `MACHINE_DEFAULT` 一处。
+
+**待台架**：零点照抄参考固件（`实际值 = raw × 极性 + 零点`），**未实测**。注意 `task_comm.c:110` 前髋还额外 `+ LEG_PI`（原有代码，未动），所以前髋**实际零点 = 图值 + π**（左前 = 3.6186 rad）。腿长/倾角离谱 → 按卷尺 + 角度计重标。`leg_off_phi0` 两台都还是占位值。
+
+⚠️ 本节描述的 `leg_off_f`/`leg_off_b` 字段已被变更 22 移到 `dm_zero`，以变更 22 为准。
+
+---
+
+## 变更 21 · VOFA ch31~47 改为腿部解算 + 电机观测（临时占用 LQR 通道）
+
+**改动**（`task_comm.c`，只替换、不新增通道）
+| 通道 | 内容 |
+| --- | --- |
+| ch31 / ch39 | 左 / 右 腿长 `virtual_leg_length`（m） |
+| ch32 / ch40 | 左 / 右 腿摆倾角 `virtual_leg_angle`（rad） |
+| ch33 / ch41 | 左 / 右 大腿角 `thigh_angle`（rad） |
+| ch34 / ch42 | 左 / 右 虚拟小腿角 `virtual_shank_angle`（rad） |
+| ch35~38 | 左前髋位置 / 左后髋位置 / 左前髋速度 / 左后髋速度 |
+| ch43~46 | 右前髋位置 / 右后髋位置 / 右前髋速度 / 右后髋速度 |
+| ch47 | 解算有效掩码（1=左, 2=右, 3=两侧） |
+
+**输入 / 输出 / 调用链**
+- 输入：`leg_solver` 输出的 `leg_l/leg_r.output`，`motor_state.dm.pos_rad/vel_rad_s`
+- 输出：`dbg[48]` → `Vofa_Send(dbg, 48u)` → 当前 `VOFA_PORT` 串口
+- 调用链：`comm_task_body()` → `Motor_State_Update()` → `Leg_Debug_Send()` → `Vofa_Send()`
+
+**怎么读**
+| 现象 | 结论 |
+| --- | --- |
+| ch47 ≠ 3 | 有一侧解算无效，后面数值都不用信 |
+| ch31/ch39 竖直时 ≠ 卷尺量的轴心-足端距离 | 杆长或偏置不对 |
+| 左右摆成对称姿态时 ch31 与 ch39 反向 | 右腿前后电机表项顺序或 `dm_sign` 反了 |
+| ch35~38/ch43~46 值不动 | 该侧电机没通 |
+
+**核对**：编译 103 文件 0 fail / 0 warn；`md/VOFA_SEND.md` 已同步（含原始 LQR 布局的恢复表）。
+
+---
+
+## 变更 22 · 电机零点搬到 dm.c 解码层（原始值与零点值分开）
+
+**动机**：原来电机零点（`offset_f`/`offset_b`）在任务层 `Leg_State_Update()` 里叠加，导致 VOFA 上看到的 `pos_rad` 是"裸解码角"而不是"实际被消费的关节角"，调试时容易误判。搬到 `dm.c` 解码层后，零点后值 `pos_zero_rad` 是**唯一被消费的电机位置**（进腿部解算、进 PID、进 RL 观测），原始解码角仍然保留在 `dm_motor_feedback[].pos_rad` / `motor_state.dm.pos_rad[]`（调试器 Watch 可见），两个值互不覆盖。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/user-lib/machine_config.h` | `machine_cfg_t` 删除 `leg_off_f[2]` / `leg_off_b[2]`，新增 `float dm_zero[MACHINE_LEG_NUM]`（4 台腿电机零点，顺序前左/后左/前右/后右） |
+| `imcalib/user-lib/machine_config.c` | 两份机器表填 `.dm_zero`；大机器见 `MACHINE_ID_CHUANLIANTUI` 表项，小机器见 `MACHINE_ID_LOCAL` 表项（数值与原 `leg_off_f/leg_off_b` 逐项一致） |
+| `imcalib/user-lib/dm.h` | `dm_motor_feedback_t` 新增 `float pos_zero_rad`（`pos_rad` 注释改为"解码角"，`pos_zero_rad` 注释"加零点"） |
+| `imcalib/user-lib/dm.c` | `Dm_Parse()` 解码后新增 `feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i]` |
+| `imcalib/task/inc/robot_control.h` | `dm_motor_state_t` 新增 `float pos_zero_rad[DM_MOTOR_NUM]` |
+| `imcalib/task/task_comm.c` | `Motor_State_Update()` 同时拷贝 `pos_rad` 和 `pos_zero_rad`；`Leg_State_Update()` 改用 `dm.pos_zero_rad[]` 组 `input.hip_f/hip_b`（前髋 `+ LEG_PI` 保留，任务层不再加任何 off 项）；VOFA ch35/36/43/44 改为 `dm.pos_zero_rad[]` |
+| `imcalib/Algorithm/leg_solver.h` | `leg_config_t` 删除 `offset_f` / `offset_b`（`offset_phi0` 保留，仍被求解器使用） |
+| `imcalib/task/robot_control.c` | `Robot_Control_Init()` 不再写 `leg_*.config.offset_f/offset_b` |
+
+**输入 / 输出 / 调用链**
+
+```
+machine_config.c 的 .dm_zero
+    │
+    │  Dm_Parse() @ imcalib/user-lib/dm.c
+    ▼
+dm_motor_feedback[].pos_zero_rad  (= pos_rad + dm_zero[i])
+    │
+    │  Motor_State_Update() @ task_comm.c
+    ▼
+motor_state.dm.pos_zero_rad[]
+    │
+    │  Leg_State_Update() @ task_comm.c
+    ▼
+leg_l/leg_r.input.hip_f = pos_zero_rad[F] + LEG_PI   (前髋额外 +π)
+leg_l/leg_r.input.hip_b = pos_zero_rad[B]
+    │
+    │  Leg_Solve()
+    ▼
+消费方:
+  rl_torque.c    — 位置环 PID 当前值
+  task_policy.c  — RL 观测 obs.joint_pos
+  lqr_balance.c  — LQR 状态
+  leg_balance.c  — 腿部力控
+```
+
+**怎么读**
+- VOFA ch35/36/43/44 是零点后值，就是进解算和 PID 实际消费的那个值。
+- 原始解码角没有上 VOFA，需要时用调试器看 `motor_state.dm.pos_rad[]`。
+
+**数值等价性**：这次是纯搬家，**任何数值都没有变化**。旧代码 `hip_f = pos_rad + π + offset_f`、`hip_b = pos_rad + offset_b`；新代码 `pos_zero_rad = pos_rad + dm_zero[i]`，然后 `hip_f = pos_zero_rad + π`、`hip_b = pos_zero_rad`，两边相加结果完全一致。
+
+**核对**：编译 103 文件 0 fail / 0 warn；`grep` 确认全工程 `offset_f` / `offset_b` / `leg_off_f` / `leg_off_b` 已无残留。
+
+**待台架**：大机器 4 个零点是从参考固件表照抄的，未经实测；前髋因为代码里原有 `+π`，其等效零点是"`.dm_zero` 值 + π"。
+
+---
+
+## 变更 23 · 大机器 MIT 位置满量程 12.5 → ±π（作者读上位机确认）
+
+**改动**（`machine_config.c` 大机器段，只改一行）
+- `.dm_pos_max`：`12.5f` → `3.14159f`
+- `.dm_vel_max = 45.0f` / `.dm_trq_max = 54.0f` **保持不变**（作者在上位机核对：速度 ±45、力矩 ±54、反馈与输出同一套刻度）
+
+**输入 / 输出 / 调用链**
+- 输入：`machine->dm_pos_max`（唯一读点 `dm.c:162`）
+- 输出：`dm_motor_feedback[].pos_rad` → `pos_zero_rad` → `motor_state.dm.pos_zero_rad[]` → `leg.input.hip_f/hip_b` → `Leg_Solve()` → 腿长/腿角/雅可比 → LQR / RL 观测 / 力矩映射
+- **没有位置下发路径**：全工程无 `Dm_Float_To_Uint` 编码位置（只有力矩编码，`dm.c:272` / `dm.c:304`），所以此改动只影响反馈解码
+
+**为什么改**：手册特征表为"磁编（单圈 输出轴一圈绝对位置）"，备注①"上电后，电机位置输出限定在 [-π,π]rad 之间"。原值 12.5 取自手册中"Pos 预设 ±12.5"一句，但同一段紧接着标注"（下图仅作示例，与实际数据无关）"，且 12.5 会让**所有反馈角度放大 12.5/π ≈ 3.98 倍**。
+
+**怎么读**：改后 ch35/36/43/44（零点后电机角）应收敛到 ±π 量级；ch31/ch39（腿长）应落回 0.136~0.46 m 的合理区间。
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+**待台架**：`dm_vel_max = 45` / `dm_trq_max = 54` 为作者读上位机所得，尚未与固件其余量纲联调验证；力矩刻度错会让"下发值"和"回读值"反向偏差同一倍数（实际 = 下发 × 电机TMAX/固件TMAX），直接污染系统辨识。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。
@@ -333,8 +591,9 @@ FDCAN2 RX 中断 → `HAL_FDCAN_RxFifo0Callback()`（`can_bus.c:114`）→ 路�
 | --- | --- | --- |
 | 读参窗口丢帧 | 启动期可能吃掉 1 帧正常反馈 | 仅启动期、电机未使能，接受 |
 | 启动延时 | 自检最多 +160 ms | 接受；失败不阻塞 |
-| 满量程不一致 | `P_MAX` 若实际 12.5 而固件为 π，则角度整体缩放 | 靠 ch3 bit3 暴露；改不改等台架结论 |
+| 满量程不一致 | ~~`P_MAX` 12.5 而实际 ±π~~ → 变更 23 已改为 ±π | 已解决；VMAX/TMAX 由作者上位机核对为 45/54 |
 | 时钟调用周期 | Tick 必须 ≥ 每 7.81 s 一次 | 目前唯一挂在 500 Hz TIM6 上，满足 |
 | 时钟溢出 | `cyc×1000` 约 9 小时上限 | 单次实验远小于该时长 |
 | 力矩记录点 | 现在仍是"命令值"，量化后回算在步 5 | 见计划 §10.2 |
-| 腿几何未进配置表 | 切机器时 `robot_control.c:43-63` 必须手改 | 待机器①几何确认后再挪 |
+| 腿几何已进配置表 | ~~切机器时 `robot_control.c:43-63` 必须手改~~ → 变更 20 后只改 `MACHINE_DEFAULT` | 已完成 |
+| 腿偏置为换算值 | 大机器偏置按参考固件表换算，未经卷尺/角度计验证 | 待台架标定；现象离谱就重标 |

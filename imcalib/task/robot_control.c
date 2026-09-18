@@ -1,4 +1,5 @@
 #include "robot_control.h"
+#include "machine_config.h"
 
 #include <string.h>
 
@@ -36,22 +37,18 @@ void Action_State_Clear(void)
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
-    torque_output_enabled = 1u;
+    torque_output_enabled = 0u;   /* 总输出: 0=只发零力矩(回馈测试) 1=正常 */
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
-    leg_l.config.lu = 0.13087f;
-    leg_l.config.lg = 0.15240f;
-    leg_l.config.offset_f = -0.03f;
-    leg_l.config.offset_b = -0.04f;
-    leg_l.config.offset_phi0 = -0.13f;
+    leg_l.config.lu = machine->leg_lu;
+    leg_l.config.lg = machine->leg_lg;
+    leg_l.config.offset_phi0 = machine->leg_off_phi0[0];
     leg_l.config.mirror = 1;
     leg_l.config.configured = 1u;
-    leg_r.config.lu = 0.13087f;
-    leg_r.config.lg = 0.15240f;
-    leg_r.config.offset_f = -0.038f;
-    leg_r.config.offset_b = -0.023f;
-    leg_r.config.offset_phi0 = -0.07f;
+    leg_r.config.lu = machine->leg_lu;
+    leg_r.config.lg = machine->leg_lg;
+    leg_r.config.offset_phi0 = machine->leg_off_phi0[1];
     leg_r.config.mirror = 1;
     leg_r.config.configured = 1u;
 

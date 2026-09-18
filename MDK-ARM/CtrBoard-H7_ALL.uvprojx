@@ -1463,6 +1463,11 @@
           </GroupOption>
           <Files>
             <File>
+              <FileName>upstairs_generate_report.txt</FileName>
+              <FileType>5</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_generate_report.txt</FilePath>
+            </File>
+            <File>
               <FileName>jump_generate_report.txt</FileName>
               <FileType>5</FileType>
               <FilePath>../X-CUBE-AI/App/jump_generate_report.txt</FilePath>
@@ -1524,11 +1529,6 @@
                   <ComprImg>1</ComprImg>
                 </CommonProperty>
               </FileOption>
-            </File>
-            <File>
-              <FileName>upstairs_generate_report.txt</FileName>
-              <FileType>5</FileType>
-              <FilePath>../X-CUBE-AI/App/upstairs_generate_report.txt</FilePath>
             </File>
           </Files>
         </Group>
@@ -1718,6 +1718,21 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
+            </File>
+            <File>
+              <FileName>upstairs.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs.c</FilePath>
+            </File>
+            <File>
+              <FileName>upstairs_data.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_data.c</FilePath>
+            </File>
+            <File>
+              <FileName>upstairs_data_params.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../X-CUBE-AI/App/upstairs_data_params.c</FilePath>
             </File>
             <File>
               <FileName>jump.c</FileName>
@@ -2150,21 +2165,6 @@
                   </Cads>
                 </FileArmAds>
               </FileOption>
-            </File>
-            <File>
-              <FileName>upstairs.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../X-CUBE-AI/App/upstairs.c</FilePath>
-            </File>
-            <File>
-              <FileName>upstairs_data.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../X-CUBE-AI/App/upstairs_data.c</FilePath>
-            </File>
-            <File>
-              <FileName>upstairs_data_params.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../X-CUBE-AI/App/upstairs_data_params.c</FilePath>
             </File>
           </Files>
         </Group>

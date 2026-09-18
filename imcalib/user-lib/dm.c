@@ -6,25 +6,21 @@
 /* 编译期检查: 极性表长度对齐 */
 typedef char dm_num_check[(MACHINE_LEG_NUM == DM_MOTOR_NUM) ? 1 : -1];
 
-/* 固定参 (极性见 machine_config.c) */
+/* 固定参: 只存报文 ID (总线/极性见 machine_config.c) */
 const dm_motor_config_t dm_motor_config[DM_MOTOR_NUM] = {
     [DM_MOTOR_LEG_F_LFT] = {
-        .handle = &hfdcan1,
         .feedback_id = 0x11u,
         .control_id = 0x01u,
     },
     [DM_MOTOR_LEG_B_LFT] = {
-        .handle = &hfdcan1,
         .feedback_id = 0x13u,
         .control_id = 0x03u,
     },
     [DM_MOTOR_LEG_F_RGT] = {
-        .handle = &hfdcan3,
         .feedback_id = 0x12u,
         .control_id = 0x02u,
     },
     [DM_MOTOR_LEG_B_RGT] = {
-        .handle = &hfdcan3,
         .feedback_id = 0x14u,
         .control_id = 0x04u,
     },
@@ -108,14 +104,21 @@ void Dm_Init(void)
     for (uint8_t i = 0; i < DM_MOTOR_NUM; i++)
     {
         const dm_motor_config_t *config = &dm_motor_config[i];
+        FDCAN_HandleTypeDef *handle = Can_Bus_Handle(machine->dm_bus[i]);
 
-        if (config->handle == NULL
+        if (handle == NULL
             || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
         {
             continue;
         }
-        Can_Bus_Register(config->handle, config->feedback_id, Dm_Read,
+        /* 反馈 ID 兼容两种 Master ID: 0x10+ID (表里值) 与 0+ID (等同控制 ID) */
+        Can_Bus_Register(handle, config->feedback_id, Dm_Read,
                          &dm_motor_feedback[i]);
+        if (config->control_id != config->feedback_id)
+        {
+            Can_Bus_Register(handle, config->control_id, Dm_Read,
+                             &dm_motor_feedback[i]);
+        }
     }
 }
 
@@ -157,6 +160,7 @@ void Dm_Parse(void)
         }
         feedback->pos_rad = Dm_Uint_To_Float(feedback->angle_raw,
             -machine->dm_pos_max, machine->dm_pos_max, 16u);
+        feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i];
         feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw,
             -machine->dm_vel_max, machine->dm_vel_max, 12u);
         feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw,
@@ -205,7 +209,8 @@ HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,
     data[6] = (uint8_t)((kd_raw << 4) | (trq_raw >> 8));
     data[7] = (uint8_t)trq_raw;
 
-    return Can_Bus_Transmit(config->handle, config->control_id, data, sizeof(data));
+    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]),
+                            config->control_id, data, sizeof(data));
 }
 
 /* 发命令 */
@@ -227,7 +232,8 @@ HAL_StatusTypeDef Dm_Send_Command(uint8_t index, uint8_t command)
 
     config = &dm_motor_config[index];
     data[7] = command;
-    return Can_Bus_Transmit(config->handle, config->control_id, data, sizeof(data));
+    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]),
+                            config->control_id, data, sizeof(data));
 }
 
 /* 全部使能 */

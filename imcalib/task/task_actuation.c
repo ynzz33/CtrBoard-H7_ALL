@@ -19,6 +19,22 @@ void output_task_init(void)
     HAL_TIM_Base_Start_IT(&htim6);
 }
 
+/* 下发: 总输出关闭时只发零力矩, 其余计算照常 */
+static void output_send(const torque_output_t *torque)
+{
+    if (!torque_output_enabled)
+    {
+        output_debug_dm_sent = 0u;
+        output_debug_dji_sent = 0u;
+        (void)Dm_Send_Zero();
+        (void)Dji_All_Stop();
+        return;
+    }
+    output_debug_dm_sent = Dm_Send_Torque(torque->dm);
+    output_debug_dji_sent = (uint8_t)Dji_Send_Wheel_Torque(
+        torque->dji[DJI_MOTOR_WHEEL_LFT], torque->dji[DJI_MOTOR_WHEEL_RGT]);
+}
+
 /* LQR 平衡链路: 状态估计 → 状态反馈 → 腿部力控 → 下发 */
 static void output_task_lqr(const dr16_t *remote)
 {
@@ -36,9 +52,7 @@ static void output_task_lqr(const dr16_t *remote)
         if (Leg_Balance_Compute(&leg_balance, &lqr_state, &leg_l, &leg_r,
                                 OUTPUT_DT, &torque))
         {
-            output_debug_dm_sent = Dm_Send_Torque(torque.dm);
-            output_debug_dji_sent = (uint8_t)Dji_Send_Wheel_Torque(
-                torque.dji[DJI_MOTOR_WHEEL_LFT], torque.dji[DJI_MOTOR_WHEEL_RGT]);
+            output_send(&torque);
             return;
         }
     }
@@ -124,9 +138,7 @@ void output_task_body(void)
             &rl_control.torque_param[rl_control.policy.selected_model],
             wheel_vel, action_state.a, &rl_control.torque_state, &torque);
 
-        output_debug_dm_sent = Dm_Send_Torque(torque.dm);
-        output_debug_dji_sent = (uint8_t)Dji_Send_Wheel_Torque(
-            torque.dji[DJI_MOTOR_WHEEL_LFT], torque.dji[DJI_MOTOR_WHEEL_RGT]);
+        output_send(&torque);
     }
     else
     {

@@ -7,12 +7,10 @@ typedef char dji_num_check[(MACHINE_WHEEL_NUM == DJI_MOTOR_NUM) ? 1 : -1];
 /* 固定参 (极性见 machine_config.c) */
 const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM] = {
     [DJI_MOTOR_WHEEL_LFT] = {
-        .handle = &hfdcan2,
         .feedback_id = 0x201u,
         .control_id = 0x200u,
     },
     [DJI_MOTOR_WHEEL_RGT] = {
-        .handle = &hfdcan2,
         .feedback_id = 0x202u,
         .control_id = 0x200u,
     },
@@ -108,11 +106,13 @@ void Dji_Init(void)
         const dji_motor_config_t *config = &dji_motor_config[i];
         dji_motor_feedback_t *feedback = &dji_motor_feedback[i];
 
-        if (config->handle == NULL || config->feedback_id > 0x7FFu)
+        FDCAN_HandleTypeDef *handle = Can_Bus_Handle(machine->dji_bus);
+
+        if (handle == NULL || config->feedback_id > 0x7FFu)
         {
             continue;
         }
-        Can_Bus_Register(config->handle, config->feedback_id, Dji_Read, feedback);
+        Can_Bus_Register(handle, config->feedback_id, Dji_Read, feedback);
     }
 }
 
@@ -233,7 +233,8 @@ HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
     wheel_current[DJI_MOTOR_WHEEL_RGT] = Dji_Torque_To_Current(
         DJI_MOTOR_WHEEL_RGT,
         right_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out);
-    return Dji_Send_Current(cfg_l->handle, cfg_l->control_id, wheel_current);
+    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), cfg_l->control_id,
+                            wheel_current);
 }
 
 /* 全停机 */
@@ -242,7 +243,8 @@ HAL_StatusTypeDef Dji_All_Stop(void)
     const int16_t zero_current[4] = {0};
     const dji_motor_config_t *config = &dji_motor_config[DJI_MOTOR_WHEEL_LFT];
 
-    return Dji_Send_Current(config->handle, config->control_id, zero_current);
+    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), config->control_id,
+                            zero_current);
 }
 
 /* 查在线 */

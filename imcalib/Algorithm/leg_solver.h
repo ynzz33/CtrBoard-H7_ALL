@@ -20,8 +20,6 @@ static inline float clampf(float value, float min, float max)
 typedef struct {
     float lu;           /* 上杆长 */
     float lg;           /* 下杆长 */
-    float offset_f;     /* 前髋偏移 */
-    float offset_b;     /* 后髋偏移 */
     float offset_phi0;  /* 方向角偏移 */
     int8_t mirror;      /* 镜像 */
     uint8_t configured;

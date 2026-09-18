@@ -10,13 +10,22 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = (19.2f * CJL_WHEEL_BOX_RATIO),
         .dji_trq_clamp  = 6.0f,                        /* 满限幅 = 0.30 Nm/A × 20A */
-        .dm_pos_max     = 12.5f,                       /* DM-J8009P MIT 预设 */
+        .dm_pos_max     = 3.14159f,                    /* DM-J8009P: 上位机 ±π */
         .dm_vel_max     = 45.0f,
         .dm_trq_max     = 54.0f,
         .dm_trq_clamp   = 20.0f,                       /* 签字许可力矩 */
-        /* 极性: 腿 前左/后左/前右/后右, 轮 左/右 (按实机安装填) */
-        .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
+        /* 极性: 前左/后左/前右/后右 */
+        .dm_sign        = {{-1, -1}, {1, 1}, {1, 1}, {-1, -1}},
         .dji_sign       = {{1, 1}, {-1, -1}},
+        /* 总线: 腿 4 台全在 FDCAN1, 轮在 FDCAN3 */
+        .dm_bus         = {1, 1, 1, 1},
+        .dji_bus        = 3,
+        /* 电机零点: 前左/后左/前右/后右 (照抄参考固件) */
+        .dm_zero        = {-0.476998f, 1.974491f,-0.476998f, 1.974491f },
+        /* 腿几何: 杆长 0.21/0.25 */
+        .leg_lu         = 0.21f,
+        .leg_lg         = 0.25f,
+        .leg_off_phi0   = {-0.13f, -0.07f},
     },
     [MACHINE_ID_LOCAL] = {
         .name           = "local-m2006-j4310",
@@ -29,6 +38,15 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dm_trq_clamp   = 10.0f,
         .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
         .dji_sign       = {{1, 1}, {-1, -1}},
+        /* 总线: 左腿 FDCAN1, 右腿 FDCAN3, 轮 FDCAN2 */
+        .dm_bus         = {1, 1, 3, 3},
+        .dji_bus        = 2,
+        /* 电机零点: 前左/后左/前右/后右 (本机原值) */
+        .dm_zero        = {-0.03f, -0.04f, -0.038f, -0.023f},
+        /* 腿几何 (本机原值) */
+        .leg_lu         = 0.13087f,
+        .leg_lg         = 0.15240f,
+        .leg_off_phi0   = {-0.13f, -0.07f},
     },
 };
 

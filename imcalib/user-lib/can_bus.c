@@ -4,6 +4,36 @@ static can_bus_t can_bus[CAN_BUS_NUM];
 
 static FDCAN_HandleTypeDef *handles[CAN_BUS_NUM] = { &hfdcan1, &hfdcan2, &hfdcan3 };
 
+/* 按总线号取句柄 */
+FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus)
+{
+    if (bus < 1u || bus > CAN_BUS_NUM)
+    {
+        return NULL;
+    }
+    return handles[bus - 1u];
+}
+
+/* 收帧计数 */
+uint32_t Can_Bus_Rx_Count(uint8_t bus)
+{
+    if (bus < 1u || bus > CAN_BUS_NUM)
+    {
+        return 0u;
+    }
+    return can_bus[bus - 1u].alive_cnt;
+}
+
+/* 最近一帧的 ID */
+uint32_t Can_Bus_Last_Rx_Id(uint8_t bus)
+{
+    if (bus < 1u || bus > CAN_BUS_NUM)
+    {
+        return 0u;
+    }
+    return can_bus[bus - 1u].last_rx_id;
+}
+
 /* 句柄指针→下标 */
 static int32_t Can_Bus_Hw_Index(const FDCAN_HandleTypeDef *hfdcan)
 {
@@ -128,6 +158,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
             break;
 
         bus->alive_cnt++;
+        bus->last_rx_id = rx_header.Identifier;
 
         for (uint32_t i = 0; i < bus->route_cnt; i++)
         {

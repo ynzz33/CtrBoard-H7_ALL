@@ -21,7 +21,8 @@ typedef enum {
 } ctrl_strategy_t;
 
 typedef struct {
-    float pos_rad[DM_MOTOR_NUM];
+    float pos_rad[DM_MOTOR_NUM];        /* 解码角 */
+    float pos_zero_rad[DM_MOTOR_NUM];   /* 加零点 */
     float vel_rad_s[DM_MOTOR_NUM];
     float trq_nm[DM_MOTOR_NUM];
     uint32_t last_rx_tick[DM_MOTOR_NUM];

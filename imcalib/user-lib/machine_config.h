@@ -13,7 +13,7 @@
 #define MACHINE_WHEEL_NUM         2u
 
 /* 上电默认机器: 换机器改这一行 */
-#define MACHINE_DEFAULT           MACHINE_ID_LOCAL
+#define MACHINE_DEFAULT           MACHINE_ID_CHUANLIANTUI
 
 /* 一路电机的极性 */
 typedef struct {
@@ -36,6 +36,15 @@ typedef struct {
     /* 极性: 腿 4 台 (前左/后左/前右/后右), 轮 2 个 (左/右) */
     motor_sign_t dm_sign[MACHINE_LEG_NUM];
     motor_sign_t dji_sign[MACHINE_WHEEL_NUM];
+    /* 总线号: 1=FDCAN1 2=FDCAN2 3=FDCAN3 */
+    uint8_t     dm_bus[MACHINE_LEG_NUM];
+    uint8_t     dji_bus;
+    /* 电机零点: 4 台腿 (前左/后左/前右/后右), 在 dm.c 解码时叠加 */
+    float       dm_zero[MACHINE_LEG_NUM];
+    /* 腿几何: 杆长 + 腿摆角零位 (左/右) */
+    float       leg_lu;
+    float       leg_lg;
+    float       leg_off_phi0[2];
 } machine_cfg_t;
 
 extern const machine_cfg_t machine_table[MACHINE_NUM];

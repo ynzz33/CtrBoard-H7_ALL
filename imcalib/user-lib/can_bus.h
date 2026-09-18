@@ -20,9 +20,8 @@ typedef enum {
     CAN_BUS_STATE_DEAD,
 } can_bus_state_t;
 
-/* 电机固定参 (DM / DJI 共用): 总线与报文 ID */
+/* 电机固定参 (DM / DJI 共用): 报文 ID (总线按机器选) */
 typedef struct {
-    FDCAN_HandleTypeDef *handle;
     uint16_t             feedback_id;
     uint16_t             control_id;
 } motor_cfg_t;
@@ -41,17 +40,23 @@ typedef struct {
     FDCAN_TxHeaderTypeDef tx_template;
     can_bus_state_t       state;
     volatile uint32_t     alive_cnt;
+    volatile uint32_t     last_rx_id;    /* 最近收到帧的 CAN ID */
     volatile uint32_t     last_tx_tick;
     uint32_t              alive_prev;
     uint32_t              dead_since;
     uint32_t              reinit_tick;
 } can_bus_t;
 
-void Can_Bus_Init(void);
-bool Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
-                      can_parse_fn_t fn, void *ctx);
+void    Can_Bus_Init(void);
+bool    Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
+                         can_parse_fn_t fn, void *ctx);
 HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                                    const uint8_t *data, uint8_t len);
-bool Can_Bus_Online(bool expect_traffic);
+bool    Can_Bus_Online(bool expect_traffic);
+/* 按总线号取句柄 (1=FDCAN1 2=FDCAN2 3=FDCAN3) */
+FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus);
+/* 收帧计数 / 最近一帧 ID (调试用) */
+uint32_t Can_Bus_Rx_Count(uint8_t bus);
+uint32_t Can_Bus_Last_Rx_Id(uint8_t bus);
 
 #endif

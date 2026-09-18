@@ -45,7 +45,8 @@ typedef struct {
     uint8_t           temp_mos;
     uint8_t           temp_rotor;
     int32_t           angle_total;
-    float             pos_rad;
+    float             pos_rad;          /* 解码角 */
+    float             pos_zero_rad;     /* 加零点 */
     float             vel_rad_s;
     float             trq_nm;
     volatile uint8_t  raw_pending;

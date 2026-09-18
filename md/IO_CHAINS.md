@@ -74,7 +74,8 @@ dm.c: Dm_Parse()
       temp_mos   = data[6]
       temp_rotor = data[7]
     if sign<0: angle/vel/trq 取反
-    pos_rad   = uint_to_float(angle_raw, -PMAX, +PMAX, 16)
+    pos_rad   = uint_to_float(angle_raw, -PMAX, +PMAX, 16)   /* 纯解码角（只乘过反馈极性） */
+    pos_zero_rad = pos_rad + machine->dm_zero[i]             /* 加零点偏置后的关节角 */
     vel_rad_s = uint_to_float(vel_raw, -VMAX, +VMAX, 12)
     trq_nm    = uint_to_float(trq_raw, -TMAX, +TMAX, 12)   /* PMAX/VMAX/TMAX 见 machine_config.h */
     Dm_Update_Angle() → angle_total (计圈)
@@ -82,7 +83,8 @@ dm.c: Dm_Parse()
     │  Motor_State_Update() @ task_comm.c
     ▼
 motor_state.dm:
-  pos_rad[i]     → leg.input.hip_f / hip_b (五连杆输入)
+  pos_rad[i]     → 原始解码角（调试器 Watch 可用）
+  pos_zero_rad[i] → leg.input.hip_f / hip_b (五连杆输入，零点后值)
   vel_rad_s[i]   → leg.input.d_hip_f / d_hip_b
   online[i]      → 故障检测
     │
@@ -107,6 +109,7 @@ motor_state.dm:
 | 3 | B_RGT 右后髋 | FDCAN3 | 0x14 | 0x04 |
 
 **极性不在驱动表里**：按机器存在 `machine_config.c` 的 `dm_sign[4]` / `dji_sign[2]`，每项是 `{反馈, 输出}` 一对。
+**总线同理**：`dm_bus[4]`（1/2/3 = FDCANx）—— 大机器四台全在 FDCAN1，小机器左腿 1 / 右腿 3。
 
 **关键函数:**
 
@@ -300,7 +303,8 @@ dm_motor_feedback[i] / dji_motor_feedback[i]  (驱动层解码)
     │  Motor_State_Update() @ task_comm.c
     ▼
 motor_state_t motor_state:
-    dm.pos_rad[i]       ← dm_motor_feedback[i].pos_rad
+    dm.pos_rad[i]       ← dm_motor_feedback[i].pos_rad       （原始解码角）
+    dm.pos_zero_rad[i]  ← dm_motor_feedback[i].pos_zero_rad  （零点后值）
     dm.vel_rad_s[i]     ← dm_motor_feedback[i].vel_rad_s
     dm.trq_nm[i]        ← dm_motor_feedback[i].trq_nm
     dm.last_rx_tick[i]  ← dm_motor_feedback[i].last_rx_tick
@@ -315,10 +319,10 @@ motor_state_t motor_state:
     updated                = 1
 
 消费端:
-  task_policy.c: dm.pos_rad/d.vel_rad_s → obs.joint_pos/vel
+  task_policy.c: dm.pos_zero_rad/d.vel_rad_s → obs.joint_pos/vel
   task_policy.c: dji.vel_rad_s → obs.joint_vel (轮)
   task_comm.c:   dm/dji.online → FAULT_MOTOR
-  task_comm.c:   dm.pos_rad/vel_rad_s → leg.input (髋关节映射)
+  task_comm.c:   dm.pos_zero_rad/vel_rad_s → leg.input (髋关节映射，零点已在 dm.c 叠加)
   task_actuation.c: dji.vel_rad_s → wheel_vel → RL_Torque_Compute
 ```
 
@@ -370,15 +374,15 @@ robot_state_t robot_state:
 ## 6. 五连杆腿部解算（leg_solver）
 
 ```
-dm.pos_rad[0..3] (DM 电机编码器)
+dm.pos_zero_rad[0..3] (DM 电机编码器，零点后值)
     │
     │  Leg_State_Update() @ task_comm.c
     ▼
 leg_l / leg_r (leg_state_t):
-    input.hip_f   = dm.pos_rad[F] + π + offset_f   前髋角 (+π 几何偏置)
-    input.hip_b   = dm.pos_rad[B] + offset_b        后髋角
-    input.d_hip_f = dm.vel_rad_s[F]                  前髋速度
-    input.d_hip_b = dm.vel_rad_s[B]                  后髋速度
+    input.hip_f   = dm.pos_zero_rad[F] + π                   前髋角 (零点已在 dm.c 叠加, +π 几何偏置)
+    input.hip_b   = dm.pos_zero_rad[B]                       后髋角 (零点已在 dm.c 叠加)
+    input.d_hip_f = dm.vel_rad_s[F]                           前髋速度
+    input.d_hip_b = dm.vel_rad_s[B]                           后髋速度
     │
     │  Leg_Solve() @ task_comm.c
     ▼
@@ -425,8 +429,7 @@ task_comm.c:
 |------|:----:|:----:|------|
 | lu | 0.13087 | 0.13087 | 上杆长 (m) |
 | lg | 0.15240 | 0.15240 | 下杆长 (m) |
-| offset_f | -0.03 | -0.038 | 前髋偏置 (rad) |
-| offset_b | -0.04 | -0.023 | 后髋偏置 (rad) |
+| dm_zero | 见 machine_config.c | 见 machine_config.c | 电机零点 (rad)，dm.c 解码时叠加 |
 | offset_phi0 | -0.13 | -0.07 | 方向角偏置 (rad) |
 | mirror | 1 | 1 | 镜像系数 |
 
