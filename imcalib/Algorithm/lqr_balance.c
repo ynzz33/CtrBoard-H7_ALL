@@ -1,5 +1,6 @@
 #include "lqr_balance.h"
 #include "lqr_gain_table.h"
+#include "machine_config.h"
 
 #include <math.h>
 #include <string.h>
@@ -60,10 +61,10 @@ void LQR_Init(lqr_state_t *st)
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
                          const leg_state_t *leg_r)
 {
-    if (leg_l->output.virtual_leg_length < LQR_LEG_LEN_MIN
-        || leg_l->output.virtual_leg_length > LQR_LEG_LEN_MAX
-        || leg_r->output.virtual_leg_length < LQR_LEG_LEN_MIN
-        || leg_r->output.virtual_leg_length > LQR_LEG_LEN_MAX)
+    if (leg_l->output.virtual_leg_length < machine->leg_len_min
+        || leg_l->output.virtual_leg_length > machine->leg_len_max
+        || leg_r->output.virtual_leg_length < machine->leg_len_min
+        || leg_r->output.virtual_leg_length > machine->leg_len_max)
     {
         return 0u;
     }
@@ -105,12 +106,12 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     st->target[LQR_X_THB]   = 0.0f;
     st->target[LQR_X_DTHB]  = 0.0f;
 
-    /* 腿长目标: 拨轮按速率积分, 限制在 K 表有效域 */
+    /* 腿长目标: 拨轮按速率积分, 限制在腿长工作区间 */
     for (i = 0u; i < 2u; i++)
     {
         st->leg_len_tgt[i] += axis_len * LQR_RC_LEN_RATE * dt;
         st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i],
-                                    LQR_LEG_LEN_MIN, LQR_LEG_LEN_MAX);
+                                    machine->leg_len_min, machine->leg_len_max);
     }
     return 1u;
 }

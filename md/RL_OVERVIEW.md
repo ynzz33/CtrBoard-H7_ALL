@@ -114,7 +114,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-VOFA 当前 30 通道用于全链路诊断：`dbg[0]` 为在线掩码，`dbg[1]` 为 pitch，`dbg[2]` 为 leg_valid，`dbg[3]` 为使能+锁存标志，`dbg[4..7]` 为左大腿（当前/目标/误差/虚拟力矩），`dbg[8..11]` 为左小腿，`dbg[12..15]` 为右大腿，`dbg[16..19]` 为右小腿，`dbg[20..23]` 为四个 DM 最终输出力矩，`dbg[24..26]` 为左轮（目标速度/当前速度/力矩），`dbg[27..29]` 为右轮。
+VOFA 当前 27 通道（上限 32）用于全链路诊断：`dbg[0]` 为在线掩码，`dbg[1]` 为解算有效掩码（1=左腿, 2=右腿, 3=两腿），`dbg[2]` 为控制策略，`dbg[3..6]` 为电机原始解码角，`dbg[7..10]` 为零点后角度，`dbg[11..14]` 为电机速度，`dbg[15..18]` 为左腿解算（腿长/腿摆倾角/大腿角/虚拟小腿角），`dbg[19..22]` 为右腿解算，`dbg[23..26]` 为下发力矩。通道布局详见 `md/VOFA_SEND.md`。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -255,7 +255,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只
 | RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置（param.configured=0） |
 | CubeAI 推理 | rl_policy.c/h | ✅ 4 模型初始化 + 运行 + 维度静态检查；🟡 推理未在任务中调用 |
 | 力矩执行 | rl_torque.c/h | ✅ PID + 雅可比映射 + DM/DJI 分离输出 + 轮子 PID；已上机验证 |
-| 任务框架 | task/robot_control.c + task_*.c | ✅ 4 任务体、共享状态、使能机、故障门、VOFA 30ch；已上机验证 |
+| 任务框架 | task/robot_control.c + task_*.c | ✅ 4 任务体、共享状态、使能机、故障门、VOFA 27ch（上限 32）；已上机验证 |
 | 遥控映射 | task_policy.c | ✅ ch3→大腿/wheel→小腿/ch1→轮子，手动遥操模式 |
 | 力矩下发 | task_actuation.c | ✅ torque_output_t 直接下发 DM+DJI，无手动映射 |
 | 离线测试 | tests/offline_test.c | ✅ 纯算法数值验证 |

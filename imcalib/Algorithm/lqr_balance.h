@@ -32,9 +32,7 @@ enum {
     LQR_U_NUM,
 };
 
-/* 腿长工作区间 — K 表拟合域 0.13~0.23, 下界取 0.13 防外推 */
-#define LQR_LEG_LEN_MIN     0.13f
-#define LQR_LEG_LEN_MAX     0.21f
+/* 腿长工作区间改由机器配置表提供: machine->leg_len_min / leg_len_max */
 
 /* 遥控量程 */
 #define LQR_RC_DEADBAND     20

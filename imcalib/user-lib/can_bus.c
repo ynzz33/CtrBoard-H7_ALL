@@ -194,6 +194,15 @@ bool Can_Bus_Online(bool expect_traffic)
     for (uint32_t i = 0; i < CAN_BUS_NUM; i++)
     {
         can_bus_t *bus = &can_bus[i];
+
+        /* 本机没在这条总线登记设备 → 不要求流量 */
+        if (bus->route_cnt == 0u)
+        {
+            bus->alive_prev = bus->alive_cnt;
+            bus->dead_since = now;
+            continue;
+        }
+
         bool alive_changed = (bus->alive_cnt != bus->alive_prev);
 
         /* DEAD + 收到新帧 → 恢复 */

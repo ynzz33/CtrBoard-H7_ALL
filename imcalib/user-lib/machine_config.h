@@ -41,9 +41,11 @@ typedef struct {
     uint8_t     dji_bus;
     /* 电机零点: 4 台腿 (前左/后左/前右/后右), 在 dm.c 解码时叠加 */
     float       dm_zero[MACHINE_LEG_NUM];
-    /* 腿几何: 杆长 + 腿摆角零位 (左/右) */
+    /* 腿几何: 杆长 + 腿长工作区间 + 腿摆角零位 (左/右) */
     float       leg_lu;
     float       leg_lg;
+    float       leg_len_min;
+    float       leg_len_max;
     float       leg_off_phi0[2];
 } machine_cfg_t;
 

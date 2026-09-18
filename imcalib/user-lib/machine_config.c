@@ -9,22 +9,24 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .name           = "chuanliantui",
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = (19.2f * CJL_WHEEL_BOX_RATIO),
-        .dji_trq_clamp  = 6.0f,                        /* 满限幅 = 0.30 Nm/A × 20A */
+        .dji_trq_clamp  = 1.5f,                        /* 安全测试值 (满限幅 6.0) */
         .dm_pos_max     = 3.14159f,                    /* DM-J8009P: 上位机 ±π */
         .dm_vel_max     = 45.0f,
-        .dm_trq_max     = 54.0f,
-        .dm_trq_clamp   = 20.0f,                       /* 签字许可力矩 */
+        .dm_trq_max     = 54.0f,                       /* MIT 刻度, 勿改 */
+        .dm_trq_clamp   = 3.0f,                        /* 安全测试值 (满限幅 20.0) */
         /* 极性: 前左/后左/前右/后右 */
-        .dm_sign        = {{-1, -1}, {1, 1}, {1, 1}, {-1, -1}},
+        .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
         .dji_sign       = {{1, 1}, {-1, -1}},
         /* 总线: 腿 4 台全在 FDCAN1, 轮在 FDCAN3 */
         .dm_bus         = {1, 1, 1, 1},
         .dji_bus        = 3,
         /* 电机零点: 前左/后左/前右/后右 (照抄参考固件) */
-        .dm_zero        = {-0.476998f, 1.974491f,-0.476998f, 1.974491f },
-        /* 腿几何: 杆长 0.21/0.25 */
+        .dm_zero        = {0.476998f, 1.974491f,0.476998f, 1.974491f },
+        /* 腿几何: 杆长 0.21/0.25; 腿长区间待台架给实测工作区间, 现为理论极限 */
         .leg_lu         = 0.21f,
         .leg_lg         = 0.25f,
+        .leg_len_min    = 0.04f,
+        .leg_len_max    = 0.46f,
         .leg_off_phi0   = {-0.13f, -0.07f},
     },
     [MACHINE_ID_LOCAL] = {
@@ -46,6 +48,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* 腿几何 (本机原值) */
         .leg_lu         = 0.13087f,
         .leg_lg         = 0.15240f,
+        .leg_len_min    = 0.10f,
+        .leg_len_max    = 0.20f,
         .leg_off_phi0   = {-0.13f, -0.07f},
     },
 };

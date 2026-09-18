@@ -72,7 +72,7 @@
 | 1 kHz 通信节拍 | `task_comm.c:320-332` | 解析、状态、故障、VOFA |
 | 使能机与故障门 | `task_comm.c:141-220` | 遥控使能、失能、翻倒检测 |
 | 遥控解析 | `dr16.c/h`、`md/IO_CHAINS.md` §4 | `s1` 已用；`s2/wheel/键鼠` 本计划不需要 |
-| 48 通道 VOFA 调试 | `task_comm.c:223-317`、`Vofa_send.c` | JustFloat + DMA，40 Hz |
+| 27 通道 VOFA 调试（上限 32） | `task_comm.c`、`Vofa_send.c` | FireWater + DMA，200 Hz |
 | 串口空闲接收框架 | `uart_idle.c/h` | UART9=DR16、UART7=HI229 在用 |
 | UART8（TX+RX） | `usart.c:360-361`、`stm32h7xx_it.c:409` | 本计划只用作**数据出口**（RX 不启用） |
 
@@ -86,7 +86,7 @@
 | DM 故障码判据 | `err_raw` 是**状态码**（0=失能/1=使能/8~E=故障），现在解析了没人看（`dm.c:146`） |
 | sysid 独占模式 | 执行链只有 LQR / 手动两路（`task_actuation.c:50-117`） |
 | 激励序列执行器 | 没有 stiction/plateau/step/chirp 的编排与 run 自动切换 |
-| 高码率 VOFA 流 | 现有 48ch@40Hz 列与速率都不满足 sysid |
+| 高码率 VOFA 流 | 现有 27ch@200Hz 列与速率都不满足 sysid |
 | 丢帧可见性 | `Vofa_send.c:17` 忙就丢帧且不留痕 |
 | 机器配置表 | 电机型号/几何/限值散落在 `dji.h`、`dm.h`、`robot_control.c` |
 
@@ -157,7 +157,7 @@ G_total = Δ / (8192 × N)      /* 8192 = 转子一圈的编码器码 */
 | 改动 | `imcalib/user-lib/can_bus.c/h` | TX 完成中断 + 完成时刻回调 + pending 表 |
 | 改动 | `imcalib/user-lib/dji.c/h` | RX 中断取 ns；sysid 直发接口；钳位常量 |
 | 改动 | `imcalib/task/task_actuation.c` | 新增 sysid 仲裁分支（独占） |
-| 改动 | `imcalib/task/task_comm.c` | sysid 下停 48ch；安全判定接入；s1 语义 |
+| 改动 | `imcalib/task/task_comm.c` | sysid 下停 27ch；安全判定接入；s1 语义 |
 | 改动 | `imcalib/user-lib/Vofa_send.c/h` | 支持 sysid 帧 + 环形缓冲 + TxCplt 泵 |
 | 改动 | `Core/Src/main.c` | TIM6 回调里扩展单调时钟（USER CODE 段） |
 | 改动 | `MDK-ARM/*.uvprojx`、`.eide/eide.yml` | 新源文件入工程 |
@@ -339,12 +339,12 @@ sysid 帧 → 字节流写入环形缓冲（SPSC）
 ```
 
 - 工程里目前没有 `HAL_UART_TxCpltCallback`（HAL 弱定义），新增时按 `huart->Instance` 分支，避免影响其他串口。
-- sysid 帧用**独立缓冲**，不复用 48ch 调试缓冲。
+- sysid 帧用**独立缓冲**，不复用 27ch 调试缓冲。
 - `drop_cnt > 0` 的 run 一律判无效（见 §11）。
 
-### 7.5 48 通道调试流的处理
+### 7.5 27 通道调试流的处理
 
-- sysid 模式下**停发** `task_comm.c:223-317` 的 48ch 帧。
+- sysid 模式下**停发** `task_comm.c` 的 27ch 帧。
 - 理由：同一 UART 上混不同长度的帧，Vofa+ 的列会错位，存出的 CSV 不可用。
 - 调试需求改由 sysid 帧里的 `phase_id`、`seq`、`run_id`、`drop_cnt` 等通道承载。
 
@@ -710,7 +710,7 @@ tau_rf0_Nm,tau_rf00_Nm,leg_length_right_m,leg_pitch_right_rad
 | `ERR` 当故障位用 | 正常使能态被误判为故障 | 判据改为"落在故障码集合 {8..E} 内" |
 | 机器切换漏切一处 | 静默产出错单位数据 | 单一宏分支 + `#error` + 启动签名通道 |
 | VOFA 丢帧不留痕 | 时间基准错位，拟合失真 | `seq` + `drop_cnt`，丢帧 run 判无效 |
-| 48ch 与 sysid 帧混发 | Vofa+ 列错位 | sysid 模式停 48ch |
+| 27ch 与 sysid 帧混发 | Vofa+ 列错位 | sysid 模式停 27ch |
 | TX 完成配对按顺序 | 优先级模式下配错 | 按 TX 元素索引配对；必要时改 Queue 模式（CubeMX） |
 | 腿倾角零位与模型不一致 | 四个任务坐标对不上 | §14.3 定义 + 静态 FK 核对 + manifest 记录 |
 | 自动连跑时失控 | 机械损伤 | 急停随手可及；s1 下位立即中止；`±15 A`/力矩钳位；run 结束必回零 |

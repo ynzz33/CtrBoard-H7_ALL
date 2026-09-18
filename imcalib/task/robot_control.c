@@ -37,7 +37,7 @@ void Action_State_Clear(void)
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
-    torque_output_enabled = 0u;   /* 总输出: 0=只发零力矩(回馈测试) 1=正常 */
+    torque_output_enabled = 1u;   /* 总输出: 0=只发零力矩(回馈测试) 1=正常 */
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
