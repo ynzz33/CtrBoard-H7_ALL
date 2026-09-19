@@ -223,45 +223,6 @@ static void Robot_Enable_Update(void)
     }
 }
 
-
-/*
- * 通道表 (32 通道 FireWater, 200 Hz)
- *
- *  ch  含义                       单位 / 来源
- *  --  -------------------------  -----------------------------------
- *   0  在线掩码                   bit0=IMU bit1=RC bit2~5=DM bit6~7=DJI
- *   1  解算有效                   1=左 2=右 3=双
- *   2  策略号                     0=手动 1=LQR 2=测试
- *   3  腿指令力矩 前左            Nm, last_torque.dm[0]
- *   4  腿指令力矩 后左            Nm, last_torque.dm[1]
- *   5  腿指令力矩 前右            Nm, last_torque.dm[2]
- *   6  腿指令力矩 后右            Nm, last_torque.dm[3]
- *   7  腿零点后角 前左            rad, dm.pos_zero_rad[0]
- *   8  腿零点后角 后左            rad, dm.pos_zero_rad[1]
- *   9  腿零点后角 前右            rad, dm.pos_zero_rad[2]
- *  10  腿零点后角 后右            rad, dm.pos_zero_rad[3]
- *  11  左腿长                     m, leg_l.output.virtual_leg_length
- *  12  右腿长                     m, leg_r.output.virtual_leg_length
- *  13  左腿摆角                   rad, leg_l.output.virtual_leg_angle
- *  14  右腿摆角                   rad, leg_r.output.virtual_leg_angle
- *  15  轮指令电流 左              raw, Dji_Torque_To_Current
- *  16  轮指令电流 右              raw
- *  17  轮转速 左                  rad/s, dji.vel_rad_s[0]
- *  18  轮转速 右                  rad/s
- *  19  轮编码器 左                raw, dji.angle_raw[0]
- *  20  轮编码器 右                raw
- *  21  轮实际电流 左              raw, dji.current_raw[0]
- *  22  轮实际电流 右              raw
- *  23  左轮温度                   temp_raw
- *  24  轮总线 TX 间隔             us
- *  25  轮 RX 间隔                 us
- *  26  腿总线 TX 间隔             us
- *  27  轮总线 TX 条数             本周期
- *  28  腿总线 TX 条数             本周期
- *  29  轮总线 TX 丢帧             累计
- *  30  rx_ns 高位                 rx_ns >> 20
- *  31  rx_ns 低位                 rx_ns & 0xFFFFF
- */
 static void Robot_Control_Send_Vofa(void)
 {
     static uint8_t vofa_div;
@@ -272,19 +233,57 @@ static void Robot_Control_Send_Vofa(void)
     uint16_t seq;
     uint64_t tx_ns;
 
+#if SYSID_ENABLE
+    /* 轮测试模式: 最简 10 通道, 每个周期都发 (1kHz) */
+    extern const uint8_t sysid_is_wheel_mode;
+    if (sysid_is_wheel_mode && (ctrl_strategy == CTRL_STRATEGY_SYSID))
+    {
+        extern volatile int16_t sysid_wheel_cmd_raw[DJI_MOTOR_NUM];
+        static uint64_t tx_last_ns;
+        uint8_t m;
+        uint8_t k;
+        uint16_t s;
+        uint64_t t;
+
+        m  = imu_state.online ? 0x01u : 0x00u;
+        m |= DR16_Online() ? 0x02u : 0x00u;
+        m |= motor_state.dm.online[0] ? 0x04u : 0x00u;
+        m |= motor_state.dm.online[1] ? 0x08u : 0x00u;
+        m |= motor_state.dm.online[2] ? 0x10u : 0x00u;
+        m |= motor_state.dm.online[3] ? 0x20u : 0x00u;
+        m |= motor_state.dji.online[0] ? 0x40u : 0x00u;
+        m |= motor_state.dji.online[1] ? 0x80u : 0x00u;
+
+        while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &k, &s, &t))
+        {
+            tx_last_ns = t;
+        }
+
+        dbg[0] = (float)m;
+        dbg[1] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_LFT];
+        dbg[2] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw;
+        dbg[3] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw;
+        dbg[4] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_raw;
+        dbg[5] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_raw;
+        dbg[6] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].vel_raw
+                 * (0.1047198f / machine->dji_gear_ratio);
+        dbg[7] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].vel_raw
+                 * (0.1047198f / machine->dji_gear_ratio);
+        dbg[8] = (float)(uint32_t)(tx_last_ns / 1000u);
+        dbg[9] = (float)(uint32_t)(dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].rx_ns
+                                   / 1000u);
+
+        Vofa_Send(dbg, 10u);
+        return;
+    }
+#endif
+
     vofa_div++;
     if (vofa_div < 5u)
     {
         return;
     }
     vofa_div = 0u;
-
-#if SYSID_ENABLE
-    if (ctrl_strategy == CTRL_STRATEGY_SYSID)
-    {
-        return;
-    }
-#endif
 
     /* ch0 在线掩码 */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
@@ -321,24 +320,41 @@ static void Robot_Control_Send_Vofa(void)
     dbg[11] = pid->get[NOW];
     dbg[12] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_RGT];
 
-    /* ch13~15 左轮: 速度目标 / 当前 / 输出电流 */
-    pid     = &rl_control.torque_state.controller[2];   /* 2=左轮 */
-    dbg[13] = pid->set[NOW];
-    dbg[14] = pid->get[NOW];
-    dbg[15] = (float)Dji_Torque_To_Current(DJI_MOTOR_WHEEL_LFT,
-        rl_control.torque_state.last_torque.dji[DJI_MOTOR_WHEEL_LFT]
-        * (float)machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out);
+    /* 轮测试: ch13~19 左轮 / ch20~26 右轮
+       命令raw / 命令A / 实测raw / 实测A / 编码器 / 转速rpm / 转速rad-s */
+    extern volatile int16_t sysid_wheel_cmd_raw[DJI_MOTOR_NUM];
+#if SYSID_ENABLE
+    dbg[13] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_LFT];
+#else
+    dbg[13] = 0.0f;
+#endif
+    dbg[14] = dbg[13] / 819.2f;
+    dbg[15] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw;
+    dbg[16] = dbg[15] / 819.2f;
+    dbg[17] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_raw;
+    dbg[18] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].vel_raw;
+    dbg[19] = dbg[18] * (0.1047198f / machine->dji_gear_ratio);
 
-    /* ch16~18 右轮: 速度目标 / 当前 / 输出电流 */
-    pid     = &rl_control.torque_state.controller[5];   /* 5=右轮 */
-    dbg[16] = pid->set[NOW];
-    dbg[17] = pid->get[NOW];
-    dbg[18] = (float)Dji_Torque_To_Current(DJI_MOTOR_WHEEL_RGT,
-        rl_control.torque_state.last_torque.dji[DJI_MOTOR_WHEEL_RGT]
-        * (float)machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out);
+#if SYSID_ENABLE
+    dbg[20] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_RGT];
+#else
+    dbg[20] = 0.0f;
+#endif
+    dbg[21] = dbg[20] / 819.2f;
+    dbg[22] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw;
+    dbg[23] = dbg[22] / 819.2f;
+    dbg[24] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_raw;
+    dbg[25] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].vel_raw;
+    dbg[26] = dbg[25] * (0.1047198f / machine->dji_gear_ratio);
 
+    /* ch27~31 腿部解算值 (从原 ch19~24 挪过来) */
+    dbg[27] = leg_l.output.virtual_shank_angle;
+    dbg[28] = leg_l.output.thigh_angle;
+    dbg[29] = leg_l.output.virtual_leg_length;
+    dbg[30] = leg_r.output.thigh_angle;
+    dbg[31] = leg_r.output.virtual_leg_length;
     /* 清空 CAN 发送完成环 (不进通道, 防止积满) */
-    while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &kind, &seq, &tx_ns))
+    while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &kind, &seq, &tx_ns)) 
     {
     }
     while (Can_Bus_Tx_Pop((uint8_t)machine->dm_bus[0], &kind, &seq, &tx_ns))
@@ -360,14 +376,5 @@ void comm_task_body(void)
     Robot_Fallen_Update();
     Robot_Fault_Update();
     Robot_Enable_Update();
-#if SYSID_ENABLE
-    if (ctrl_strategy == CTRL_STRATEGY_SYSID)
-    {
-        (void)Sysid_Log_Send_Pump();
-    }
-    else
-#endif
-    {
-        Robot_Control_Send_Vofa();
-    }
+    Robot_Control_Send_Vofa();
 }

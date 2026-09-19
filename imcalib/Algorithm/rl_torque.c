@@ -6,7 +6,7 @@
 
 #define RL_TQ_POS_SCALE        0.5f
 #define RL_TQ_WHEEL_VEL_SCALE  20.0f
-#define RL_TQ_WHEEL_VEL_MAX    62.0f    /* 轮侧满速 rad/s (转子满速 ÷ 总减速比) */
+#define RL_TQ_WHEEL_VEL_MAX    20.0f    /* 轮速上限 rad/s (测试用; 满速 62) */
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
 
@@ -76,7 +76,7 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     else
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
-        const float p_gains[6] = {9.5f,9.5f, 0.0f, 9.5f, 9.5f, 0.0f};
+        const float p_gains[6] = {6.5f,22.5f, 0.0f, 6.5f, 22.5f, 0.0f};
         const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));

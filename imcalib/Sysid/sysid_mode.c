@@ -13,10 +13,10 @@
 
 /* ========= 安全限幅 (文件顶部, 易改) ========= */
 #ifndef SYSID_TRQ_LIMIT_NM
-#define SYSID_TRQ_LIMIT_NM      20.0f   /* 腿力矩限幅 Nm = 电机满限幅 */
+#define SYSID_TRQ_LIMIT_NM      10.0f   /* 腿力矩测试限幅 Nm (手动模式是 20) */
 #endif
 #ifndef SYSID_CURRENT_LIMIT_RAW
-#define SYSID_CURRENT_LIMIT_RAW 12288   /* 轮电流限幅 raw, ±15A */
+#define SYSID_CURRENT_LIMIT_RAW 4096    /* 轮电流限幅 raw, ±5A */
 #endif
 #define SYSID_RAW_PER_A         819.2f  /* C620 raw/A */
 #define SYSID_TEMP_LIMIT_C      80u     /* 温度门限, 当前未启用 */
@@ -52,17 +52,17 @@
 #define SYSID_MODE_POSE     0
 #define SYSID_MODE_TORQUE   1
 #ifndef SYSID_MODE
-#define SYSID_MODE          SYSID_MODE_POSE
+#define SYSID_MODE          SYSID_MODE_POSE    /* 当前: 髋位置扫描 (测轮时改 _TORQUE) */
 #endif
 
 /* 姿态表跑几遍后停 (0 = 一直循环) */
 #ifndef SYSID_LOOP_CNT
-#define SYSID_LOOP_CNT      2u
+#define SYSID_LOOP_CNT      1u
 #endif
 
 /* 位置扫描参数 (文件顶部, 易改) */
 #define SYSID_POSE_RAMP_RATE   1.2f    /* 目标角最大斜率 rad/s (斜坡在 simple-function 里) */
-#define SYSID_POSE_HOLD_S   2.0f    /* 到位后保持 s (准静态取数) */
+#define SYSID_POSE_HOLD_S   3.0f    /* 到位后保持 s (准静态取数) */
 #define SYSID_POSE_KP       10.0f   /* 虚拟关节 P (待台架) */
 #define SYSID_POSE_KD       0.0f    /* 虚拟关节 D (作者定: 去掉) */
 
@@ -95,12 +95,11 @@ enum {
 };
 
 /* ========= 阶梯表 (stiction 用, 17级, 每级1s) ========= */
-static const float stiction_levels[17] = {
-    0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f,
-    2.0f, 2.5f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f,
-    10.0f, 12.0f, 15.0f
+/* ========= 阶梯表 (stiction 用, 6级, 每级1s, 最高4A) ========= */
+static const float stiction_levels[6] = {
+    0.0f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f
 };
-#define STICTION_LEVELS  17u
+#define STICTION_LEVELS  6u
 
 /* ========= Run 描述 ========= */
 typedef struct {
@@ -127,13 +126,13 @@ typedef struct {
       amp, 2.0f, 10.0f, 3.0f, 1, 0.2f, 10.0f }
 #define PLAT_W(a) \
     { TID_WHL_PLATEAU, SYSID_KIND_CMD_WHEEL, 0, TPL_STEP, \
-      a, 2.0f, 5.0f, 2.0f, 1, 0, 0 }
+      a, 0.5f, 1.0f, 0.5f, 1, 0, 0 }
 #define STEP_W(a) \
     { TID_WHL_STEP, SYSID_KIND_CMD_WHEEL, 0, TPL_STEP, \
-      a, 2.0f, 0.5f, 3.0f, 3, 0, 0 }
+      a, 0.5f, 0.5f, 0.5f, 1, 0, 0 }
 #define HSTEP_W(a) \
     { TID_WHL_HOLDOUT_STEP, SYSID_KIND_CMD_WHEEL, 0, TPL_STEP, \
-      a, 2.0f, 0.5f, 3.0f, 3, 0, 0 }
+      a, 0.5f, 0.5f, 0.5f, 1, 0, 0 }
 
 #if SYSID_MODE == SYSID_MODE_TORQUE
 static const sysid_run_t sysid_runs[] = {
@@ -171,44 +170,13 @@ static const sysid_run_t sysid_runs[] = {
 #endif
 
 #if SYSID_PLAN == 2 || SYSID_PLAN == 3
-    /* baseline_sign: 左右各1run */
-    { TID_WHL_BASELINE_SIGN, SYSID_KIND_CMD_WHEEL, 0,
-      TPL_BASELINE_SIGN, 0.5f, 0, 14.0f, 0, 1, 0, 0 },
-    { TID_WHL_BASELINE_SIGN, SYSID_KIND_CMD_WHEEL, 1,
-      TPL_BASELINE_SIGN, 0.5f, 0, 14.0f, 0, 1, 0, 0 },
-
-    /* stiction: 正负各1run (左轮) */
-    { TID_WHL_STICTION, SYSID_KIND_CMD_WHEEL, 0,
-      TPL_STICTION,  1.0f, 0, 17.0f, 0, 1, 0, 0 },
-    { TID_WHL_STICTION, SYSID_KIND_CMD_WHEEL, 0,
-      TPL_STICTION, -1.0f, 0, 17.0f, 0, 1, 0, 0 },
-
-    /* plateau: ±1~±15A (左轮) */
+    /* plateau: ±0.5~±4A (左轮) 稳态 */
+    PLAT_W( 0.5f), PLAT_W(-0.5f),
     PLAT_W( 1.0f), PLAT_W(-1.0f),
-    PLAT_W( 1.5f), PLAT_W(-1.5f),
     PLAT_W( 2.0f), PLAT_W(-2.0f),
-    PLAT_W( 2.5f), PLAT_W(-2.5f),
     PLAT_W( 3.0f), PLAT_W(-3.0f),
     PLAT_W( 4.0f), PLAT_W(-4.0f),
-    PLAT_W( 6.0f), PLAT_W(-6.0f),
-    PLAT_W( 8.0f), PLAT_W(-8.0f),
-    PLAT_W(10.0f), PLAT_W(-10.0f),
-    PLAT_W(12.0f), PLAT_W(-12.0f),
-    PLAT_W(15.0f), PLAT_W(-15.0f),
 
-    /* step: ±1~±15A (左轮) */
-    STEP_W( 1.0f), STEP_W(-1.0f),
-    STEP_W( 2.0f), STEP_W(-2.0f),
-    STEP_W( 5.0f), STEP_W(-5.0f),
-    STEP_W(10.0f), STEP_W(-10.0f),
-    STEP_W(15.0f), STEP_W(-15.0f),
-
-    /* holdout_step */
-    HSTEP_W( 1.0f), HSTEP_W(-1.0f),
-    HSTEP_W( 2.0f), HSTEP_W(-2.0f),
-    HSTEP_W( 5.0f), HSTEP_W(-5.0f),
-    HSTEP_W(10.0f), HSTEP_W(-10.0f),
-    HSTEP_W(15.0f), HSTEP_W(-15.0f),
 #endif
 };
 
@@ -217,14 +185,15 @@ static const sysid_run_t sysid_runs[] = {
 #if SYSID_MODE == SYSID_MODE_POSE
 /* ========= 位置扫描表: {大腿角, 虚拟小腿角} rad ========= */
 /* 两条腿同时走同一目标; 角度到不了(撞限位)的姿态数据判无效 */
+/* t_pre = 斜坡段 4.2s (大腿最大跨度 90° @0.4rad/s = 3.93s, 留余量) */
 #define POSE_RUN(th, sh) \
     { TID_POSE, SYSID_KIND_CMD_LEG, 0, TPL_POSE, \
-      th, 0.0f, SYSID_POSE_HOLD_S, 0.0f, 1, 0.0f, 0.0f, sh }
+      th, 4.2f, SYSID_POSE_HOLD_S, 0.0f, 1, 0.0f, 0.0f, sh }
 static const sysid_run_t sysid_pose_runs[] = {
-    /* 大腿角 45°/95°/145° = 0.7854/1.6581/2.5307 rad; 虚拟小腿角 2.30/2.65/3.00 rad */
-    POSE_RUN(0.7854f, 2.30f), POSE_RUN(1.6581f, 2.30f), POSE_RUN(2.5307f, 2.30f),
-    POSE_RUN(0.7854f, 2.65f), POSE_RUN(1.6581f, 2.65f), POSE_RUN(2.5307f, 2.65f),
-    POSE_RUN(0.7854f, 3.00f), POSE_RUN(1.6581f, 3.00f), POSE_RUN(2.5307f, 3.00f),
+    /* 大腿角 45°/90°/135° = 0.7854/1.5708/2.3562 rad; 虚拟小腿角 2.40/2.60/2.80 rad */
+    POSE_RUN(0.7854f, 2.40f), POSE_RUN(1.5708f, 2.40f), POSE_RUN(2.3562f, 2.40f),
+    POSE_RUN(0.7854f, 2.60f), POSE_RUN(1.5708f, 2.60f), POSE_RUN(2.3562f, 2.60f),
+    POSE_RUN(0.7854f, 2.80f), POSE_RUN(1.5708f, 2.80f), POSE_RUN(2.3562f, 2.80f),
 };
 #define SYSID_RUNS     sysid_pose_runs
 #else
@@ -247,10 +216,20 @@ static uint32_t loop_cnt;       /* 姿态表已跑遍数 */
 #if SYSID_MODE == SYSID_MODE_TORQUE
 static float    sysid_pre[DM_MOTOR_NUM];   /* 本周期预压分量 */
 #endif
+
+/* 轮测试当前命令电流 raw (逻辑值), 给 VOFA 显示 */
+volatile int16_t sysid_wheel_cmd_raw[DJI_MOTOR_NUM];
+
+/* 当前测试方式是否是"轮" (给 VOFA 选帧用): 1=轮 0=髋位置扫描 */
+const uint8_t sysid_is_wheel_mode = (SYSID_MODE == SYSID_MODE_TORQUE) ? 1u : 0u;
+
 /* 位置控制 (位置扫描/手动): 虚拟关节 PD 与上一姿态目标 */
 #if SYSID_MODE != SYSID_MODE_TORQUE
 static rl_torque_param_t sysid_pose_param;
 static rl_torque_state_t sysid_pose_state;
+static ramp_t   sysid_ramp_th = {0.0f, 0.4f};   /* 大腿角斜坡, 斜率 0.4 rad/s */
+static ramp_t   sysid_ramp_sh = {0.0f, 0.2f};   /* 虚拟小腿角斜坡, 0.2 rad/s */
+static uint8_t  sysid_pose_ready;
 #endif
 
 /* ========= 辅助函数 ========= */
@@ -477,7 +456,7 @@ static void sysid_pop_tx(uint64_t *leg_tx, uint64_t *whl_tx)
     }
 }
 
-/* 硬故障码 (心跳行状态字): 0=正常; 位置/速度/温度只记录不设阈值 (作者决定) */
+/* 检查硬故障: 返回状态码, 0=正常 */
 #define SYSID_ST_OK         0u
 #define SYSID_ST_OUT_OFF    1u
 #define SYSID_ST_DM_OFF     2u
@@ -552,6 +531,9 @@ void Sysid_Mode_Init(void)
     stop_code    = SYSID_ST_OK;
     hb_tick      = 0u;
     loop_cnt     = 0u;
+#if SYSID_MODE != SYSID_MODE_TORQUE
+    sysid_pose_ready = 0u;   /* 重新进入: 斜坡起点重新对齐实测角 */
+#endif
     reinit_cnt++;   /* 累计不清零: 用来发现反复重入 */
 #if SYSID_MODE != SYSID_MODE_TORQUE
     /* 位置控制: 虚拟关节 PD (只保留腿的位置环, 轮子增益归零) */
@@ -730,9 +712,16 @@ void Sysid_Mode_Run(void)
         {
 #if SYSID_MODE != SYSID_MODE_TORQUE
             /* ---- 位置控制: 目标角 → 虚拟关节 PD → 力矩 ---- */
-            /* 直接取姿态表目标 (斜坡暂时去掉) */
-            thigh_t = run->amplitude;
-            shank_t = run->amp2;
+            if (sysid_pose_ready == 0u)
+            {
+                /* 首次: 斜坡起点对齐当时的实测角 */
+                (void)Ramp_Reset(&sysid_ramp_th, leg_l.output.thigh_angle);
+                (void)Ramp_Reset(&sysid_ramp_sh, leg_l.output.virtual_shank_angle);
+                sysid_pose_ready = 1u;
+            }
+            /* 目标按斜率一点一点加到姿态表的值 (1 rad/s) */
+            thigh_t = Ramp_Update(&sysid_ramp_th, run->amplitude, SYSID_DT);
+            shank_t = Ramp_Update(&sysid_ramp_sh, run->amp2, SYSID_DT);
             for (i = 0u; i < (uint8_t)RL_ACTION_SIZE; i++)
             {
                 act_buf[i] = 0.0f;
@@ -740,22 +729,23 @@ void Sysid_Mode_Run(void)
             /* 动作→目标: target = act×0.5 + dof_pos (见 rl_torque.c) */
             act_buf[0] = (thigh_t - sysid_pose_param.dof_pos[0]) * 2.0f;  /* 左大腿 */
             act_buf[1] = (shank_t - sysid_pose_param.dof_pos[1]) * 2.0f;  /* 左小腿 */
-            act_buf[3] = act_buf[0];                                      /* 右大腿 */
-            act_buf[4] = act_buf[1];                                      /* 右小腿 */
+            act_buf[3] = (thigh_t - sysid_pose_param.dof_pos[3]) * 2.0f;  /* 右大腿 */
+            act_buf[4] = (shank_t - sysid_pose_param.dof_pos[4]) * 2.0f;  /* 右小腿 */
             wheel_vel[0] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
             wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
             for (i = 0u; i < DM_MOTOR_NUM; i++)
             {
                 tau_cmd[i]  = 0.0f;
             }
-            if (RL_Torque_Compute(&leg_l, &leg_r,
-                                  &rl_control.torque_param[rl_control.policy.selected_model],
-                                  wheel_vel, act_buf, &rl_control.torque_state,
-                                  &torque_out))
+            if (RL_Torque_Compute(&leg_l, &leg_r, &rl_control.torque_param[rl_control.policy.selected_model],
+                          wheel_vel, act_buf, &rl_control.torque_state,
+                          &torque_out))
             {
                 for (i = 0u; i < DM_MOTOR_NUM; i++)
                 {
-                    tau_cmd[i] = torque_out.dm[i];      /* 已限幅 */
+                    /* 测试限幅 10Nm (手动链路是 20Nm) */
+                    tau_cmd[i] = clampf(torque_out.dm[i],
+                        -SYSID_TRQ_LIMIT_NM, SYSID_TRQ_LIMIT_NM);
                 }
                 output_debug_dm_sent = (uint8_t)Dm_Send_Torque(tau_cmd);
             }
@@ -801,9 +791,11 @@ void Sysid_Mode_Run(void)
         {
             int16_t raw = sysid_to_raw(target);
             for (i = 0u; i < 4u; i++) { whl_cur[i] = 0; }
-            /* 上线前按配置表输出极性换算 */
-            whl_cur[run->target] = (machine->dji_sign[run->target].out < 0)
-                                   ? (int16_t)(-raw) : raw;
+            /* 两边一起给: 各自按自己的输出极性换算 */
+            whl_cur[DJI_MOTOR_WHEEL_LFT] = (machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out < 0)
+                                           ? (int16_t)(-raw) : raw;
+            whl_cur[DJI_MOTOR_WHEEL_RGT] = (machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out < 0)
+                                           ? (int16_t)(-raw) : raw;
             output_debug_dm_sent  = (uint8_t)Dm_Send_Zero();
             output_debug_dji_sent = (uint8_t)Dji_Send_Current(
                 Can_Bus_Handle(machine->dji_bus),
@@ -816,7 +808,8 @@ void Sysid_Mode_Run(void)
                 sysid_pre[i] = 0.0f;
 #endif
             }
-            tau_cmd[run->target] = (float)raw;    /* 帧内记逻辑值 */
+            sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_LFT] = raw;   /* 供 VOFA 显示 */
+            sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_RGT] = raw;
         }
 
         sysid_pop_tx(&leg_tx, &whl_tx);

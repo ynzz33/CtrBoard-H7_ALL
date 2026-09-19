@@ -10,7 +10,7 @@
 /* 测试计划: 1=仅腿 2=仅轮 3=全部 */
 /* 默认仅腿; 轮测试需架空且安全确认后才开 */
 #ifndef SYSID_PLAN
-#define SYSID_PLAN      1
+#define SYSID_PLAN      2       /* 当前: 仅轮 (测髋时改回 1) */
 #endif
 
 #endif
