@@ -1,5 +1,6 @@
 #include "dm.h"
 #include "machine_config.h"
+#include "mono_ns.h"
 #include <string.h>
 #include <math.h>
 
@@ -89,6 +90,8 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
         return;
     }
     (void)id;
+
+    feedback->rx_ns = Mono_Ns_Get();    /* 到达时刻 */
 
     for (uint8_t i = 0; i < 8u; i++)
     {

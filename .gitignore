@@ -13,3 +13,6 @@
 # eide template
 *.ept
 *.eide-template
+
+# sysid 采集数据与导出产物
+/data

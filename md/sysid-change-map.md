@@ -3,7 +3,7 @@
 > 用途：把每次改动的 **输入 / 输出 / 调用链 / 核对结论** 记下来，方便回退与查错。
 > 维护规则：一次改动 = 一节；先写链路，再写"已核对"与"待台架"。
 > 配套：设计见 `md/sysid-lower-machine-plan.md`；I/O 总览见 `md/IO_CHAINS.md`。
-> 最后更新：2026-09-17
+> 最后更新：2026-09-18
 
 ---
 
@@ -600,6 +600,8 @@ leg_l/leg_r.input.hip_b = pos_zero_rad[B]
 
 **核对**：编译 103 文件 0 fail / 0 warn。
 
+⚠️ 该 27 路布局已被变更 31 取代，以变更 31 为准。
+
 ---
 
 ## 变更 25 · 腿长工作区间进机器配置表
@@ -710,6 +712,972 @@ if (bus->route_cnt == 0u)
 **核对**：编译 103 文件 0 fail / 0 warn。
 
 **怎么验**：Watch `ctrl_fault` 应为 **0**；ch0 掩码应为 **255**。
+
+---
+
+## 变更 30 · ⚠️ 轮子抖震排查 + 限幅放开到满值
+
+**1. 限幅放开（作者要求"限幅给大"）**
+| 文件:行 | 变更 28 的安全值 | 现值 |
+| --- | --- | --- |
+| `machine_config.c:12` `dji_trq_clamp` | 1.5 | **6.0**（M3508 输出轴满力矩） |
+| `machine_config.c:16` `dm_trq_clamp` | 3.0 | **20.0**（作者许可力矩） |
+
+**2. 抖震排查（作者报"右轮速度环抖震很厉害，现在大腿也有"）**
+
+代码层面**核对通过**的点（排除嫌疑）：
+- 控制节拍：TIM6 = 275 MHz/(550×1000) = **500 Hz**，`pid_calc` 的 `dt` 固定 0.002 ✓ 一致。
+- PID 本体：纯 P（腿 3.5 / 轮 8.0），环绕施加在**误差**上 ✓ 正确；`abs_limit` 的 NaN 保护 ✓。
+- 环路符号自洽：`dm_sign` / `dji_sign` 每条都 `out == fb` ✓。
+- 轮子力矩换算：`DJI_NM_PER_RAW_M3508 = 0.30×20/16384` 就是**输出轴 6 Nm 满量程**，不是漏乘减速比 ✓。
+- DM 力矩场与量程 ✓。
+
+**首要怀疑：右轮反馈极性与实机相反 → 正反馈 → 指令力矩在 ±限幅间来回打**，抖动经结构传到整条右腿（解释了"先前小腿、现在大腿"）。
+- 判据（不用开输出）：手把两轮**同向**（机器人前进方向）转，Watch `motor_state.dji.vel_rad_s[0]/[1]` 应**同号**；一正一负即该路反馈反了。
+- 判据（低速小目标）：Watch `rl_control.torque_state.last_torque.dji[1]`；在 ±6 之间来回打 = 正反馈；小幅波动且转速跟得上目标 = 增益/负载问题。
+
+**次要怀疑**：`rl_torque.c:84-85` 轮速环 `wheel_pid[..][0] = 8.0` 对**空载**轮子偏高（纯 P 一阶环极点 = 1 − K·dt/J：空载 J≈0.01 → 1.6 越过稳定边界；落地 J≈0.09 → 0.18 稳）→ 同样表现为"架起来抖、落地不抖"。**未改**（属控制参数，待极性结论）。
+
+**核对**：编译 103 文件 0 fail / 0 warn。**极性表一个字未动。**
+
+**3. 追加：作者反馈"闭环正常、就是抖动很厉害，感觉是软件问题"后的复核**
+
+代码层面**全部验证正确**（排除嫌疑）：
+- TIM6 = 275 MHz/(550×1000) = **500 Hz**，`pid_calc` 的 dt = 0.002 ✓ 一致
+- tick = 1000 Hz；commTask `osDelay(1)`≈1 kHz、imuTask 2 ms、policyTask 10 ms ✓
+- 中断优先级 TIM6/DMA/FDCAN/UART 全为 5，`configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY = 5` → ISR 内调 RTOS API **合法** ✓
+- 任务优先级 actuation(Realtime) > imu/policy(High) > comm(AboveNormal) → **控制任务最高** ✓
+- FDCAN1 = 1 M/4 M FD_BRS（DM 电机）、FDCAN3 = CLASSIC 1 M（C620）✓ 帧格式正确
+- 环路符号 fb == out ✓（与"闭环方向正常"一致）
+
+**改动**：`imcalib/Algorithm/rl_torque.c:84-85`，STABLE 档轮速环 P：**8.0 → 2.0**。
+
+依据（可算，不是"降增益掩盖"）：轮速环是纯 P 的一阶采样环，闭环极点 = 1 − K·dt/J。
+- 本机空载轮子 J ≈ 0.01 kg·m²（M3508 转子惯量折到输出轴 ≈ 9e-3 + 轮盘 ≈ 7e-4）
+- dt = 2 ms → 稳定上限 K < 2J/dt ≈ 10；环里还有 1~2 个周期的反馈/执行延迟，工程上打 3~5 折 → **K ≈ 2~3**
+- 原来 8.0 超出 3~6 倍 → 表现就是"跟得上目标，但叠一层高频抖" ✓
+
+**腿的位置环未动**：ω_n = √(3.5/0.05) ≈ 8.4 rad/s（≈1.3 Hz），离 500 Hz 采样极限很远，自身不会高频抖 → 腿上的抖判断为**被轮子振动经结构带上来**。验证：轮子断电或夹住时，腿是否还抖。
+
+**未改但记为隐患**：`ws2812.c:16-22` 的 `WS2812_Ctrl()` 在 **commTask** 里做阻塞式 SPI（含 `while (State != HAL_SPI_STATE_READY);` 无超时死等 + 100 次阻塞发送），每 ~10 ms 触发一次，会推迟 commTask 里的 DM 反馈解码 → 让控制环吃到更旧的反馈。属可优化项，等作者定。
+
+---
+
+## 变更 31 · VOFA 换成虚拟关节 PID 视图（27 → 32 路）
+
+**改动**（`imcalib/task/task_comm.c`，`Robot_Control_Send_Vofa()` **整体重写**）
+
+| 变化 | 说明 |
+| --- | --- |
+| 发送路数 | `Vofa_Send(dbg, 27u)` → `Vofa_Send(dbg, 32u)`（`VOFA_MAX_CH` 仍为 32，32 路全部使用） |
+| 帧长 | 27×4+4 = 112 字节 → 32×4+4 = **132 字节** |
+| 新增 ch3~20 | 6 个虚拟关节 PID（含两个轮）：当前值 `get` / 目标值 `set` / 输出 `pos_out`，各 6 路（`vj_all[6]={0,1,2,3,4,5}` = 左大腿/左小腿/左轮/右大腿/右小腿/右轮） |
+| 新增 ch25~26 | 轮子下发力矩：左轮 / 右轮 |
+| 新增 ch27/28 | 腿长：左 / 右 `virtual_leg_length` |
+| 新增 ch29~31 | 小腿雅可比：左 `vshank_jac[0]/[1]` + 右 `vshank_jac[0]` |
+| 删除 | 误差块 `err`（err = 目标 − 当前，图上可目视）；电机原始解码角；电机速度；腿摆倾角；腿电机零点后角；左右腿的大腿角/虚拟小腿角 |
+
+**新通道表**：32 路，详见 `md/VOFA_SEND.md`「当前 VOFA 通道布局」。
+
+**输入 / 输出 / 调用链**
+
+```
+rl_control.torque_state.controller[]  (6 个虚拟关节 PID，含轮)
+rl_control.torque_state.last_torque   (电机下发力矩，DM + DJI)
+leg_l|r.output.virtual_leg_length     (腿长)
+leg_l|r.output.vshank_jac[]           (小腿雅可比)
+    │
+    │  Robot_Control_Send_Vofa() @ task_comm.c（每 5 个 1kHz 周期）
+    ▼
+dbg[32]
+    │
+    │  Vofa_Send(dbg, 32u) @ Vofa_send.c
+    ▼
+VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
+```
+
+**为什么这么改**：作者要查"小腿不动"的原因，需要虚拟关节的当前/目标/PID输出 以及小腿雅可比，才能完整追踪"虚拟力矩 → 雅可比 → 电机指令力矩"这条链路。追加后扩展到 6 个虚拟关节（含两个轮），并补上轮子下发力矩，使全部执行链路可见。
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+---
+
+## 变更 32 · 系统辨识前置：CAN 接收打 ns 时间戳（计划缺口 A）
+
+**背景**：按 `md/sysid-lower-machine-plan.md` 执行"6 关节建模"，缺口 A 是全部数据采集的前置（`rx_ns` 决定每一行的时刻精度）。
+
+**改动**（4 个文件，无控制行为变化、不涉及任何物理量）
+| 文件:行 | 内容 |
+| --- | --- |
+| `imcalib/user-lib/dm.h:54` | `dm_motor_feedback_t` 新增 `uint64_t rx_ns;` |
+| `imcalib/user-lib/dji.h:47` | `dji_motor_feedback_t` 新增 `uint64_t rx_ns;` |
+| `imcalib/user-lib/dm.c:94` | `Dm_Read()` ISR 入口记录 `Mono_Ns_Get()`；新增 `#include "mono_ns.h"` |
+| `imcalib/user-lib/dji.c:94` | `Dji_Read()` ISR 入口同上 |
+
+**输入 / 输出 / 调用链**：CAN RX 中断 → `HAL_FDCAN_RxFifo0Callback` → `Dm_Read()` / `Dji_Read()` → 打 `rx_ns`（DWT + TIM6 扩展的单调 ns）→ `raw_pending` → `Dm_Parse()` / `Dji_Parse()` 解码 → 后续 sysid 数据行用 `rx_ns` 作时间戳。
+
+**为什么安全**：`Mono_Ns_Get()` 只读 DWT_CYCCNT + 一个由 TIM6 维护的纪元；TIM6 与 FDCAN 中断同为优先级 5（不能互相抢占），读不会撕裂；ISR 内耗时几十 ns，DM 反馈 2000 帧/s 下开销可忽略。
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+**待台架验证**：连续帧的 `rx_ns` 差值应单调递增且 DM 约 2 ms（500 Hz）量级；与 `last_rx_tick` 的毫秒部分应一致。
+
+---
+
+## 变更 33 · 测试模式的遥控进入条件改为"左上位 + 右中位"（作者定）
+
+**改动**（`imcalib/task/task_actuation.c:76-83`，只改条件与注释）
+- 进入 `CTRL_STRATEGY_SYSID` 的条件：`s1 == 中位 && s2 == 中位` → **`s1 == 上位 && s2 == 中位`**
+- 其余不变：`s1 中位` → LQR；否则 → 手动遥操/RL。因此**只要左拨杆不在上位、或右拨杆不在中位，下一个控制周期（2 ms）就立刻离开测试模式**。
+
+**依据**：作者 2026-09-18 明示"改成 s1 上位跟 s2 中位再开启，然后只要不是这个就立马退出"。
+
+**注意**：`SYSID_ENABLE` 仍为 0，测试分支当前不参与编译；等 sysid 主体（计划缺口 C/D）落地后再打开。
+
+**核对**：编译 103 文件 0 fail / 0 warn。
+
+---
+
+## 变更 34 · 大机器两项机械参数按作者实测填入（腿长区间 + 轮总减速比）
+
+**依据**：作者 2026-09-18 确认"0.14 到 0.34 是实际区间""总减速比是 15.5"。
+
+| 位置 | 原值 | 现值 | 来源 |
+| --- | --- | --- | --- |
+| `machine_config.c:10` `dji_gear_ratio` | `19.2f * CJL_WHEEL_BOX_RATIO`（=19.2，占位） | **`15.5f`** | 作者实测（转子→轮子总比） |
+| `machine_config.c:27-28` `leg_len_min/max` | 0.04 / 0.46（AI 填的理论极限） | **0.14 / 0.34** | 作者实测工作区间 |
+| `machine_config.c:3-4` | `CJL_WHEEL_BOX_RATIO` 占位宏（1.0） | **删除** | 总比已含箱比，占位宏失效 |
+
+**影响面**
+- `dji_gear_ratio`：是 `Dji_Rpm_To_Rad_S()` / `Dji_Encoder_To_Rad()` 的除数 → 轮子速度/角度读数按 19.2/15.5 = 1.24 倍变化（现在是真实值）。
+- `leg_len_min/max`：`LQR_Enable_Latch()` 的使能判定与 `LQR_Target_Update()` 的腿长目标限幅（`imcalib/Algorithm/lqr_balance.c`）。
+
+**核对**：编译 103 文件 0 fail / 0 warn；`grep CJL_WHEEL_BOX_RATIO` 全工程无残留。
+
+**⚠️ 连带未处理项（等作者确认）**：`dji.h` 的 `DJI_NM_PER_RAW_M3508 = 0.30f * 20.0f / 16384.0f` 中那个 **0.30 已隐含 19.2 的减速比**（0.015625 Nm/A × 19.2 = 0.30；佐证：×20 A = 6.0 Nm = M3508 输出轴堵转力矩；M2006 同构：0.005 × 36 × 10 A = 1.8 Nm）。总比改成 15.5 后**轮子力矩换算会偏大 1.24 倍**。建议改成按 `machine->dji_gear_ratio` 显式换算（对 36 / 19.2 标准机型数值完全等价）。
+
+---
+
+## 变更 35 · 系统辨识前置：CAN 发送完成打 ns 时间戳 + TX pending 表（计划缺口 B）
+
+**改动**（只动 `imcalib/user-lib/can_bus.c` / `can_bus.h`：+113 / +30 行）
+| 位置 | 内容 |
+| --- | --- |
+| `can_bus.h` | 新增类型 `can_tx_pending_t` / `can_tx_done_t`；`can_bus_t` 新增 `tx_complete_cnt`、`tx_pending[32]`、`tx_ring_w/r`、`tx_drop_cnt`；新增 4 个 API 声明 |
+| `can_bus.c` `Can_Bus_Start()` | 追加 `HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_TX_COMPLETE, 0xFFFFFFFF)` |
+| `can_bus.c` `Can_Bus_Transmit()` | 改为调用新函数 `Can_Bus_Transmit_Tagged(..., 0, 0)`，**签名与语义完全不变**（`last_tx_tick` 照旧更新） |
+| `can_bus.c` 新增 `Can_Bus_Transmit_Tagged()` | 入队后在 pending 表登记 `{kind, seq}`，元素索引取 `HAL_FDCAN_GetLatestTxFifoQRequestBuffer()` 的位掩码再转索引 |
+| `can_bus.c` 新增 `HAL_FDCAN_TxBufferCompleteCallback()` | 对 `BufferIndexes` 每一位取 `Mono_Ns_Get()`，按元素索引从 pending 表取出标签，写入 SPSC 完成环形缓冲（每条总线 64 项，满则丢最旧并 `tx_drop_cnt++`） |
+| `can_bus.c` 新增 `Can_Bus_Tx_Pop()` / `Can_Bus_Tx_Complete_Count()` / `Can_Bus_Tx_Drop_Count()` | 任务侧取完成事件与计数 |
+
+**关键设计**：FDCAN 配的是 `FDCAN_TX_FIFO_OPERATION`（优先级排序），完成顺序 ≠ 入队顺序 → **必须按 TX 元素索引配对**，故用 pending 表 + 位掩码取索引。
+
+**独立核对（AI 亲自验证，非子代理自述）**
+1. `HAL_FDCAN_GetLatestTxFifoQRequestBuffer()` 返回的是**位掩码**：HAL 文档同一段明确说该返回值可交给 `HAL_FDCAN_AbortTxRequest(BufferIndexes)` 使用，而后者取掩码 → `31 - __CLZ(mask)` 取索引正确 ✓
+2. `HAL_FDCAN_TxBufferCompleteCallback(hfdcan, BufferIndexes)` 签名与 HAL 弱定义一致（不一致会编译报错，实测 0 warn）✓
+3. TX 完成中断的两条 NVIC 线（`FDCANx_IT0/IT1`）在三路 FDCAN 上都已使能且 ISR 都调 `HAL_FDCAN_IRQHandler`（`Core/Src/stm32h7xx_it.c:281/309/295/323/439/453`）→ 中断会真正进来 ✓
+
+**已知小瑕疵（不阻塞）**：环形缓冲**溢出**时由 ISR 推进 `tx_ring_r`，与任务侧 `Can_Bus_Tx_Pop()` 同时写该索引；正常不溢出时是严格 SPSC，无影响。`can_tx_done_t.valid` 字段当前冗余未被读取。
+
+**核对**：编译 103 文件 0 fail / 0 warn（AI 亲自跑）。
+
+**待台架验证**：`Can_Bus_Tx_Complete_Count(1)` 应 ≈ 发送帧数；`Can_Bus_Tx_Pop()` 出的 `tx_ns` 差值应合理、单调；`Can_Bus_Tx_Drop_Count()` 应为 0。
+
+---
+
+## 变更 36 · 轮电机力矩刻度按总减速比缩放 + 限幅降到物理上限（作者批准）
+
+**依据**
+- 作者 2026-09-18 批准："用配置表配置是可以的""第二个也可以"。
+- 参考工程交叉验证：`XYEGA_RM2026_.../readme.md:118` 明写"轮电机3508…在我们 **16.33** 减速比的减速箱条件下，它的最大输出力矩也就是 **5Nm，超过了会失控**"。用我们的常数按比例推：`6.0 × 16.33 / 19.2 = 5.1 Nm` ✓ 与参考一致 → 证明 **原来的 0.30 里确实含 19.2**，必须随实机总比缩放。
+- 参考工程驱动层同样按减速比算：轮子配置带 `.reduction_radio`，力矩上限 = `CURRENT_BIT_2_A_M3508 × getDJITorqueConstant()`（按电机实例，含减速比）。
+
+**改动**
+| 文件:行 | 内容 |
+| --- | --- |
+| `imcalib/user-lib/dji.h:17-27` | 删 `DJI_NM_PER_RAW_M2006/M3508`；改为 `DJI_NM_FULL_M2006/M3508`（满电流输出轴堵转力矩，标准比下）+ `DJI_RATIO_STD_M2006/M3508`（36 / 19.2） |
+| `imcalib/user-lib/dji.c:46-60` | `Dji_Torque_To_Current()` 的 `per_raw` 改为 `满力矩 / 满raw × (实机总比 / 标准比)` |
+| `imcalib/user-lib/machine_config.c:12` | 大机器 `dji_trq_clamp` 6.0 → **4.8**（15.5 箱比下的输出轴物理上限） |
+
+**数值自检（AI 亲自算，非子代理自述）**
+| 机型 / 总比 | `per_raw` | 满量程 |
+| --- | --- | --- |
+| M2006 @36（小机器） | 1.800e-4 | **1.80 Nm**（与原值完全一致 → 小机器行为不变） |
+| M3508 @19.2（标准比） | 3.662e-4 | **6.00 Nm**（与原值完全一致） |
+| M3508 @15.5（大机器实机） | 2.956e-4 | **4.84 Nm** ← 修正后的真值 |
+
+**核对**：编译 103 文件 0 fail / 0 warn；`grep DJI_NM_PER_RAW` 全工程无残留。
+
+**遗留**：轮端力矩常数仍未台架实测（`md/RL_OVERVIEW.md` 记的"悬臂挂砝码法"）；本次只把"减速比"这一因子放对。
+
+---
+
+## 变更 37 · VOFA 通道换成 sysid 数据自检视图（作者台架核对用）
+
+**背景**：作者要求"先把这些需要我观测的数据替换 vofa 通道，让我观测一下对不对，做台架验证"。独立 sysid 帧（计划缺口 C）仍在后面做，本次只是把将来要进帧的数据先摆到 Vofa+ 上核对。
+
+**改动**
+| 位置 | 内容 |
+| --- | --- |
+| `imcalib/user-lib/Vofa_send.h:9-12` | 新增布局开关 `VOFA_LAYOUT`（`#ifndef` 保护，可 `-DVOFA_LAYOUT=n` 覆盖）：1 = 虚拟关节 PID 视图，**2 = sysid 数据自检（当前默认）** |
+| `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` 拆成"共用状态块 + `#if` 两套布局"；新增 layout 2 的自检填充 |
+| `imcalib/task/task_comm.c` 头部 | 新增 `#include "machine_config.h"`（layout 2 用 `machine->dji_sign / dji_bus / dm_bus`） |
+
+**layout 2 通道表（32 路，帧长 132 字节，200Hz）**
+| ch | 内容 | 单位 / 来源 |
+| --- | --- | --- |
+| 0~2 | 在线掩码 / 解算有效 / 策略号 | 与之前一致 |
+| 3~6 | 腿**指令力矩** 前左/后左/前右/后右 | Nm，`last_torque.dm[]` |
+| 7~10 | 腿**零点后角** 同上 | rad，`motor_state.dm.pos_zero_rad[]` |
+| 11~12 | 腿长 左/右 | m |
+| 13~14 | 腿摆倾角 左/右 | rad |
+| 15~16 | 轮**指令电流 raw** 左/右 | `Dji_Torque_To_Current(i, tau × out_sign)` |
+| 17~18 | 轮**转速** 左/右 | rad/s |
+| 19~20 | 轮**编码器 raw** 左/右 | `dji_motor_feedback[].angle_raw` |
+| 21~22 | 轮**实际电流 raw** 左/右 | `dji_motor_feedback[].current_raw` |
+| 23 | 轮温度（左） | `temp_raw` |
+| 24 | 轮总线 **TX 完成间隔** | µs（相邻两次取到的完成时刻之差） |
+| 25 | 轮 **RX 到达间隔** | µs |
+| 26 | 腿总线 **TX 完成间隔** | µs |
+| 27 | 轮总线本周期 **TX 完成条数** | 每周期应为 1 |
+| 28 | 腿总线本周期 **TX 完成条数** | 每周期应为 4 |
+| 29 | 轮总线 **TX 丢帧累计** | 必须为 0 |
+| 30~31 | 轮 RX 时刻原始拆分 hi/lo | `rx_ns >> 20` / `rx_ns & 0xFFFFF` |
+
+**注意（写给后续）**：该视图用 `Can_Bus_Tx_Pop()` 取完成事件，**会消费掉事件**。等真正的 sysid 数据帧落地时，本视图必须让位（不能与数据帧抢事件），或改成只读计数。
+
+**核对**：两种布局都编译通过 —— `py cc_check.py` 与 `py cc_check.py -DVOFA_LAYOUT=1` 均 **103 文件 0 fail / 0 warn**。
+
+**待作者台架核对**：腿 4 路力矩/角度的方向；轮指令 raw 与实测转速的正负关系；`rx_ns`/`tx_ns` 间隔是否 ≈ 2000 µs（500Hz）且单调；`tx_drop` 是否为 0。
+
+---
+
+## 变更 38 · 🐞 修 TX 完成中断登记：只认本机登记过的元素（作者台架测出）
+
+**现象（作者台架读数）**：ch27 / ch28（每窗口 TX 完成条数）**稳定在 64**；ch29（TX 丢帧）持续增长。
+
+**根因（可证）**
+- 缺口 B 的 `HAL_FDCAN_TxBufferCompleteCallback()` 对 `BufferIndexes` 掩码里**每一个置位的元素**都写一条完成记录，**没有检查该元素是否本机登记过**。
+- 每窗口稳定 64 = **环形缓冲容量（`CAN_TX_RING_CAP` = 64）**，即缓冲每窗口都被填满。按"**32 位 × 每窗口约 2 次中断 = 64**"推断：硬件把**整个 TXBCF 掩码（32 位全置位）**都报给了回调，其中绝大多数元素没有任何登记信息 → 被当成"完成"写进环 → 环立即满 → 持续丢帧。
+
+**改动**（`imcalib/user-lib/can_bus.c/h`）
+| 位置 | 内容 |
+| --- | --- |
+| `can_bus.h:31-36` | `can_tx_pending_t` 增加 `uint8_t valid;` |
+| `can_bus.c:174-178` | `Can_Bus_Transmit_Tagged()` 登记时置 `valid = 1` |
+| `can_bus.c:239-270` | ISR 内**先判 `valid`，未登记的位直接跳过**（不计数、不写环）；处理完清 `valid` |
+
+**预期（修后）**：ch27 ≈ **2~3** /窗口（轮 500Hz × 200Hz 采样）、ch28 ≈ **10** /窗口（腿 4 台 × 500Hz）、ch29 **保持 0**。
+
+**核对**：两种布局（`VOFA_LAYOUT` 1/2）均编译 103 文件 0 fail / 0 warn。
+
+---
+
+## 变更 39 · 测试模式补全：激励序列 + 状态机 + 事件标记 + 安全
+
+**目的**：把 sysid 从"空壳零力矩"补成完整的数据采集链路：激励序列、自动跑批、事件标记、安全/无效判定。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_config.h` | `SYSID_ENABLE` 默认改为 **1**；新增 `SYSID_PLAN` 宏（1=仅腿 2=仅轮 3=全部，默认 1） |
+| `imcalib/Sysid/sysid_mode.c` | **整体重写**：新增 run 描述结构 + 激励序列表 + 单周期状态机 |
+| `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | `imcalib/Sysid` 组新增 `sysid_log.c`（之前缺失，SYSID_ENABLE=1 会链接失败） |
+
+**新增宏（sysid_mode.c 文件顶部，易改）**
+
+| 宏 | 值 | 含义 |
+| --- | --- | --- |
+| `SYSID_TRQ_LIMIT_NM` | 3.0 | 腿力矩限幅 Nm，待台架 |
+| `SYSID_CURRENT_LIMIT_RAW` | 12288 | 轮电流限幅 raw（±15A） |
+| `SYSID_RAW_PER_A` | 819.2 | C620 raw/A |
+| `SYSID_TEMP_LIMIT_C` | 80 | 温度限 °C，待台架 |
+| `SYSID_PLAN` | 1 | 1=仅腿 2=仅轮 3=全部 |
+
+**激励序列表（sysid_runs[]，共 79 run）**
+
+腿（SYSID_PLAN=1/3，33 run）：
+
+| 用例 | run 数 | 结构 |
+| --- | --- | --- |
+| `torque_baseline` | 1 | 全零 5s |
+| `torque_step` | 24 | 4路 × ±1/±2/±3 Nm，每 run：zero 2s → step 0.5s → zero 3s × 3 |
+| `torque_chirp` | 4 | 4路各 1.5 Nm，0.2→10 Hz 扫频 10s，前后 zero 2s/3s |
+| `holdout_torque_chirp` | 4 | 同 chirp 但 2.0 Nm |
+
+轮（SYSID_PLAN=2/3，46 run，默认不启用）：
+
+| 用例 | run 数 | 结构 |
+| --- | --- | --- |
+| `baseline_sign` | 2 | 左右各 1 run：0A 5s → +0.5A 1s → 0A 2s → -0.5A 1s → 0A 5s |
+| `stiction` | 2 | 正/负各 1 run（左轮）：17 级阶梯，每级 1s |
+| `plateau` | 22 | ±1~±15A 各 run（左轮）：zero 2s → 平台 5s → zero 2s |
+| `step` | 10 | ±1~±15A 各 run（左轮）：zero 2s → 阶跃 0.5s → zero 3s × 3 |
+| `holdout_step` | 10 | 重做 step |
+
+**状态机**
+
+```
+每个 tick:
+  重入检测 (>10ms 未调用 → 重新初始化)
+  安全检查 → 失败则 abort + 停止
+  循环回绕 (run_idx >= 总数 → 回到 0)
+  run 开始 → 推 kind=5 标记 (phase_or_event=-1)
+  计算目标值 → 限幅 → 发送命令 → 快照 → 推数据行
+  run 结束 → 发零 → 推 kind=5 标记 (-2) → 下一个 run
+```
+
+**事件标记**
+
+| phase_or_event | 列 5 | 列 6 | 列 7 | 列 8 |
+| --- | --- | --- | --- | --- |
+| -1 (run 开始) | run_index | test_id | 总段数 | 0 |
+| -2 (run 结束) | 0 | 0 | 0 | 0 |
+| -3 (中止) | 0 | 0 | 0 | 0 |
+
+**安全链**
+
+| 条件 | 动作 |
+| --- | --- |
+| `torque_output_enabled==0` | abort + 停止 |
+| DM 掉线 (`Dm_Is_Online` 失败) | abort + 停止 |
+| 腿解算无效 (`!leg_*.output.valid`) | abort + 停止 |
+| 腿长超出 `leg_len_min/max` | abort + 停止 |
+| DM 温度 > 80°C | abort + 停止 |
+| 拨杆离开组合 | actuation 任务不调用 → 隐式中止（自动回零） |
+
+停止后必须拨杆离开再回来才重新启动。
+
+**轮电流接口**
+
+直接调用 `Dji_Send_Current()` 发 raw 电流（`can_bus.h` 已有），不经 `Dji_Send_Wheel_Torque()`（不应用 `dji_sign.out`）。amplitude(A) × 819.2 = raw，限幅 ±12288。`tau_cmd[]` 列记录 raw 值（kind=3 行）。
+
+**时间戳**
+
+保持现有 pop 方式：先发命令，再从 CAN TX 完成环取最晚时刻。每周期同时 pop 腿总线和轮总线（修复原有只 pop 腿总线导致轮总线环溢出的隐含问题）。leg/wheel 行分别取对应总线的 TX 时刻。
+
+**输入 / 输出 / 调用链**
+
+```
+actuationTask (500Hz) → output_task_body()
+  → 拨杆判定: s1=UP + s2=MID → ctrl_strategy=CTRL_STRATEGY_SYSID
+  → Sysid_Mode_Run()
+    → sysid_safe() → 安全门禁
+    → sysid_target() → 计算激励值
+    → Dm_Send_Torque() / Dji_Send_Zero() (腿行)
+    → Dm_Send_Zero() / Dji_Send_Current() (轮行)
+    → sysid_fill_fb() → 快照
+    → Sysid_Log_Push() → 环形缓冲
+
+commTask (1kHz) → comm_task_body()
+  → Sysid_Log_Send_Pump() → 500Hz DMA 发送
+```
+
+**核对**：4 种配置均 105 文件 0 fail / 0 warn：
+- 默认（`SYSID_ENABLE=1, SYSID_PLAN=1`）
+- `-DSYSID_ENABLE=0`
+- `-DSYSID_PLAN=2`
+- `-DSYSID_PLAN=3`
+
+**已知取舍**
+
+- 环形缓冲满时 `Sysid_Log_Push()` 返回 false，现有代码只对局部变量 `snap.whl_drop_cnt++`（不生效），此 bug 未修（不影响 CAN tx_drop 计数）
+- 轮测试默认只测左轮（stiction/plateau/step），如需右轮可在表里追加
+- marker 行的 `t_cmd_ns` 取自最近一次 TX 完成（可能滞后 1 个周期 ≈2ms）
+
+**待台架**
+
+- `SYSID_TRQ_LIMIT_NM = 3.0` 是否需要放开（大机器额定 20 Nm）
+- `SYSID_TEMP_LIMIT_C = 80` 是否合适
+- DM 温度 `temp_mos` / `temp_rotor` 80°C 阈值
+- 轮命令与物理正方向的对应关系（变更 40 已改为按 `dji_sign.out` 换算，训练端不必再自行标定）
+
+**⚠️ 列数未变**：仍为 31 列，帧长 128B，`sysid-delivery.md` 和 `sysid_export.py` 不需要同步。
+
+---
+
+## 变更 40 · 复核修正：轮命令极性同域 + 帧内轮命令列约定 + 导出填充
+
+**背景**：变更 39 完成后主代理复核，发现两处不一致（不影响腿测试，只影响轮测试）：
+
+1. 轮命令走 `Dji_Send_Current()` 直发 raw，绕过了 `dji_sign.out`；而帧内轮反馈在 `dji.c` 解析时已按 `dji_sign.fb` 取反 → **右轮（out = −1）命令与反馈不同域**，配对会出现"负增益"假象。
+2. 帧内其实已经带了轮命令值（kind=3 行的列 5/6 写的是逻辑 raw），但列约定没写进 `sysid_log.h` / 交付文档，导出脚本把 `cmd_test_wheel_raw` 留空。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | ① 轮分支上线前按 `machine->dji_sign[target].out` 换算，帧内仍记逻辑 raw；② `sysid_safe()` **删掉腿长区间门与温度门**（只留 `torque_output_enabled`、DM 离线、解算无效三个硬故障门），对齐作者既定决策"位置/速度/温度只记录、不设阈值"；`SYSID_TEMP_LIMIT_C` 保留但标注"当前未启用" |
+| `imcalib/Sysid/sysid_log.h` | 注释补"行类型补充约定"：kind=3 列 5/6 = 轮命令 raw；kind=5 列 5~8 = run_index/test_id/总段数/0；kind=5 的列 3/4 仅作参考 |
+| `tools/sysid_export.py` | `_write_wheel_csv_cmd()` 增 `side` 参数，按侧填 `cmd_test_wheel_raw`（左取列 5、右取列 6），两处调用同步 |
+| `md/sysid-delivery.md` | 新增 §1.3.1「轮电流行（kind=3）列 5/6 约定」；§1.3 补标记行 `t_cmd_ns` 说明；按 §0.1 删去未经台架确认的极性断言（腿摆角正方向、"X 轴 = 前进方向"、轮 +0.5A 转向预期），改为"作者台架标定项"；§5.2/5.3 改成与现状一致（自动跑批、单轮时长、`SYSID_ENABLE` 默认 1、`torque_output_enabled` 前提）；§5.5 修正导出命令（`py` + `--out`）并补产物清单与列名说明 |
+| `.gitignore` | 新增 `/data`（sysid 采集与导出产物不入库） |
+
+**输入 / 输出 / 调用链**
+
+- 轮：输入 `sysid_runs[].target`（0=左 1=右）、`sysid_to_raw(幅值A)` = 逻辑 raw、`machine->dji_sign[target].out`；输出 `Dji_Send_Current()` 的线上 raw = 逻辑 raw × 输出极性，帧列 5/6 记**逻辑** raw（与列 23~28 反馈同域）。
+  调用链：`actuationTask → Sysid_Mode_Run() → sysid_clamp_f/sysid_to_raw → Dji_Send_Current → Can_Bus_Transmit → dji_bus`
+  导出链：`VOFA 文件 → tools/sysid_export.py → wheel-<side>-<run>/c620_command_raw.csv`
+- 腿链路未动：`sysid_clamp_f → Dm_Send_Torque → dm.c 内按 dm_sign.out 换算`，帧列 5~8 记逻辑 Nm，与腿反馈同域。
+
+**核对**
+
+- 编译：默认 / `-DSYSID_ENABLE=0` / `-DSYSID_ENABLE=1` 均 105 文件 0 fail / 0 warn（主代理复核）
+- 导出自测：`py tools/sysid_export.py --selftest` 全项通过
+- 未动任何物理量：`dji_sign` / `dm_sign` / `dm_zero` / `leg_off_phi0` 等值一律未改，只是新增"按表使用极性"的调用
+
+**待台架**
+
+- 轮命令与轮实际转动的物理方向仍需作者目视确认（表内 `dji_sign` 是作者标定值）
+- 若作者要求帧内改记线上 raw（未乘极性），只需改列 5/6 赋值那一行，并同步交付文档与导出脚本
+
+---
+
+## 变更 41 · 诊断加固：心跳行 + 状态码 + 丢帧可见（作者台架排障）
+
+**背景**：作者上机后看到 ch0=1、ch2（段号）恒为 1、ch5~8 全 0。旧代码在两种完全不同的故障下表现一模一样：①状态机没跑/被停机；②VOFA+ 没换成 JustFloat 连接或列错位。旧代码还有两处静默失败：
+
+1. **停机后完全不推帧** → "流断了"和"没数据"无法区分
+2. **环形缓冲满时丢帧不计任何数**（变更 39 已记录该 bug）→ 丢帧看不见
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | ①`sysid_safe()` → `sysid_fault()`，返回状态码（`SYSID_ST_*`）；②新增心跳行推送 `sysid_push_heartbeat()`，每 250 ms 一行、**任何状态都推**；③新增 `reinit_cnt`（重入重置累计，`Init` 里累加不清零）；④心跳行复用列 9~12 放诊断位 |
+| `imcalib/Sysid/sysid_log.c` | ①新增 `volatile uint32_t sysid_log_drop_cnt / sysid_log_busy_cnt`；②`Sysid_Log_Push()` 失败时累加 drop；③发送泵**先判串口空闲再取数据**（原来先 `ring_r++` 再判断，UART 忙时那一帧被静默丢掉），忙则累加 busy 并保留数据 |
+| `imcalib/Sysid/sysid_log.h` | 加 `SYSID_EVENT_HEARTBEAT 0`；注释补心跳行列定义；`extern` 两个诊断计数 |
+| `md/sysid-delivery.md` | 新增 §1.3.2 心跳行与状态码表 |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`stopped` / `stop_code`（`sysid_fault()` 的返回值）、`run_idx` / `run_active` / `tick_in_run`、`sysid_log_drop_cnt` / `sysid_log_busy_cnt` / `reinit_cnt`、`Mono_Ns_Get()`
+- 输出：`kind=5, phase_or_event=0` 的心跳行进环形缓冲 → 发送泵 → VOFA；列 5~12 = run_idx / test_id / phase / 状态码 / 重入 / 丢帧 / 串口忙 / 心跳计数
+- 调用链：`actuationTask → Sysid_Mode_Run() → hb_tick 计数 → 125 拍(250ms) → sysid_push_heartbeat() → Sysid_Log_Push() → commTask → Sysid_Log_Send_Pump() → HAL_UART_Transmit_DMA`
+- 停机路径：`sysid_fault()≠0 → 推 ABORT 标记(-3) + stop_code=fault + stopped=1`，之后每周期只发零力矩，但**心跳照推**（列 8 = 停机原因）
+- 导出侧：`tools/sysid_export.py` 的 `RunSplitter` 只认 -1/-2/-3 为 run 边界，心跳行（0）不影响切分，也不写入任何 CSV（未改动工具）
+
+**核对**
+
+- 编译：默认 / `-DSYSID_ENABLE=0` / `-DSYSID_ENABLE=1` 三种配置 0 fail / 0 warn
+- 导出自测：`py tools/sysid_export.py --selftest` 全项通过
+- 未动任何物理量；未改帧长（仍 31 列 / 128 B）
+
+**待台架**
+
+- 心跳周期 250 ms 是否合适（可改 `SYSID_HB_TICKS`）
+- 作者需重新 Build + Download 才能看到心跳行
+
+---
+
+## 变更 42 · 激励幅值提高（作者要求：3 Nm 顶不动气弹簧）
+
+**背景**：台架实测列 5 偶尔出现 +1 Nm 脉冲（说明状态机、激励、发送都正常），但四个髋角（列 9~12）几乎不动 —— 1~3 Nm 相对气弹簧 + 自重太小，信噪比不够，拟合不出摩擦/延迟。作者要求把激励给大。
+
+**改动**（全部在 `imcalib/Sysid/sysid_mode.c`）
+
+| 位置 | 原值 | 新值 |
+| --- | --- | --- |
+| `SYSID_TRQ_LIMIT_NM`（文件顶部宏） | 3.0f | **8.0f** |
+| `sysid_runs[]` 的 `torque_step` 幅值（24 个 run） | ±1 / ±2 / ±3 Nm | **±2 / ±4 / ±6 Nm** |
+| `torque_chirp` 幅值（4 个 run） | 1.5 Nm | **4.0 Nm** |
+| `holdout_torque_chirp` 幅值（4 个 run） | 2.0 Nm | **5.0 Nm** |
+| `md/sysid-delivery.md` | §4.1 用例表幅值、§5.3 限幅值同步 | — |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`sysid_run_t.amplitude`（新幅值）→ `sysid_target()` → `sysid_clamp_f(target, ±SYSID_TRQ_LIMIT_NM=8)` → `Dm_Send_Torque()`
+- 输出：帧列 5~8 = 已限幅的实际下发力矩（现最大 ±6 Nm，仍低于 8 Nm 上限）
+- 轮用例不受影响（幅值是安培，上限 `SYSID_CURRENT_LIMIT_RAW = 12288` 未变）
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 安全性：最大 6 Nm 单路、每段仅 0.5 s（阶跃）或 4~5 Nm 正弦（扫频），相对 `dm_trq_clamp = 20 Nm` 仍保守；腿周边需清空
+- 未动任何物理量；未改帧长
+
+**待台架**
+
+- 6 Nm 是否会让腿撞限位过猛（若撞击剧烈，把最大幅值降到 4 Nm 或缩短阶跃段）
+- 8 Nm 上限是否需要按结构承受能力再调（作者定）
+
+---
+
+## 变更 43 · 新增腿用例预压（工作点）+ 限幅放到满限幅
+
+**背景**：台架发现腿悬空时被气弹簧顶在**最长限位**：往"伸"的方向推力矩全被限位吃掉，只有"收"的方向能动；腿长只覆盖工作区间（0.14~0.34 m）最上端；1~3 Nm 也看不出版应。作者要求加"初始目标力矩"作为工作点，从这个值起测。
+
+**改动**（`imcalib/Sysid/sysid_mode.c`）
+
+| 位置 | 内容 |
+| --- | --- |
+| 文件顶部 | 新增 `SYSID_PRELOAD_L_N` / `SYSID_PRELOAD_R_N`（沿腿力 N，负=收腿，0=不加）。初值 -80（≈11Nm/髋）；作者台架试出"太大"，改为 **-22（≈3Nm/髋）** |
+| 文件顶部 | `SYSID_TRQ_LIMIT_NM`：3.0 → 8.0 → **20.0**（= 电机满限幅，给预压+激励留头寸） |
+| 腿分支 | 非 baseline 的腿 run：`tau_cmd[F/B_LFT] += 预压_L × leg_jac[0][0/1]`，右侧同理，然后整组限幅 |
+| `md/sysid-delivery.md` | 新增 §4.3 预压说明（换算、调法、削平检查） |
+
+**输入 / 输出 / 调用链**
+
+- 输入：宏常量 `SYSID_PRELOAD_*_N`、解算输出 `leg_l/leg_r.output.leg_jac[0][0..1]`（腿长对前/后髋角的偏导，`leg_solver.c` 的 `leg_jac[0][*]`）
+- 计算：`τ_f = 预压 × ∂l0/∂q_f`，`τ_b = 预压 × ∂l0/∂q_b` —— 等价于"沿腿加一根常力弹簧"，负值收腿
+- 输出：与激励相加后按 ±20 Nm 限幅 → `Dm_Send_Torque()`；帧列 5~8 记录**预压+激励的净力矩**
+- 调用链：`actuationTask → Sysid_Mode_Run() → sysid_target() → 预压叠加 → sysid_clamp_f → Dm_Send_Torque → Can_Bus_Transmit`
+- 轮分支不变（轮测试要求四路腿零命令，故不加预压）；`torque_baseline` 不加预压（保纯零基线）
+
+**数值换算（几何数值核验）**
+
+用 `leg_solver.c` 的几何（`lu=0.21, lg=0.25`）在腿长 0.14~0.34 m 范围内扫 2669 个姿态，得到 `|∂l0/∂q| ≈ 0.138 m/rad`（最大 0.1435），因此：
+
+```
+单髋力矩(Nm) ≈ 沿腿力(N) × 0.138      →   43 N ≈ 6 Nm,  80 N ≈ 11 Nm
+```
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量（没有改 dm_sign/dm_zero/leg_off_phi0）；未改帧长
+- `md/sysid-change-map.md` 里预先记录：预压力矩会与被激励电机叠加，**预压 + 激励 > 20 Nm 会削平**
+
+**待台架**
+
+- `SYSID_PRELOAD_*_N` 的实际取值（作者按列 17/19 的腿长迭代，目标 0.22~0.25 m）
+- 预压符号方向（负是否真的是收腿）
+- 20 Nm 限幅是否合适（预压是持续力矩，激励是短脉冲）
+
+---
+
+## 变更 44 · 预压调到 6Nm + 预压分量/削平标志上 VOFA
+
+**背景**：作者台架反馈 `-22 N`（≈3 Nm/髋）"力太小"，要求调大；并要求把预压相关数据放进 VOFA 便于检测。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | ①`SYSID_PRELOAD_L_N/R_N`：-22 → -43 → 作者再调为 **-34**（≈4.7 Nm/髋）；②新增静态 `sysid_pre[4]` 保存本周期预压分量，与激励分开计算后再相加限幅；③帧填充时把预压分量写入 `snap.preload[]`，并统计被限幅的电机数 `snap.clamp_cnt` |
+| `imcalib/Sysid/sysid_log.h` | `sysid_snap_t` 加 `preload[4]` / `clamp_cnt`；注释补"kind=1 行复用列 23~27" |
+| `imcalib/Sysid/sysid_log.c` | `assemble_frame()`：kind=1 行把 23~27 写成预压分量与削平计数（kind=3/5 行 23~28 含义不变） |
+| `md/sysid-delivery.md` | 新增 §1.3.3 腿行列 23~27 复用说明 |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`SYSID_PRELOAD_*_N`、`leg_l/leg_r.output.leg_jac[0][*]`
+- 计算：`sysid_pre[i] = 预压 × leg_jac[0][k]` → `tau_cmd[i] = clamp(tau_cmd[i] + sysid_pre[i], ±20)`
+- 输出（VOFA 31 列，腿行）：列 5~8 = 净力矩，**列 23~26 = 四个髋的预压分量 Nm，列 27 = 削平电机数**，列 17~20 = 腿长/腿摆角
+- 调用链：`Sysid_Mode_Run()` → 腿分支（预压+激励）→ 快照（`snap.preload/clamp_cnt`）→ `Sysid_Log_Push` → `commTask` → `Sysid_Log_Send_Pump` → `assemble_frame()` 按 kind 分支写列 23~27 → DMA → VOFA
+- 导出侧：`tools/sysid_export.py` 的腿 CSV 只读列 3/4/5~8/17~20，**不受影响**（无需改工具）
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量；帧长仍 31 列 / 128 B
+- 削平判据：`|净力矩| >= 20 Nm` 即计入 `clamp_cnt`
+
+**待台架**
+
+- -43 N（≈6 Nm/髋）是否合适（作者按列 17/19 腿长继续迭代）
+- 列 27 是否出现 >0（出现即说明预压+激励超限，需减幅或减预压）
+
+---
+
+## 变更 45 · 预压改为遥控滚轮实时可调 + 预压力值上 VOFA
+
+**背景**：作者台架反馈"只有摆角、没有伸缩，摆角还很小"（-34 N ≈ 4.7 Nm/髋 仍压不动腿，且改一次值就要重烧一次）。为了不靠"改数-重烧"试凑，把预压做成**运行时可用遥控滚轮连续调节**，并把当前的沿腿力数值直接送上 VOFA。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | ①新增 `#include "dr16.h"`；②新增宏 `SYSID_PRELOAD_TUNE`（1=滚轮实时调，0=用固定宏）与 `SYSID_PRELOAD_TUNE_N`（滚轮到底 = 150 N）；③`Sysid_Mode_Run()` 顶部每个周期读一次滚轮并算出 `pre_n`（`-[0..150] N`，双向）；④腿分支用 `pre_n` 统一驱动左右腿；⑤快照填 `preload_n` |
+| `imcalib/Sysid/sysid_log.h` | `sysid_snap_t` 加 `float preload_n;`；注释补列 28 |
+| `imcalib/Sysid/sysid_log.c` | `assemble_frame()`：kind=1 行的列 28 写 `preload_n` |
+| `md/sysid-delivery.md` | §1.3.3 加列 28；§4.3 加"实时调节模式"用法 |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`DR16_Snapshot().wheel`（遥控滚轮原始值，±660）→ `DR16_Deadline(raw, 20)` 去死区 → 限幅 → 归一化 `[-1, 1]`
+- 计算：`pre_n = -150 N × 归一化值`（正 = 伸腿，负 = 收腿） → `sysid_pre[F/B] = pre_n × leg_jac[0][*]`
+- 输出（VOFA 腿行）：列 28 = 当前预压沿腿力 N；列 23~26 = 四个髋的预压分量 Nm；列 27 = 削平计数
+- 调用链：`actuationTask → Sysid_Mode_Run() → DR16_Snapshot → pre_n → 腿分支预压 → 快照 → 发送泵 → VOFA`
+- 反向固化：读列 28 的值 → 填回 `SYSID_PRELOAD_L_N/R_N` → `SYSID_PRELOAD_TUNE` 改 0 → 重新编译
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量；帧长仍 31 列；滚轮只在测试模式的腿用例里被读取，不影响其他模式（`task_policy.c` 的 height_cmd 只在非测试模式用）
+- 轮用例、baseline 用例不加预压（`preload_n` 记 0）
+
+**待台架**
+
+- 滚轮转到哪个方向是"收腿"（双向可试，不会做反）
+- 定下来的预压力值需要作者确认后固化
+- 若滚轮到底（150 N ≈ 21 Nm/髋）仍压不动腿，说明不是力不够，而是**腿正顶在机械限位上/解算姿态接近奇异**，要换思路（机械调整或改激励方式）
+
+---
+
+## 变更 46 · 预压固化 6 Nm/髋（作者拍板，关闭滚轮实时模式）
+
+**背景**：变更 45 的滚轮实时调节已用于台架定值；作者决定"按 6 Nm 来"，并指出换算误差（雅可比随姿态变化）。
+
+**改动**（`imcalib/Sysid/sysid_mode.c` 文件顶部）
+
+| 宏 | 原值 | 新值 |
+| --- | --- | --- |
+| `SYSID_PRELOAD_L_N` / `SYSID_PRELOAD_R_N` | -34 | -43（6 Nm）→ -51（7 Nm）→ -58（8 Nm）→ **-54（7.5 Nm，作者最终定值）** |
+| `SYSID_PRELOAD_TUNE` | 1（滚轮实时调） | **0（用固定宏）** |
+| 换算注释 | 补一句"雅可比随姿态变，实际力矩以帧列 23~26 为准" | — |
+
+`SYSID_PRELOAD_TUNE_N`（滚轮到底 = 150 N）保留，随时可把 `SYSID_PRELOAD_TUNE` 改回 1 再用滚轮试。
+
+**输入 / 输出 / 调用链**
+
+- 输入：`SYSID_PRELOAD_L_N/R_N = -43 N`
+- 计算：`sysid_pre[F/B] = -43 × leg_jac[0][*]`（左右腿同值）→ 与激励相加 → ±20 Nm 限幅 → `Dm_Send_Torque()`
+- 输出：帧列 23~26 = 四个髋的**实际**预压力矩 Nm（随姿态的雅可比浮动）→ 作者可直接读数核对是否 ≈ ±6 Nm
+- 滚轮在 TUNE=0 时不再被读取（`Dial` 分支编译掉）
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量；帧长仍 31 列
+
+**待台架**
+
+- 列 23~26 的实际值是否 ≈ −6 Nm（若非，说明该姿态下雅可比与平均 0.138 差别较大，需按实测值反推沿腿力）
+- 6 Nm 能否把腿压到 0.22~0.25 m；若不能，优先用机械方式把腿放到中段
+
+---
+
+## 变更 47 · 两条腿同步激励（作者要求"两支腿一起测试"）
+
+**背景**：原表每次只激励一条腿的一个电机（target 0~3 依次），对侧腿只吃预压。作者要求两条腿一起测。改动是**对称激励**：激励某一路时，对侧腿的对应电机给同一个逻辑力矩值（`0↔2`、`1↔3`）。
+
+**为什么是对的**：左右电机在驱动边界已按 `dm_sign` 处理，两条腿在解算里用的是同一套镜像后的坐标，所以**同一个逻辑力矩值 = 镜像同向的物理动作** ✓ 两腿受力对称，机体只受竖直合力、不产生偏转。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | 新增宏 `SYSID_EXCITE_BOTH`（默认 **1**）；腿分支激励赋值后加一行 `tau_cmd[target ^ 2] = tau_cmd[target]`；文件顶部加注释 |
+| `md/sysid-delivery.md` | §4.1 `torque_step` 力矩说明标注"两条腿的对应电机同步" |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`run->target`（0=前左 1=后左 2=前右 3=后右）、`sysid_target()` 的激励值、`SYSID_EXCITE_BOTH`
+- 输出：`tau_cmd[target] = 激励`，`tau_cmd[target ^ 2] = 同值` → 再叠加预压 → ±20 Nm 限幅 → `Dm_Send_Torque()`
+- 帧记录不变：列 5~8 = 四路净力矩 → 训练端能看到"两路同值"的实际下发值 ✓
+- 关掉方式：`SYSID_EXCITE_BOTH = 0` 即回到单腿激励
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量；帧长仍 31 列；轮用例不受影响（只改腿分支）
+
+**待台架**
+
+- 对称激励下机体是否稳定（两腿同向发力 → 竖直合力；若悬吊有弹性会上下晃）
+- 与单腿激励的数据质量对比（单腿激励通道分离更干净；双腿同时可以一次拿两倍数据）
+
+---
+
+## 变更 48 · 帧扩到 33 列：补输入输出时间戳 + 腿解算导数（作者要求"所有测试数据都要有"）
+
+**背景**：作者要求 VOFA 上有全部测试相关数据（输入输出时间戳、各电机输出力矩、解算得到的腿部数据）。原 31 列缺 **DM 反馈到达时刻** 和 **腿长/腿摆角速度**（交接文档要求回放比对"值 + 导数"）。同时把 4 列预压分量挤出帧（净力矩列 5~8 已含预压，`preload_n` 列 30 保留总量，够用）。
+
+**新布局（33 列 / 136 B / 66 kB/s，占 921600 的 71.6%）**
+
+| 列 | 内容 | 变化 |
+| --- | --- | --- |
+| 0~22 | kind / seq / phase / t_cmd / 四路力矩 / 四路髋角 / 四路角速度 / 腿长摆角 L,R / t_rx_whl | 不变 |
+| **23/24** | **DM 反馈最近接收时刻 hi/lo** | 新增 |
+| **25/26** | **左腿长速度 / 左腿摆角速度** | 新增 |
+| **27/28** | **右腿长速度 / 右腿摆角速度** | 新增 |
+| **29** | 削平计数 clamp_cnt | 原位（原 27） |
+| **30** | 预压沿腿力 preload_n | 原位（原 28） |
+| 31/32 | 轮丢帧 / 腿丢帧累计 | 原 29/30 |
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_log.h` | `SYSID_LOG_FRAME_N` 31→33；注释块重写；结构体去掉 `preload[4]`，新增 `t_dm_rx_ns` / `d_leg[2]` / `d_pitch[2]` |
+| `imcalib/Sysid/sysid_log.c` | `assemble_frame()` 尾部重排（kind=1 用 23~30，kind=3/5 保留轮数据） |
+| `imcalib/Sysid/sysid_mode.c` | `sysid_fill_fb()` 增加：四个 DM 反馈 `rx_ns` 取最新；四个解算导数；快照填值改为不再写 `preload[i]` |
+| `tools/sysid_export.py` | `FRAME_FLOATS` 31→33（二进制解析按帧尾定位，长度必须同步） |
+| `md/sysid-delivery.md` | §1.1/§1.2/§1.3.3 同步到 33 列 |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`dm_motor_feedback[i].rx_ns`、`leg_l/r.output.d_virtual_leg_length`、`d_virtual_leg_angle`
+- 输出：VOFA 帧 23~30 列；导出 CSV 的列名与顺序**不变**（腿 CSV 只取 3/4/5~8/17~20），无需改训练端契约
+- 调用链：`Leg_State_Update()（commTask）→ leg_solver 算出 d_*` → `Sysid_Mode_Run() → sysid_fill_fb()` → 快照 → 发送泵 → `assemble_frame()` → DMA
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 导出自测：`py tools/sysid_export.py --selftest` 全项通过
+- 带宽：136 B × 500 Hz = 68 kB/s（921600 的 **73.8%**，含帧尾）——比原来 128 B 高 6 个百分点，仍是安全范围
+
+**待台架**
+
+- 33 列下 VOFA+ 的通道数要改成 33（否则显示会错位）
+- 旧窗口的通道名建议按新表重命名
+
+---
+
+## 变更 49 · 预压回到 8 Nm + 新增《VOFA 数据对照表》
+
+**背景**：作者要求把预压给回 8 Nm；并指出 VOFA 列太多显得乱，需要一份给训练端看的完整对照文档。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | `SYSID_PRELOAD_L_N/R_N`：-54（7.5 Nm）→ **-58（8 Nm，作者最终值）** |
+| `md/vofa-channel-map.md` | **新增**：33 列逐列对照（列号/名称/单位/来源），按行类型的差异、标记/心跳行、时间戳还原、CSV 字段来源对照、快速自查表、"看起来不对"的常见解释 |
+| `md/sysid-delivery.md` | §1.2 的长表改为"快速索引 + 指向新文档"，避免两处维护 |
+| `md/AGENTS.md` | 文件树补 `vofa-channel-map.md` |
+
+**输入 / 输出 / 调用链**
+
+- 预压：同变更 43~46，值改回 -58 N（≈8 Nm/髋），帧列 5~8 记净力矩、列 30 记预压沿腿力
+- 文档：`vofa-channel-map.md` 是列定义的**单一出处**，`sysid-delivery.md` §1.2 与 `imcalib/Sysid/sysid_log.h` 注释块必须与它保持一致（改列必须同步这三处 + `tools/sysid_export.py` 的 `FRAME_FLOATS`）
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 新文档内容与 `sysid_log.h` 注释块逐列核对一致
+
+**待台架**
+
+- 8 Nm 预压能否把腿压到 0.22~0.30 m（作者观察列 17/19）
+
+---
+
+## 变更 50 · 发送余量 + 串口卡死自恢复（作者反馈"偶尔 VOFA 卡住没数据"）
+
+**背景**：作者反馈 VOFA 偶尔卡住没数据。查发送链路：帧 136 B × 500 Hz = 68 kB/s，占 921600 的 **73.8%**，而单帧在线上要 1.476 ms、发送泵每 2 ms 才被调一次 → 只剩 0.52 ms 余量，受 FreeRTOS 1 ms tick 抖动影响会出现跳周期 → 环形缓冲堆积丢帧；而"完全卡住"最可能是 **HAL 发送状态机卡死**（丢一次 TC 中断，`gState` 永远 BUSY，泵会永远提前返回）。**不是波特率问题**（波特率不匹配会乱码/列错位，不会"偶尔停一下"）。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_log.h` | 新增 `SYSID_TX_DIV`（默认 **4** = 250 Hz）与 `SYSID_TX_STALL_MS`（默认 50 ms）；extern `sysid_log_stall_cnt` |
+| `imcalib/Sysid/sysid_log.c` | ①分频改用 `SYSID_TX_DIV`；②发送前加**卡死看门狗**：连续忙 ≥50 ms 就 `HAL_UART_AbortTransmit()` 强制复位状态机并计数；③新增 `sysid_log_stall_cnt` |
+| `imcalib/Sysid/sysid_mode.c` | 心跳行新增列 13 = 串口卡死自恢复次数 |
+| `md/vofa-channel-map.md` | 心跳行列 13 含义；§1.1 发送频率说明 |
+| `md/sysid-delivery.md` | §1.1 发送频率 500 → 250 Hz |
+
+**输入 / 输出 / 调用链**
+
+- 输入：`send_div`、`VOFA_UART->gState`、`HAL_GetTick()`
+- 输出：常态 250 Hz 发送（占链路 37%）；卡死超时则 abort 并恢复发送；计数进心跳行列 11（忙跳过）/列 13（卡死恢复）
+- 调用链：`commTask → Sysid_Log_Send_Pump() → gState 检查/看门狗 → HAL_UART_AbortTransmit(超时) → ring 取帧 → assemble_frame → Clean_Tx → HAL_UART_Transmit_DMA`
+- 250 Hz 仍高于交接契约的 ≥200 Hz 下限
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 0 fail / 0 warn
+- 未动任何物理量；帧长仍 33 列
+
+**待台架**
+
+- 250 Hz 下 VOFA 是否稳定（稳定后可把 `SYSID_TX_DIV` 改回 2 试 500 Hz）
+- 心跳列 13 是否出现非 0（出现即说明确实发生过 HAL 状态卡死）
+- VOFA+ 侧的"记录到文件"功能本身也可能拖慢接收，建议卡顿时先关记录试
+
+---
+
+## 变更 51 · 测试方式改为「位置扫描」（作者定：real2sim 位置跟踪，而非直接力矩）
+
+**背景**：作者/训练端确认单关节开环力矩辨识意义不大（参数不准），轮腿的 gap 主要来自并联耦合。改为 **real2sim**：真机驱动关节跟踪预设轨迹并录包，MuJoCo 用同一套控制律跟踪同一条轨迹，比对角度曲线后调仿真参数。因此下位机要提供的是**位置跟踪 + 记录（指令/实测/力矩）**，而不是直接下发力矩。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/Sysid/sysid_mode.c` | ①新增测试方式开关 `SYSID_MODE`（`SYSID_MODE_POSE`=0 位置扫描，默认；`SYSID_MODE_TORQUE`=1 原力矩激励）；②位置扫描参数 `SYSID_POSE_RAMP_S`(0.5s)/`SYSID_POSE_HOLD_S`(2s)/`SYSID_POSE_KP`(25)/`SYSID_POSE_KD`(300)；③新增模板 `TPL_POSE` 与姿态表 `sysid_pose_runs[]`（大腿角 {-0.15,0,+0.15} × 虚拟小腿角 {2.50,2.80,3.10} 共 9 个姿态）；④腿分支新增位置扫描实现：线性斜坡到目标 → 组装 RL 动作 → 调 **`RL_Torque_Compute()`**（复用 RL 同一条力矩链路）→ 下发；⑤`Sysid_Mode_Init()` 里初始化虚拟关节 PD（只保留腿的位置环，轮增益归零）；⑥力矩模式与预压代码全部用 `#if SYSID_MODE` 保留 |
+| `imcalib/Sysid/sysid_log.h` | 帧 33 → **35 列**（144 B）；新增列 33/34 = `thigh_tgt` / `shank_tgt`；结构体加 `pose_tgt[2]` |
+| `imcalib/Sysid/sysid_log.c` | `assemble_frame()` 写列 33/34 |
+| `tools/sysid_export.py` | `FRAME_FLOATS` 33 → 35 |
+| `md/controller-spec-for-mujoco.md` | **新增**（子代理写）：控制律复刻说明书——PD 精确离散形式（D 不除 dt）、增益/周期/限幅/环绕、虚拟关节→电机映射、MIT 帧 kp=kd=0 证据、轨迹格式、气弹簧与摩擦两个坑 |
+
+**位置扫描的控制链**
+
+- 目标：`(大腿角, 虚拟小腿角)`，线性斜坡 0.5 s 从**上一姿态目标**滑到本姿态目标，再保持 2 s
+- 控制器：`τ_i = kp·wrap180(q_des−q) + kd·(e[k]−e[k−1])`，kp=25、kd=300（等效阻尼 0.6 Nm·s/rad），500 Hz
+- 映射：`τ_前髋 = τ_大腿 + τ_小腿×vshank_jac[1]`、`τ_后髋 = τ_小腿×vshank_jac[0]`，电机侧 kp=kd=0（纯力矩执行），限幅 20 Nm
+- 记录：帧列 33/34 = 当前目标角（指令），列 9~12 = 实测髋角，列 5~8 = 实际下发力矩
+
+**核对**
+
+- 编译三种配置全部 0 fail / 0 warn：位置扫描（默认）、`-DSYSID_MODE=1`（力矩）、`-DSYSID_ENABLE=0`
+- 导出工具自测通过
+- 未动任何物理量；力矩模式与预压机制完整保留（改 `SYSID_MODE` 即可回退）
+
+**待台架**
+
+- `SYSID_POSE_KP/KD` 是否合适（kp=25 偏软，静差可能 0.2~0.4 rad；跟踪不好就加 kp，kd≈kp×12）
+- 9 个姿态是否都可到达（撞限位的姿态数据判无效）
+- 气弹簧造成的系统偏置需要训练端在仿真里等效加入，否则角度曲线不可能重合
+
+---
+
+## 变更 52 · 加「手动 PD 测试模式」+ 姿态表只跑 2 遍 + 降增益
+
+**背景**：作者要求：先把 kp/kd 降下来；先用**手动**方式测 PD 闭环效果；测试次数改为 **2 次**，不要一直循环。
+
+**改动**（`imcalib/Sysid/sysid_mode.c`）
+
+| 项 | 原 | 新 |
+| --- | --- | --- |
+| 测试方式 | 位置扫描 / 力矩 | 新增第三种 **`SYSID_MODE_MANUAL`（默认）**：目标角由遥控给，用来手测闭环 |
+| `SYSID_POSE_KP` / `KD` | 25 / 300 | **10 / 120**（等效阻尼 0.24 Nm·s/rad） |
+| 姿态表遍数 | 一直循环 | **`SYSID_LOOP_CNT = 2`**：整表跑 2 遍后自动停机（状态码 **5 = 表跑完**），改 0 可恢复一直循环 |
+| 手动模式摇杆 | — | **左摇杆上下（ch3）→ 大腿角 ±0.6 rad；滚轮（wheel）→ 虚拟小腿角 ±0.6 rad**，零点 = 进入测试模式时的实测姿态 |
+| 手动模式表 | — | 单个 3600 s 的长 run（不进姿态表、不循环、不会被遍数停机） |
+
+**输入 / 输出 / 调用链**
+
+- 手动：`DR16_Snapshot()` → `sysid_stick()`（去死区+限幅→[-1,1]）→ `thigh_t = 进入姿态 + 摇杆×范围`、`shank_t = 进入姿态 + 滚轮×范围` → 组装 RL 动作 → `RL_Torque_Compute()` → 4 路腿力矩 → CAN
+- 记录不变：列 33/34 = 当前目标角（手动模式也记，便于回看），列 9~12 实测角，列 5~8 实际力矩
+- 停机：`loop_cnt` 达到 `SYSID_LOOP_CNT` → 只发零力矩 + 心跳（状态码 5）
+
+**核对**
+
+- 四种编译配置全部 0 fail / 0 warn：手动 PD（默认）、位置扫描（`-DSYSID_MODE=0`）、力矩（`-DSYSID_MODE=1`）、关闭测试（`-DSYSID_ENABLE=0`）
+
+**待台架**
+
+- 手动模式下 kp=10 是否偏软（静差大 → 加 kp，kd≈kp×12）
+- 手动模式的角范围 ±0.6 rad 是否合适（撞限位就改 `SYSID_MAN_*_RANGE`）
+
+---
+
+## 变更 53 · 去掉 D 项 + 删除新增的「手动 PD 模式」（作者：手动测试用原来的左上模式即可）
+
+**背景**：作者指出 ①D 项去掉；②"手动模式不就是原来的 RL 测试（左拨杆上位）吗，为什么要新增"。核查确认：**左上（不动右拨杆）= 正常手动模式**，其链路是 `task_policy.c` 的 `Manual_Lock_On_Enable()`（使能瞬间锁存当前姿态为 `base_action`）+ 摇杆偏移 → `RL_Torque_Compute()`（同一套虚拟关节 PD + 雅可比映射 + 限幅），**没有策略在环**（`task_policy.c` 的 `ctrl_task_body()` 不调用策略推理）。也就是说它已经是"零点=使能姿态、摇杆给目标偏移"的手动 PD 测试，变更 52 新增的那套是重复实现。
+
+**改动**（`imcalib/Sysid/sysid_mode.c`，全部为删除/降值）
+
+| 项 | 原 | 新 |
+| --- | --- | --- |
+| `SYSID_POSE_KD` | 120 | **0**（D 项去掉） |
+| `SYSID_MODE_MANUAL`（测试方式第 3 种） | 有，且为默认 | **删除**，默认回到 `SYSID_MODE_POSE` |
+| `SYSID_MAN_THIGH_RANGE` / `SYSID_MAN_SHANK_RANGE` / `SYSID_MAN_DEADBAND` | 有 | **删除** |
+| `sysid_stick()` 辅助函数 | 有 | **删除** |
+| 手动长 run 表 `sysid_manual_runs[]` | 有 | **删除** |
+| 腿分支里的手动目标计算 | 有 | **删除**，只保留位置扫描的斜坡逻辑 |
+
+**现在的两套测试方式**
+
+- `SYSID_MODE_POSE = 0`（默认）：位置扫描，自动跑姿态表 `SYSID_LOOP_CNT = 2` 遍后停机（状态码 5）
+- `SYSID_MODE_TORQUE = 1`：力矩激励（原方案）
+- 手动 PD 手测：**不进测试模式**，左拨杆上位即可（增益用 RL 模型参数表里的值，不在本模块里）
+
+**核对**
+
+- 编译：位置扫描（默认）/ 力矩 / 关闭测试，三种配置全部 `0 fail / 0 warn`
+- `grep` 确认 `MANUAL` / `sysid_stick` / `SYSID_MAN_*` 无残留
+
+**待台架**
+
+- 位置扫描用 `SYSID_POSE_KP = 10`、`KD = 0`：D 去掉后若出现摆动/振荡，需要降 kp；采集前请把最终值固定并告知训练端（手动模式用的是另一套增益，不要混）
+- 手动模式（左上）的增益是 RL 模型参数表的 `p_gains`（大腿 3.5 / 小腿 15.5，D=0），比位置扫描软
+
+---
+
+## 变更 54 · 去掉 VOFA_LAYOUT，只留一套 VOFA 输出（作者：不要多套布局）
+
+**背景**：作者要求去掉 `VOFA_LAYOUT` 那套机制与多套 VOFA 输出，通道直接改成测试相关数据，后续只改参数即可。另外大腿角区间改为 45°~145°。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/user-lib/Vofa_send.h` | **删除 `VOFA_LAYOUT` 宏**（保留 `VOFA_MAX_CH`、`VOFA_PORT`） |
+| `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` 删除 `#if VOFA_LAYOUT == 1`（虚拟关节 PID 视图）整个分支，只保留测试相关通道那一套（力矩 / 髋角 / 腿长摆角 / 轮 / 时间戳）；注释改为"通道内容直接改这个函数" |
+| `imcalib/Sysid/sysid_mode.c` | 姿态表大腿角改为 **45° / 95° / 145°**（0.7854 / 1.6581 / 2.5307 rad）；`SYSID_POSE_RAMP_S` 0.5 → **1.5 s**（跨度大使斜坡给足时间） |
+
+**现在的 VOFA 输出只有两种（各自一条路径，不再有布局开关）**
+
+- **正常模式**：32 路 FireWater 调试帧（测试相关通道），改通道就改 `task_comm.c` 的 `Robot_Control_Send_Vofa()`
+- **测试模式**：35 列 JustFloat sysid 帧（列定义见 `md/vofa-channel-map.md`），改列就改 `Sysid/sysid_log.h` + `sysid_log.c` + `tools/sysid_export.py` 的 `FRAME_FLOATS`
+
+**核对**
+
+- 编译：`-DSYSID_ENABLE=1` 与 `-DSYSID_ENABLE=0` 均 105 文件 0 fail / 0 warn
+- `grep VOFA_LAYOUT` 在 `imcalib/` 下已无残留
+
+**待台架**
+
+- 大腿角 45°~145° 的**坐标约定核对**：固件里 `thigh_angle = wrap(前髋电机角 + π)`，即 VOFA 列 9 读数 + π；先用列 33（目标）与列 9 对照确认，不一致就按实测改表
+
+---
+
+## 变更 55 · 斜坡改成标准线性插值 + 小腿角区间改 2.3~3.0
+
+**改动**（`imcalib/Sysid/sysid_mode.c`）
+
+| 项 | 原 | 新 |
+| --- | --- | --- |
+| 姿态表虚拟小腿角 | 2.50 / 2.80 / 3.10 | **2.30 / 2.65 / 3.00**（大腿角仍 45°/95°/145°） |
+| 斜坡实现 | 每周期用 `sysid_pose_prev` 做插值（prev 每周期被改写成中间值 → 形状不是直线，前慢后快） | 新增 `sysid_pose_from[2]`：**每段开头锁存起点**（= 上一段目标；首段 = 进入时实测角），然后 `目标 = 起点 + (本段目标 − 起点) × min(1, t/1.5s)` —— **标准线性斜坡**，到 1.5 s 精确等于目标 |
+| 段尾的"记住本段目标" | 有 | 删除（起点改在段首锁存，`sysid_pose_prev` 只在段首写入本段目标） |
+
+**验证设计依据**：帧列 33/34 记录的是**每周期实际的斜坡值**，训练端按记录值回放，所以斜坡形状不影响比对；但改成标准直线后，目标序列可以由姿态表 + 起点完整复现。
+
+**核对**：`-DSYSID_ENABLE=1`（位置扫描）与 `-DSYSID_MODE=1`（力矩）均 105 文件 0 fail / 0 warn。
+
+---
+
+## 变更 56 · 斜坡函数化：lowpass → simple-function（新增 Ramp_*）
+
+**背景**：作者要求斜坡不要在测试模块里自己做，而是做成**可复用函数**，放在原 `lowpass` 文件里，并把文件改名为 `simple-function`，用正确的斜坡函数形式。
+
+**改动**
+
+| 文件 | 变化 |
+| --- | --- |
+| `imcalib/user-lib/lowpass.c/h` → **`simple-function.c/h`** | 文件改名（低通 API `Lowpass_*` 不变） |
+| `simple-function.h/.c` | 新增斜坡类型与函数：`ramp_t {out, rate}`、`Ramp_Init(r, rate)`、`Ramp_Update(r, target, dt)`、`Ramp_Reset(r, value)`；**形式 = 斜率限制**：每周期最多 `rate×dt`，到目标直接等于目标（不超调、目标中途变化也正确） |
+| `imcalib/Algorithm/lqr_balance.h` | `#include "lowpass.h"` → `"simple-function.h"` |
+| `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | 工程文件项 `lowpass.c` → `simple-function.c` |
+| `imcalib/Sysid/sysid_mode.c` | 删除自写的插值斜坡（`sysid_pose_from`/`sysid_pose_prev`）；改为 `thigh_t = Ramp_Update(&sysid_ramp_th, run->amplitude, 0.002f)`、`shank_t` 同理；首次进入时用 `Ramp_Reset()` 对齐实测角；`SYSID_POSE_RAMP_S`（时间）→ `SYSID_POSE_RAMP_RATE = 1.2f`（rad/s） |
+| `md/AGENTS.md` | 文件树同步为新文件名 |
+
+**输入 / 输出 / 调用链**
+
+- 输入：目标角 `run->amplitude` / `run->amp2`、`dt = 0.002 s`、`rate = 1.2 rad/s`
+- 输出：限斜率后的目标角 → 组装 RL 动作 → `RL_Torque_Compute()` → 4 路腿力矩；帧列 33/34 记录该斜坡值
+- 调用链：`Sysid_Mode_Run() → Ramp_Update()（simple-function.c）→ act_buf → RL_Torque_Compute()`
+
+**核对**：三种配置（位置扫描默认 / 力矩 `-DSYSID_MODE=1` / 关闭 `-DSYSID_ENABLE=0`）均 105 文件 0 fail / 0 warn；`grep lowpass.h`、`grep sysid_pose_from` 无残留。
+
+---
+
+## 变更 57 · 重构 `Robot_Control_Send_Vofa()`（纯整理，行为不变）
+
+**动机**：函数内联组装 32 通道、逻辑分组不清晰，作者反馈"太乱了"。
+
+**改动**（`imcalib/task/task_comm.c`，只重构，不改任何通道含义）
+
+| 变化 | 说明 |
+| --- | --- |
+| 拆出 `Vofa_Fill_Status()` | ch0~2：在线掩码 / 解算有效 / 策略号 |
+| 拆出 `Vofa_Fill_Leg()` | ch3~14：腿指令力矩 / 零点后角 / 腿长 / 腿摆角 |
+| 拆出 `Vofa_Fill_Wheel()` | ch15~23：轮指令电流 / 转速 / 编码器 / 实际电流 / 温度 |
+| 拆出 `Vofa_Fill_BusDiag()` | ch24~31：总线 TX 间隔/条数/丢帧 + RX 间隔/时刻拆分 |
+| 主函数 | 分频 + SYSID 早退 + 依次调 4 个填充函数 + `Vofa_Send(dbg, 32u)` |
+| 通道表注释 | 主函数上方新增 32 路逐列说明（列号 / 含义 / 单位 / 来源） |
+| `static` 局部变量 | `rx_prev` / `tx_prev_whl` / `tx_prev_leg` 从主函数搬到 `Vofa_Fill_BusDiag()` 内部，作用域更小 |
+
+**输入 / 输出 / 调用链**：与变更 54 完全一致，纯重构，无行为变化。
+- 输入源：`motor_state` / `rl_control` / `leg_l/r` / `dji_motor_feedback` / `imu_state` / `DR16_Online()` / `Can_Bus_Tx_Pop()` / `Can_Bus_Tx_Drop_Count()` / `machine->dji_sign/dji_bus/dm_bus`
+- 输出：`Vofa_Send(dbg, 32u)` → 当前 `VOFA_PORT` 串口
+
+**核对**：`-DSYSID_ENABLE=1`（默认）与 `-DSYSID_ENABLE=0` 均 105 文件 0 fail / 0 warn。
 
 ---
 

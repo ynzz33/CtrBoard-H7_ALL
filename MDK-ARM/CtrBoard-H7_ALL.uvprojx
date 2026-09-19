@@ -1285,7 +1285,7 @@
             <File>
               <FileName>lowpass.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/lowpass.c</FilePath>
+              <FilePath>../imcalib/user-lib/simple-function.c</FilePath>
             </File>
             <File>
               <FileName>machine_config.c</FileName>
@@ -1401,6 +1401,11 @@
               <FileName>sysid_mode.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Sysid/sysid_mode.c</FilePath>
+            </File>
+            <File>
+              <FileName>sysid_log.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Sysid/sysid_log.c</FilePath>
             </File>
           </Files>
         </Group>

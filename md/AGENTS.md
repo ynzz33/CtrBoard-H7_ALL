@@ -149,11 +149,12 @@ CtrBoard-H7_ALL/
 │       ├── dji.c/h                ← DJI 轮电机
 │       ├── machine_config.c/h     ← 两份电机配置表 + 运行时选择
 │       ├── mono_ns.c/h            ← 单调 ns 时钟 (DWT)
-│       ├── lowpass.c/h            ← 一阶低通
+│       ├── simple-function.c/h   ← 简单函数库 (一阶低通 Lowpass_* / 斜坡 Ramp_*)
 │       └── Vofa_send.c/h          ← Vofa+ 调试发送
 │   └── Sysid/                     ← 测试专用 (SYSID_ENABLE 总开关)
 │       ├── sysid_config.h         ← 测试总开关
-│       └── sysid_mode.c/h         ← 测试模式单周期体
+│       ├── sysid_mode.c/h         ← 测试模式单周期体 (含快照采集)
+│       └── sysid_log.c/h          ← sysid 独立帧 + 环形缓冲 + DMA 发送泵
 ├── X-CUBE-AI/App/          ← 4 个 ONNX 生成模型 (stable/upstairs/pin/jump)
 ├── tests/offline_test.c    ← 离线数值测试 (纯算法, 不进固件构建)
 └── md/
@@ -164,10 +165,15 @@ CtrBoard-H7_ALL/
     ├── IO_CHAINS.md         ← IMU/DM/DJI 输入输出链路速查
     ├── DBUS.md              ← 遥控器解析说明
     ├── UART_IDLE_DMA.md     ← 串口接收框架说明
-    ├── sysid-lower-machine-plan.md ← 系统辨识下位机计划 (设计 + 步骤)
+    ├── sysid-lower-machine-plan.md ← 系统辨识下位机计划 (设计 + 步骤 + 进度)
+    ├── chuanliantui-wheel-joint-sysid-handoff.md ← 训练端交付契约 (CSV/用例/目录)
+    ├── sysid-delivery.md    ← 给训练端的交付说明 (坐标系/单位/用例/SOP)
+    ├── vofa-channel-map.md  ← 33 列 VOFA 数据逐列对照 (给训练端)
     ├── sysid-change-map.md  ← 每处改动的输入/输出/调用链
     └── VOFA_SEND.md         ← Vofa 发送说明
 ```
+
+`tools/sysid_export.py` ← 上位机导出 (VOFA 文件 → 契约 CSV + manifest + 校验和)
 
 ---
 
@@ -179,12 +185,12 @@ CtrBoard-H7_ALL/
 | 串口底层 | uart_idle.c/h | ✅ 完成 |
 | 遥控器解析 | dr16.c/h | ✅ 完成，已实测 |
 | HI229 IMU | hi229.c/h | ✅ 完成 |
-| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，27 通道（上限 32）FireWater DMA |
+| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，32 通道（上限 32）FireWater DMA |
 | FDCAN 总线 | can_bus.c/h | ✅ 完成 |
 | DM 电机 | dm.c/h | ✅ 完成 |
 | 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT + TIM6 扩展；供 CAN 收发时间戳用（步 3 接入） |
 | 机器配置表 | machine_config.c/h | ✅ 新增，**两份表 + 运行时切换**（`Machine_Select`） |
-| 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 新增，测试模式体；关掉开关即回到原样 |
+| 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 新增，测试模式体 + sysid 独立数据帧；关掉开关即回到原样；✅ 激励序列 + 自动跑批 + 事件标记 + 安全链（变更 39） |
 | DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
 | 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证 |
 | RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置 |
@@ -211,8 +217,8 @@ CtrBoard-H7_ALL/
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
-- **VOFA 调试**：27 通道 FireWater（上限 32），commTask 每 5 周期发送一次 (200Hz)
-- **DJI 力矩常数**：按当前机器取 `machine->dji_nm_per_raw`（本机 M2006 = 0.00018），待实测验证
+- **VOFA 调试**：32 通道 FireWater（上限 32），commTask 每 5 周期发送一次 (200Hz)
+- **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。

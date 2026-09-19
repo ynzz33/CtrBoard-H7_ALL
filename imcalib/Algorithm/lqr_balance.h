@@ -6,7 +6,7 @@
 #include "dr16.h"
 #include "imu_state.h"
 #include "leg_solver.h"
-#include "lowpass.h"
+#include "simple-function.h"
 
 /* 状态序 — 与 MATLAB 模型一致 */
 enum {

@@ -73,9 +73,9 @@ void output_task_body(void)
 
     remote = DR16_Snapshot();
 
-    /* 左拨杆: 上位 = 手动遥操/RL, 中位 = LQR, 下位 = 失能; 左中 + 右中 = 测试模式 */
+    /* 左拨杆: 上位 = 手动遥操/RL, 中位 = LQR, 下位 = 失能; 左上 + 右中 = 测试模式 */
 #if SYSID_ENABLE
-    if (remote.online && remote.s1 == DR16_SW_MID && remote.s2 == DR16_SW_MID)
+    if (remote.online && remote.s1 == DR16_SW_UP && remote.s2 == DR16_SW_MID)
     {
         ctrl_strategy = CTRL_STRATEGY_SYSID;
     }

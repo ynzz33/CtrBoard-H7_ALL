@@ -6,6 +6,7 @@
 
 #define RL_TQ_POS_SCALE        0.5f
 #define RL_TQ_WHEEL_VEL_SCALE  20.0f
+#define RL_TQ_WHEEL_VEL_MAX    62.0f    /* 轮侧满速 rad/s (转子满速 ÷ 总减速比) */
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
 
@@ -75,14 +76,14 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     else
     {
         const float dof_pos[6] = {-0.23f, -0.65f, 0.0f, 0.23f, 0.65f, 0.0f};
-        const float p_gains[6] = {3.5f, 3.5f, 0.0f, 3.5f, 3.5f, 0.0f};
+        const float p_gains[6] = {9.5f,9.5f, 0.0f, 9.5f, 9.5f, 0.0f};
         const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
         memcpy(param->dof_pos, dof_pos, sizeof(dof_pos));
         memcpy(param->p_gains, p_gains, sizeof(p_gains));
         memcpy(param->d_gains, d_gains, sizeof(d_gains));
-        param->wheel_pid[0][0] = 8.0f; param->wheel_pid[0][1] = 0.0f; param->wheel_pid[0][2] = 0.0000f;
-        param->wheel_pid[1][0] = 8.0f; param->wheel_pid[1][1] = 0.0f; param->wheel_pid[1][2] = 0.0000f;
+        param->wheel_pid[0][0] = 0.35f; param->wheel_pid[0][1] = 0.0f; param->wheel_pid[0][2] = 0.000f;
+        param->wheel_pid[1][0] = 0.35f; param->wheel_pid[1][1] = 0.0f; param->wheel_pid[1][2] = 0.000f;
     }
 }
 
@@ -199,6 +200,9 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     {
         if (i == VJ_L_WHEEL || i == VJ_R_WHEEL)
         {
+            /* 轮速目标限幅到物理满速 */
+            vel_ref[i] = clampf(vel_ref[i], -RL_TQ_WHEEL_VEL_MAX,
+                                RL_TQ_WHEEL_VEL_MAX);
             state->pos_target[i] = vel_ref[i];
             tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i],
                 0.002f);

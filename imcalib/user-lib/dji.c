@@ -1,5 +1,6 @@
 #include "dji.h"
 #include "machine_config.h"
+#include "mono_ns.h"
 
 /* 编译期检查: 极性表长度对齐 */
 typedef char dji_num_check[(MACHINE_WHEEL_NUM == DJI_MOTOR_NUM) ? 1 : -1];
@@ -44,12 +45,15 @@ int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm)
     }
     if (machine->dji_type == (uint8_t)DJI_M2006)
     {
-        per_raw = DJI_NM_PER_RAW_M2006;
+        /* 输出轴刻度: 满电流堵转力矩 / 满raw, 再按实机总减速比缩放 */
+        per_raw = DJI_NM_FULL_M2006 / (float)DJI_CURRENT_MAX_M2006
+                * (machine->dji_gear_ratio / DJI_RATIO_STD_M2006);
         raw_max = DJI_CURRENT_MAX_M2006;
     }
     else
     {
-        per_raw = DJI_NM_PER_RAW_M3508;
+        per_raw = DJI_NM_FULL_M3508 / (float)DJI_CURRENT_MAX_M3508
+                * (machine->dji_gear_ratio / DJI_RATIO_STD_M3508);
         raw_max = DJI_CURRENT_MAX_M3508;
     }
     raw = (int32_t)(torque_nm / per_raw);
@@ -89,6 +93,8 @@ static void Dji_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
         return;
     }
     (void)id;
+
+    feedback->rx_ns = Mono_Ns_Get();    /* 到达时刻 */
 
     for (uint8_t i = 0; i < 8u; i++)
     {

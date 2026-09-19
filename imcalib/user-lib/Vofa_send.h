@@ -4,7 +4,7 @@
 #include "main.h"
 #include "usart.h"
 
-#define VOFA_MAX_CH  32   /* 上限 32; 当前实际发 27 路 (见 task_comm.c) */
+#define VOFA_MAX_CH  32   /* 上限 32; 当前实际发 32 路 (见 task_comm.c) */
 
 /* Vofa 发送串口: 改这个数字即可 (也可用 -DVOFA_PORT=n 覆盖) */
 /*   8 = UART8  (默认, 921600, TX DMA 正常)           */
