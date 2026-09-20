@@ -1,6 +1,6 @@
 # AI 协作规范 — 轮腿平衡步兵 RL 部署
 
-> 最后更新：2026-09-20
+> 最后更新：2026-09-21
 > 适用：Claude / Cursor / Copilot / Codex / Gemini / Kimi Code 等任何 AI 助手。
 > 接手本仓库前**先读完这一篇**，再动手。
 
@@ -64,7 +64,7 @@
 - `imcalib/task/robot_control.c` 负责共享状态定义、总初始化、动作清零和模型切换；各 `task_*.c` 只实现对应任务的单周期逻辑。
 - `commTask` 负责通信输入输出：DR16/DM/DJI 接收解析、状态刷新、在线/故障监测和 VOFA 调试发送；HI229 姿态链路归 `imuTask`。它不等同于纯故障监视任务，因此命名使用 `comm`/`communication`，不要继续使用含义过窄的 `monitor`。
 - `policyTask` 负责观测构建和 RL 策略推理；`actuationTask` 负责按实时节拍读取已准备状态并完成执行链路。
-- **策略仲裁只在 `task_actuation.c`**：左拨杆中位走 LQR（`lqr_balance.c` + `leg_balance.c`），上位走手动遥操/RL（`rl_torque.c`），下位失能。两套链路互不 include（除公共 `torque_output.h`），禁止在 LQR 模块引用 `rl_*.h`，也禁止在 RL 模块引用 LQR 状态。
+- **策略仲裁只在 `task_actuation.c`**：左拨杆中位走手动腿测 / LQR（右拨杆中位 = LQR，其余 = 手动腿测；都用 `lqr_balance.c` + `leg_balance.c`），上位走手动遥操/RL（`rl_torque.c`），下位失能。两套链路互不 include（除公共 `torque_output.h`），禁止在 LQR 模块引用 `rl_*.h`，也禁止在 RL 模块引用 LQR 状态。
 - 五连杆几何和雅可比只能写在 `leg_solver.c/h`；姿态只能写在 `Attitude_Algorithm.c/h`；观测、策略、力矩映射分别归属对应 Algorithm 模块。任务文件只调用这些接口。
 - DR16 字节解析只能归属 `dr16.c/h`。遥控死区、通道映射和拨杆语义应放在独立的遥控应用函数/模块，不能让底层 DBUS 驱动直接操作电机。
 - DM 的使能、失能、MIT 量化和报文发送归属 `dm.c/h`；DJI 零电流和轮电流发送归属 `dji.c/h`。任务层只调用语义清晰的接口，例如 `Dm_All_Disable()`、`Dji_All_Stop()`。
@@ -200,8 +200,8 @@ CtrBoard-H7_ALL/
 | 遥控映射 | task_policy.c | ✅ 手动遥操模式 |
 | LQR 增益表 | lqr_gain_table.c/h | ✅ 参考上车表已移植；🟡 自研表待重跑对齐 |
 | LQR 状态估计与控制律 | lqr_balance.c/h | ✅ 编译通过，含 `lqr_debug` 运行时通道/限幅 A/B；🟡 **待台架** |
-| 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；🟡 **待台架** |
-| 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆中位=LQR / 上位=手动 / 左中+右中=测试）；🟡 待台架 |
+| 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；含手动腿测 `Leg_Balance_Manual()`（腿长 PID + 摆角 PD）；🟡 **待台架** |
+| 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆中位=手动腿测 / 左中+右中=LQR / 上位=手动 / 左上+右中=测试）；🟡 待台架 |
 | 简单函数库 | user-lib/simple-function.c/h | ✅ 一阶低通 + 斜坡函数，编译通过 |
 
 ---
@@ -214,12 +214,12 @@ CtrBoard-H7_ALL/
 - **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，同为 1 kHz 直接照抄）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
-- **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换
+- **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换；取轴与符号来自机器表 `machine->imu`（`task_imu.c` 应用），驱动 `hi229.c/h` 只出原始值
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
 - **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz；不再维护通道 Markdown，当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准；sysid 帧 37 列，以 `Sysid/sysid_log.c::assemble_frame()` 为准（`sysid_log.h` 顶部注释表尚未同步）
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
-- **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
+- **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。
 

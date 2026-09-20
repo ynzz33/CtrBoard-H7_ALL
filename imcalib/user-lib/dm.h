@@ -63,6 +63,7 @@ bool Dm_Is_Online(uint8_t index);
 bool Dm_Is_Enabled(uint8_t index);
 bool Dm_Has_Fault(uint8_t index);
 void Dm_Enable_Watchdog(void);
+void Dm_Disable_Watchdog(void);
 float Dm_Uint_To_Float(uint16_t value, float min, float max, uint8_t bits);
 uint16_t Dm_Float_To_Uint(float value, float min, float max, uint8_t bits);
 HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,

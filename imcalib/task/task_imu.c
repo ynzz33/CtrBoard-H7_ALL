@@ -1,15 +1,19 @@
 #include "robot_control.h"
 #include "hi229.h"
 #include "Attitude_Algorithm.h"
+#include "machine_config.h"
 
 void imu_task_init(void)
 {
     Attitude_Init(&imu_state);
 }
 
+/* 读取 + 按机器表取轴/乘符号 + 单位换算 */
 void imu_task_body(void)
 {
     hi229_data_t sample;
+    const imu_cfg_t *cfg;
+    uint8_t i;
 
     HI229_Process();
     if (!HI229_Online())
@@ -27,19 +31,16 @@ void imu_task_body(void)
     if (!imu_state.online)
         Attitude_Init(&imu_state);
 
-    /* 符号 + 单位 */
+    /* 轴 + 符号 + 单位: 欧拉角按机体 俯仰/横滚/偏航 序取模块对应路 */
+    cfg = &machine->imu;
     imu_state.quat[0] = sample.quat[0];
-    imu_state.quat[1] = HI229_QUAT_SIGN_X * sample.quat[1];
-    imu_state.quat[2] = HI229_QUAT_SIGN_Y * sample.quat[2];
-    imu_state.quat[3] = HI229_QUAT_SIGN_Z * sample.quat[3];
-
-    imu_state.euler_deg[0] = HI229_EUL_SIGN_ROLL  * sample.eul[0];
-    imu_state.euler_deg[1] = HI229_EUL_SIGN_PITCH * sample.eul[1];
-    imu_state.euler_deg[2] = HI229_EUL_SIGN_YAW   * sample.eul[2];
-
-    imu_state.gyro_rad_s[0] = HI229_GYR_SIGN_X * sample.gyr[0] * 0.01745329251994f;
-    imu_state.gyro_rad_s[1] = HI229_GYR_SIGN_Y * sample.gyr[1] * 0.01745329251994f;
-    imu_state.gyro_rad_s[2] = HI229_GYR_SIGN_Z * sample.gyr[2] * 0.01745329251994f;
+    for (i = 0u; i < 3u; i++)
+    {
+        imu_state.quat[i + 1u]   = (float)cfg->quat_sign[i] * sample.quat[i + 1u];
+        imu_state.euler_deg[i]   = (float)cfg->eul_sign[i] * sample.eul[cfg->eul_src[i]];
+        imu_state.gyro_rad_s[i]  = (float)cfg->gyr_sign[i] * sample.gyr[i] * 0.01745329251994f;
+        imu_state.acc_g[i]       = (float)cfg->acc_sign[i] * sample.acc[i];
+    }
 
     /* 四元数归一化 + deg→rad */
     imu_state.online = Attitude_Update(&imu_state) ? 1u : 0u;

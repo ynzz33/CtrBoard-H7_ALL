@@ -11,7 +11,7 @@
 - 当前不加入气弹簧补偿、斜率限制或额外控制策略。
 - 多次计算保持单一中间量和短表达式；注释简短。循环索引在 `for` 内定义。
 
-> 最后更新：2026-09-20
+> 最后更新：2026-09-21
 > 参考实车：XYEGA_RM2026_WheelLeg_Infatry_RLdeploy（复旦 EGA 2026 国赛上场版）
 
 ---
@@ -114,7 +114,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-VOFA 正常控制帧为 32 通道、500Hz；不再维护通道 Markdown，当前布局直接以 `task_comm.c::Robot_Control_Send_Vofa()` 为准。
+VOFA 正常控制帧为 32 通道；帧内容按当前测试阶段切换（2026-09-21 起为 IMU 极性测试帧），不再维护通道 Markdown，当前布局直接以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -207,22 +207,27 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 
 ### 3.6 使能与安全 (`task_comm`)
 
-**使能状态机**：
+**使能状态机**（`Robot_Enable_Update()`，commTask 1 kHz）：
 - 遥控 s1 中/上 = 使能请求
-- s1 下 / 任一故障 / 翻倒 = 失能
+- s1 下 / 遥控离线 / 任一故障 / 翻倒 = 失能请求
 - 使能请求 + 动作不新鲜(>100ms) → FAULT_ACTION → 失能
+- 使能沿：`motor_enabled=1`、发 `Dm_All_Enable()`；失能沿：`motor_enabled=0`、发 `Dji_All_Stop()` + `Dm_All_Disable()`
+- 两个方向都有 100 ms 看门狗兜底：使能期间对仍失能的电机重发使能，失能期间对仍使能的电机重发失能（`Dm_Enable_Watchdog` / `Dm_Disable_Watchdog`）
+- 2026-09-21 修复：变更 60 接看门狗时把失能分支写成了不可达代码，使能后再也退不出来（拨杆下位、遥控离线、翻倒都不失能），见账本变更 75
 
 **故障位**：`FAULT_IMU | FAULT_RC | FAULT_MOTOR | FAULT_CAN | FAULT_ACTION`
 
 **翻倒**：|pitch| > 1.4rad 置 fallen，< 1.0rad 回正（回差）
 
-**总开关**：`torque_output_enabled`（当前测试初始化为 1）
+**总开关**：`torque_output_enabled`（初始化为 1；要先不出力看命令方向就在调试器置 0）
 
 `torque_output_enabled=0` 时执行任务保持 DJI 零电流和 DM 零力矩；遥控、动作、IMU、CAN、电机在线与翻倒保护仍有效。
 
 ### 3.7 LQR 平衡模式
 
-actuationTask 里新增了策略仲裁：**左拨杆中位 = LQR 平衡，上位 = 手动遥操/RL，下位 = 失能**。
+actuationTask 里新增了策略仲裁：**左拨杆中位 = 手动腿测（右拨杆也在中位时 = LQR 平衡），上位 = 手动遥操/RL，下位 = 失能**。
+
+手动腿测是 LQR 的前置：拨轮给腿长、左摇杆 Y 给虚拟腿摆角，走 LQR 同一套腿长 PID + 力域映射，轮零、IMU 只做观测、不用 K 表，用来先验证极性和雅可比（VOFA ch2 = 3；通道表以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准），见 `LQR_PLAN.md` §2.7 / §六 ⓪。
 
 LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只在 `task_actuation.c` 的策略分支交汇，彼此不直接调用。完整设计、参数来源、台架验证顺序与遗留项见 **[LQR_PLAN.md](LQR_PLAN.md)**。
 

@@ -140,7 +140,7 @@ static void Robot_Fallen_Update(void)
     }
 }
 
-/* 更新使能状态 */
+/* 更新使能状态: 使能沿发使能, 失能沿发失能; 两个方向都有看门狗兜底 */
 static void Robot_Enable_Update(void)
 {
     uint8_t enable_request;
@@ -152,45 +152,49 @@ static void Robot_Enable_Update(void)
         robot_state.motor_enabled = 1u;
         (void)Dm_All_Enable();
     }
-    if (robot_state.motor_enabled)
-    {
-        Dm_Enable_Watchdog();
-    }
     else if (!enable_request && robot_state.motor_enabled)
     {
         robot_state.motor_enabled = 0u;
         (void)Dji_All_Stop();
         (void)Dm_All_Disable();
     }
+
+    if (robot_state.motor_enabled)
+    {
+        Dm_Enable_Watchdog();
+    }
+    else
+    {
+        Dm_Disable_Watchdog();
+    }
 }
 
 /*
- * VOFA 观测帧 (JustFloat, 32 通道, 500Hz)
+ * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"腿摆角零位 + 速度估计 + 手动腿测/LQR 出力"帧 (2026-09-21 第三版)
  * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
- * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能
- * ch2  策略号: 0 手动 / 1 LQR
+ * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能 / bit8 LQR·手动腿测已投入
+ * ch2  策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测
  * ch3~6   四髋位置 (零点后 rad): 前左 / 后左 / 前右 / 后右
- * ch7~10  左腿: 大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 (rad, m)
- * ch11~14 右腿: 大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 (rad, m)
- * ch15~16 腿长目标 (左 / 右 m)
- * ch17~19 俯仰角 (rad) / 俯仰角速度 (rad/s) / 前进速度 (m/s)
- * ch20~23 LQR 输出 (N·m): 左轮 / 右轮 / 左髋 / 右髋
- * ch24~25 轮转速 (rad/s): 左 / 右
- * ch26~27 轮实测电流 (A): 左 / 右
- * ch28~31 髋力矩反馈 (N·m): 前左 / 后左 / 前右 / 后右
+ * ch7~8   解算摆角 (rad, 机体系, 前摆为正): 左 / 右      ← 腿竖直时读零位
+ * ch9~10  腿长 (m): 左 / 右
+ * ch11~12 摆角速度 (rad/s): 左 / 右                      ← 轮速补偿用的量
+ * ch13    摆角目标 (rad, 手动腿测, 左右同值)
+ * ch14~15 腿长目标 (m): 左 / 右
+ * ch16~19 髋力矩命令 (N·m): 前左 / 后左 / 前右 / 后右
+ * ch20~21 足端力 F (N): 左 / 右
+ * ch22~23 虚拟髋扭矩 Tp (N·m): 左 / 右
+ * ch24~25 LQR 轮输出原值 u (N·m, 未门控未限幅, 只在 LQR 投入时更新): 左 / 右   ← 轮不出力也能看方向
+ * ch26    速度估计 x[1] (m/s, 当前补偿符号)
+ * ch27    速度估计对照 ds_alt (m/s, 补偿符号取反)         ← 摆腿时哪条平选哪条
+ * ch28~29 俯仰角 (rad) / 俯仰角速度 (rad/s), LQR 吃到的
+ * ch30~31 轮力矩命令 (N·m): 左 / 右
+ * ch26~29 由每拍必算的状态估计更新 (需 IMU 在线 + 两腿有效); ch13~23、30~31 未投入时为 0
  */
 static void Robot_Control_Send_Vofa(void)
 {
-    static uint8_t vofa_div;
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
-    uint8_t state_bits;
-    vofa_div++;
-    if (vofa_div < 2u)
-    {
-        return;
-    }
-    vofa_div = 0u;
+    uint16_t state_bits;
 
     /* ch0 在线掩码 */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
@@ -203,7 +207,7 @@ static void Robot_Control_Send_Vofa(void)
     online_mask |= motor_state.dji.online[1] ? 0x80u : 0x00u;
     dbg[0] = (float)online_mask;
 
-    /* ch1 状态位: 使能/跌倒/左腿有效/右腿有效 */
+    /* ch1 状态位: 使能/跌倒/左腿有效/右腿有效/四髋使能/已投入 */
     state_bits  = robot_state.motor_enabled ? 0x01u : 0x00u;
     state_bits |= robot_state.fallen ? 0x02u : 0x00u;
     state_bits |= leg_l.output.valid ? 0x04u : 0x00u;
@@ -212,9 +216,10 @@ static void Robot_Control_Send_Vofa(void)
     state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_LFT) ? 0x20u : 0x00u;
     state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_RGT) ? 0x40u : 0x00u;
     state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_RGT) ? 0x80u : 0x00u;
+    state_bits |= output_task_lqr_engaged() ? 0x100u : 0x00u;
     dbg[1] = (float)state_bits;
 
-    /* ch2 策略号: 0 手动 / 1 LQR */
+    /* ch2 策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测 */
     dbg[2] = (float)ctrl_strategy;
 
     /* ch3~6 四髋位置 (零点后 rad) */
@@ -223,46 +228,46 @@ static void Robot_Control_Send_Vofa(void)
     dbg[5] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_RGT];
     dbg[6] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_RGT];
 
-    /* ch7~10 左腿解算: 大腿角/小腿角/摆角/腿长 */
-    dbg[7]  = leg_l.output.thigh_angle;
-    dbg[8]  = leg_l.output.virtual_shank_angle;
-    dbg[9]  = leg_l.output.virtual_leg_angle;
-    dbg[10] = leg_l.output.virtual_leg_length;
+    /* ch7~12 腿解算: 摆角 左/右, 腿长 左/右, 摆角速度 左/右 */
+    dbg[7]  = leg_l.output.virtual_leg_angle;
+    dbg[8]  = leg_r.output.virtual_leg_angle;
+    dbg[9]  = leg_l.output.virtual_leg_length;
+    dbg[10] = leg_r.output.virtual_leg_length;
+    dbg[11] = leg_l.output.d_virtual_leg_angle;
+    dbg[12] = leg_r.output.d_virtual_leg_angle;
 
-    /* ch11~14 右腿解算 */
-    dbg[11] = leg_r.output.thigh_angle;
-    dbg[12] = leg_r.output.virtual_shank_angle;
-    dbg[13] = leg_r.output.virtual_leg_angle;
-    dbg[14] = leg_r.output.virtual_leg_length;
+    /* ch13~15 目标: 摆角 / 腿长 左 / 腿长 右 */
+    dbg[13] = lqr_state.leg_ang_tgt[0];
+    dbg[14] = lqr_state.leg_len_tgt[0];
+    dbg[15] = lqr_state.leg_len_tgt[1];
 
-    /* ch15~16 腿长目标 (左/右 m) */
-    dbg[15] = lqr_state.leg_len_tgt[0];
-    dbg[16] = lqr_state.leg_len_tgt[1];
+    /* ch16~19 髋力矩命令 (N·m): 前左/后左/前右/后右 */
+    dbg[16] = leg_balance.cmd.dm[DM_MOTOR_LEG_F_LFT];
+    dbg[17] = leg_balance.cmd.dm[DM_MOTOR_LEG_B_LFT];
+    dbg[18] = leg_balance.cmd.dm[DM_MOTOR_LEG_F_RGT];
+    dbg[19] = leg_balance.cmd.dm[DM_MOTOR_LEG_B_RGT];
 
-    /* ch17~19 俯仰角/俯仰角速度/前进速度 */
-    dbg[17] = lqr_state.x[LQR_X_THB];
-    dbg[18] = lqr_state.x[LQR_X_DTHB];
-    dbg[19] = lqr_state.x[LQR_X_DS];
+    /* ch20~23 力向量: F 左/右 (N), Tp 左/右 (N·m) */
+    dbg[20] = leg_balance.F[0];
+    dbg[21] = leg_balance.F[1];
+    dbg[22] = leg_balance.Tp[0];
+    dbg[23] = leg_balance.Tp[1];
 
-    /* ch20~23 LQR 输出: 左轮/右轮/左髋/右髋 (N·m) */
-    dbg[20] = lqr_state.u[LQR_U_WL];
-    dbg[21] = lqr_state.u[LQR_U_WR];
-    dbg[22] = lqr_state.u[LQR_U_BL];
-    dbg[23] = lqr_state.u[LQR_U_BR];
+    /* ch24~25 LQR 轮输出原值 (N·m) */
+    dbg[24] = lqr_state.u[LQR_U_WL];
+    dbg[25] = lqr_state.u[LQR_U_WR];
 
-    /* ch24~25 轮转速 (rad/s) */
-    dbg[24] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-    dbg[25] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    /* ch26~27 速度估计: 当前符号 / 符号取反对照 */
+    dbg[26] = lqr_state.x[LQR_X_DS];
+    dbg[27] = lqr_state.ds_alt;
 
-    /* ch26~27 轮实测电流 (A) */
-    dbg[26] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw / 819.2f;
-    dbg[27] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw / 819.2f;
+    /* ch28~29 俯仰角 / 俯仰角速度 */
+    dbg[28] = lqr_state.x[LQR_X_THB];
+    dbg[29] = lqr_state.x[LQR_X_DTHB];
 
-    /* ch28~31 髋力矩反馈 (N·m): 左前/左后/右前/右后 */
-    dbg[28] = dm_motor_feedback[DM_MOTOR_LEG_F_LFT].trq_nm;
-    dbg[29] = dm_motor_feedback[DM_MOTOR_LEG_B_LFT].trq_nm;
-    dbg[30] = dm_motor_feedback[DM_MOTOR_LEG_F_RGT].trq_nm;
-    dbg[31] = dm_motor_feedback[DM_MOTOR_LEG_B_RGT].trq_nm;
+    /* ch30~31 轮力矩命令 (N·m): 左/右 */
+    dbg[30] = leg_balance.cmd.dji[DJI_MOTOR_WHEEL_LFT];
+    dbg[31] = leg_balance.cmd.dji[DJI_MOTOR_WHEEL_RGT];
     Vofa_Send(dbg, 32u);
 }
 

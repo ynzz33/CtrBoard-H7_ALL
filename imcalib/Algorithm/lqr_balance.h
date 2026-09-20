@@ -41,6 +41,7 @@ enum {
 #define LQR_RC_VEL_MAX      1.2f    /* m/s */
 #define LQR_RC_YAW_MAX      5.0f    /* rad/s */
 #define LQR_RC_LEN_RATE     0.3f    /* m/s */
+#define LQR_RC_ANG_MAX      0.5f    /* rad, 手动腿测满杆 */
 
 typedef struct {
     float   vel_leg_comp_sign; /* 速度补偿 */
@@ -58,10 +59,15 @@ typedef struct {
     float K[LQR_U_NUM][LQR_X_NUM];  /* 增益 */
     float len[2];                   /* 实测腿长 */
     float len_eval[2];              /* 上次增益求值腿长 */
+    float whl[2];                   /* 轮对地角速度 (调试) */
+    uint8_t valid;                  /* 状态估计有效 */
+    float ds_alt;                   /* 补偿符号取反的速度估计 (台架对照, 定后删) */
     float leg_len_tgt[2];           /* 腿长目标 */
+    float leg_ang_tgt[2];           /* 腿摆角目标 (手动腿测) */
     float pos;                      /* 位移积分 */
     float roll;                     /* 机体横滚角 */
     lowpass1d_t lpf_vel;            /* 速度低通 */
+    lowpass1d_t lpf_vel_alt;        /* 对照速度低通 */
     lowpass1d_t lpf_omg_pitch;      /* 俯仰角速度低通 */
     lowpass1d_t lpf_omg_yaw;        /* 偏航角速度低通 */
 } lqr_state_t;
@@ -70,8 +76,9 @@ extern lqr_debug_t lqr_debug;
 
 void    LQR_Init(lqr_state_t *st);
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
-                         const leg_state_t *leg_r);
-uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt);
+                         const leg_state_t *leg_r, uint8_t manual);
+uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
+                          uint8_t manual);
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt);

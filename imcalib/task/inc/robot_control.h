@@ -20,6 +20,7 @@ typedef enum {
     CTRL_STRATEGY_MANUAL = 0,   /* 手动遥操 / RL */
     CTRL_STRATEGY_LQR,          /* LQR 平衡 */
     CTRL_STRATEGY_SYSID,        /* 测试模式 */
+    CTRL_STRATEGY_LQR_MANUAL,   /* 手动腿测 (腿长+摆角) */
 } ctrl_strategy_t;
 
 typedef struct {
@@ -118,6 +119,7 @@ void ctrl_task_init(void);
 void ctrl_task_body(void);
 void output_task_init(void);
 void output_task_body(void);
+uint8_t output_task_lqr_engaged(void);
 void comm_task_body(void);
 
 #endif

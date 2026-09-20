@@ -21,6 +21,15 @@ typedef struct {
     int8_t out;     /* 输出极性 */
 } motor_sign_t;
 
+/* IMU 安装: 机体三轴各取模块哪一路、乘什么符号 (输出 = 原始值 × 符号) */
+typedef struct {
+    uint8_t eul_src[3];   /* 欧拉角来源, 按机体 俯仰/横滚/偏航 序; 值 = 模块 0 Roll / 1 Pitch / 2 Yaw */
+    int8_t  eul_sign[3];  /* 欧拉角符号, 同序 */
+    int8_t  gyr_sign[3];  /* 角速度符号, 模块 X/Y/Z */
+    int8_t  acc_sign[3];  /* 加速度符号, 模块 X/Y/Z */
+    int8_t  quat_sign[3]; /* 四元数 X/Y/Z 符号 */
+} imu_cfg_t;
+
 /* 一台机器的全部参数 */
 typedef struct {
     const char *name;
@@ -48,6 +57,8 @@ typedef struct {
     float       leg_len_min;
     float       leg_len_max;
     float       leg_off_phi0[2];
+    /* IMU 安装极性 */
+    imu_cfg_t   imu;
 } machine_cfg_t;
 
 extern const machine_cfg_t machine_table[MACHINE_NUM];

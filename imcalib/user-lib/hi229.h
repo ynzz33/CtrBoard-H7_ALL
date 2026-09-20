@@ -13,18 +13,7 @@
 #define HI229_PAYLOAD_LEN     76u     /* hi229_frame_t 大小 */
 #define HI229_OFFLINE_MS      100u
 
-#define HI229_ACC_SIGN_X      (-1.0f)
-#define HI229_ACC_SIGN_Y      (+1.0f)
-#define HI229_ACC_SIGN_Z      (-1.0f)
-#define HI229_GYR_SIGN_X      (-1.0f)
-#define HI229_GYR_SIGN_Y      (+1.0f)
-#define HI229_GYR_SIGN_Z      (-1.0f)
-#define HI229_EUL_SIGN_ROLL   (-1.0f)
-#define HI229_EUL_SIGN_PITCH  (+1.0f)
-#define HI229_EUL_SIGN_YAW    (-1.0f)
-#define HI229_QUAT_SIGN_X     (-1.0f)
-#define HI229_QUAT_SIGN_Y     (+1.0f)
-#define HI229_QUAT_SIGN_Z     (-1.0f)
+/* 轴向符号已移到 machine_config.c 的 imu 表, 驱动只出原始值 */
 
 /* ============================================================================
  * 协议帧结构 — HI229 0x91 包 payload（76字节）

@@ -1,6 +1,6 @@
 # 输入输出链路总览
 
-> 最后更新：2026-09-17
+> 最后更新：2026-09-21
 > 本文档记录各传感器/执行器的完整数据链路，从硬件到消费端。
 
 ---
@@ -24,11 +24,12 @@ hi229.c: HI229_Process()
     │  HI229_Snapshot()
     ▼
 task_imu.c: imu_task_body() @ 500Hz
-    去重(ts) → 符号转换 → 单位转换 → 写入 imu_state:
-      quat[4]       QUAT_SIGN × raw → 归一化
-      euler_deg[3]  EUL_SIGN × raw
+    去重(ts) → 按机器表取轴 + 乘符号 → 单位转换 → 写入 imu_state:
+      quat[4]       [0] 原样; [1..3] = quat_sign × raw → 归一化
+      euler_deg[3]  按机体 俯仰/横滚/偏航 序: eul_sign[i] × raw.eul[eul_src[i]]
       euler_rad[3]  euler_deg × DEG2RAD
-      gyro_rad_s[3] GYR_SIGN × raw × DEG2RAD
+      gyro_rad_s[3] gyr_sign × raw × DEG2RAD (机体 X 横滚轴 / Y 俯仰轴 / Z 偏航轴)
+      acc_g[3]      acc_sign × raw (G)
       online        归一化成功?
     │
     ▼
@@ -39,16 +40,22 @@ task_imu.c: imu_task_body() @ 500Hz
     imu_state.quat         → obs.gravity (quat_rotate_inv)
   task_comm.c:
     imu_state.online       → FAULT_IMU
-    imu_state.euler_rad[0] → |pitch| 翻倒检测
+    imu_state.euler_rad[ATTITUDE_PITCH] → |pitch| 翻倒检测
+  lqr_balance.c:
+    euler_rad[PITCH/ROLL/YAW], gyro_rad_s[1]/[2] → 俯仰、横滚、偏航角、俯仰/偏航角速度
 ```
 
-**符号约定 (hi229.h):**
+**IMU 安装极性在机器表（`machine_config.c` 的 `.imu`，2026-09-21 从 `hi229.h` 全局宏搬入）：**
 
-| 字段 | SIGN_X | SIGN_Y | SIGN_Z |
-|------|:------:|:------:|:------:|
-| quat | -1 | +1 | -1 |
-| eul (RPY) | -1 | +1 | -1 |
-| gyr | -1 | +1 | -1 |
+| 字段 | 含义 | 小机器（作者台架 2026-09-21） |
+|------|------|:---:|
+| eul_src[3] | 机体 俯仰/横滚/偏航 各取模块哪一路（0 Roll / 1 Pitch / 2 Yaw） | {1, 0, 2}（轴不换） |
+| eul_sign[3] | 欧拉角符号，同序 | {+1, −1, −1} |
+| gyr_sign[3] | 角速度符号，模块 X/Y/Z | {−1, +1, −1} |
+| acc_sign[3] | 加速度符号，模块 X/Y/Z | {−1, +1, −1} |
+| quat_sign[3] | 四元数 X/Y/Z 符号 | {−1, +1, −1} |
+
+四组符号对应"模块绕 Y 轴装反 180°"，彼此一致。大机器表暂填同值，待实测。注意 `imu_state` 欧拉角按 `ATTITUDE_PITCH=0 / ROLL=1 / YAW=2` 存，角速度按机体 X/Y/Z 存，两者顺序不同。
 
 ---
 
@@ -99,7 +106,7 @@ motor_state.dm:
         → CAN 8 字节打包 → control_id
 ```
 
-`err_raw` 同时参与使能状态：`0`=失能、`1`=使能、`0x8~0xE`=故障。`Robot_Enable_Update()` 在总使能期间调用 `Dm_Enable_Watchdog()`，对在线且 `err_raw=0` 的每台电机按独立 100 ms 计时重发 `DM_CMD_ENABLE`；`Dm_Has_Fault()` 并入 `FAULT_MOTOR`。
+`err_raw` 同时参与使能状态：`0`=失能、`1`=使能、`0x8~0xE`=故障。`Robot_Enable_Update()` 在总使能期间调用 `Dm_Enable_Watchdog()`，对在线且 `err_raw=0` 的每台电机按独立 100 ms 计时重发 `DM_CMD_ENABLE`；总失能期间调用 `Dm_Disable_Watchdog()`，对在线且 `err_raw=1` 的电机重发 `DM_CMD_DISABLE`；`Dm_Has_Fault()` 并入 `FAULT_MOTOR`。
 
 **电机映射:**
 
@@ -123,7 +130,8 @@ motor_state.dm:
 | Dm_Is_Online() | 10ms 超时检测 |
 | Dm_Is_Enabled() | `err_raw==1` 使能检测 |
 | Dm_Has_Fault() | `err_raw` 在 `0x8~0xE` 的故障检测 |
-| Dm_Enable_Watchdog() | 在线失能电机每 100ms 重发使能 |
+| Dm_Enable_Watchdog() | 总使能期间，在线且失能态的电机每 100ms 重发使能 |
+| Dm_Disable_Watchdog() | 总失能期间，在线且使能态的电机每 100ms 重发失能（丢帧兜底） |
 | Dm_All_Enable() | 全部使能 |
 | Dm_All_Disable() | 全部失能 |
 | Dm_Send_Zero() | 零力矩 |
@@ -253,10 +261,17 @@ task_comm.c:
   Robot_Control_Output():
     !rc_enable → Dm_All_Disable + Dji_All_Stop (安全)
 
-task_policy.c (手动遥操):
+task_policy.c (手动遥操, 左拨杆上位):
   ch3    → thigh 偏移 (×4.0 叠加 base_action)
   wheel  → shank 偏移 (×4.0 叠加 base_action)
   ch1    → wheel 速度 (×4.0 直接赋值, 宽死区100)
+
+lqr_balance.c (手动腿测, 左拨杆中位 + 右拨杆非中位):
+  ch3    → 虚拟腿摆角目标 (±0.5 rad, 直接给)
+  wheel  → 腿长目标 (0.3 m/s 积分, 机器区间)
+
+lqr_balance.c (LQR, 左拨杆中位 + 右拨杆中位):
+  ch1    → 前后速度, ch0 → 偏航角速度, wheel → 腿长目标 (机器区间 ∩ K 表域)
 ```
 
 **dr16_t 字段:**
@@ -269,7 +284,7 @@ task_policy.c (手动遥操):
 | ch3 | 摇杆左Y | ±660 | 前进/后退 |
 | wheel | 左侧拨轮 | ±660 | 高度/大腿偏移 |
 | s1 | 左拨杆 | 1/2/3 | 使能控制 |
-| s2 | 右拨杆 | 1/2/3 | 模式选择 |
+| s2 | 右拨杆 | 1/2/3 | 左中位时选 LQR / 手动腿测 |
 | mx/my/mz | 鼠标 | int16 | (未用) |
 | ml/mr | 鼠标键 | 0/1 | (未用) |
 | key | 键盘 | uint16 | (未用) |
@@ -282,7 +297,7 @@ task_policy.c (手动遥操):
 | s1 DOWN | 2 | 失能 (rc_enable=0) |
 | s1 MID | 3 | 使能 |
 | s1 UP | 1 | 使能 |
-| s2 | — | 模式选择 (未接线) |
+| s2 | — | 右拨杆：左拨杆中位时，中位 = LQR、其余 = 手动腿测；`SYSID_ENABLE=1` 时左上 + 右中 = 测试模式 |
 
 **关键函数:**
 
@@ -425,7 +440,7 @@ rl_torque.c:
   vshank_jac             → 力矩分解 tau_f/tau_b
   输出: torque_output_t {dm[4], dji[2]}
 task_comm.c:
-  virtual_leg_length, virtual_leg_angle, virtual_shank_angle → VOFA 调试
+  virtual_leg_length, virtual_leg_angle → VOFA 调试
 ```
 
 **配置参数（`machine_config.c`）：**
@@ -437,14 +452,14 @@ task_comm.c:
 | lu | 0.13087 | 0.13087 | 上杆长 (m) |
 | lg | 0.15240 | 0.15240 | 下杆长 (m) |
 | dm_zero | 见 machine_config.c | 见 machine_config.c | 电机零点 (rad)，dm.c 解码时叠加 |
-| offset_phi0 | -0.13 | -0.07 | 方向角偏置 (rad) |
+| offset_phi0 | 见 machine_config.c | 见 machine_config.c | 虚拟腿摆角零位偏置 (rad)，只加在 `virtual_leg_angle` 上，不影响腿长、大腿角、小腿角、雅可比与角速度 |
 | mirror | 1 | 1 | 镜像系数 |
 
 **输出字段:**
 
 | 字段 | 含义 | 用途 |
 |------|------|------|
-| thigh_angle | 大腿角 (前髋上连杆, qf) | RL obs + PD + VOFA |
+| thigh_angle | 大腿角 (前髋上连杆, qf) | RL obs + PD |
 | virtual_leg_length | 虚拟腿长 \|OP\| | VOFA 调试 |
 | virtual_leg_angle | 虚拟腿摆角 (相对竖直) | LQR |
 | virtual_shank_angle | 虚拟小腿角 (小腿相对大腿) | RL obs + PD |
@@ -454,7 +469,7 @@ task_comm.c:
 | vshank_jac[2] | 虚拟小腿雅可比 | RL 力矩分解 |
 | force_map[2][2] | 力矩映射矩阵 | 力矩输出 |
 
-**VOFA 观测：**正常控制为 32 路、500 Hz；通道 Markdown 已删除，当前打包顺序以 `task_comm.c::Robot_Control_Send_Vofa()` 为准。
+**VOFA 观测：**正常控制为 32 路；帧内容按测试阶段切换（当前为 IMU 极性测试帧），通道 Markdown 已删除，打包顺序以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。
 
 ---
 
@@ -553,19 +568,23 @@ rl_observation_state_t:
 
 ## 8. LQR 平衡链路（task_actuation 内，@1kHz）
 
-只在左拨杆中位时激活。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
+只在左拨杆中位 + 右拨杆中位时激活；左拨杆中位而右拨杆不在中位 = **手动腿测**（同一套腿长 PID + 力域映射，Tp 来自摆角 PD，轮零、IMU 仅观测，见 [LQR_PLAN.md](LQR_PLAN.md) §2.7）。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
 
 ```
 imu_state (pitch/roll/yaw/gyro)    leg_l / leg_r (Leg_Solve 输出)
 motor_state.dji.vel_rad_s          DR16_Snapshot()
         │                                  │
-        ▼                                  ▼
-  LQR_State_Update()  ←──────────  LQR_Target_Update()
-  x[10] 状态组装 + 速度运动学 + 位移积分     target[10] + 腿长目标
-        │                                  │
+        ▼                                  │
+  LQR_State_Update()   每拍必算, 不看挡位   │
+  x[10] 状态组装 + 速度运动学 + 位移积分     │
+  → lqr_state.valid                        │
+        │            ── 以下只在左中+右中且投入后 ──
+        │                                  ▼
+        │                          LQR_Target_Update()
+        │                          target[10] + 腿长目标
         └──────────────┬───────────────────┘
                        ▼
-              LQR_Control_Update()
+              LQR_Control_Update()   (valid 才算)
               腿长变化>0.5mm → LQR_K_WBR(h_l,h_r) 求 40 个增益
               u[i] = Σ K[i][j]·(target[j] − x[j])   → [T_wl,T_wr,T_bl,T_br]
                        │
@@ -578,6 +597,8 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
                        ▼
         Dm_Send_Torque() + Dji_Send_Wheel_Torque()
 ```
+
+**分层**（作者 2026-09-21 定）：解算与估计每拍都算（同 RL 观测），控制律只在对应挡位算，出力只在使能 + 解算有效 + 投入时发；投入瞬间只清位移积分，低通滤波器常跑不复位。
 
 **状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ（偏航角）不参与控制，只控角速度。
 **腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。

@@ -3,7 +3,7 @@
 > 用途：把每次改动的 **输入 / 输出 / 调用链 / 核对结论** 记下来，方便回退与查错。
 > 维护规则：一次改动 = 一节；先写链路，再写"已核对"与"待台架"。
 > 配套：设计见 `md/sysid/sysid-lower-machine-plan.md`；I/O 总览见 `md/IO_CHAINS.md`。
-> 最后更新：2026-09-18
+> 最后更新：2026-09-21
 
 ---
 
@@ -449,7 +449,7 @@ FDCAN2 RX 中断 → `HAL_FDCAN_RxFifo0Callback()`（`can_bus.c:114`）→ 路�
   | `leg_lu` / `leg_lg` | 大腿杆长 / 小腿杆长（m） |
   | `leg_off_f[2]` | 前髋零位偏置（左/右，rad） |
   | `leg_off_b[2]` | 后髋零位偏置（左/右，rad） |
-  | `leg_off_phi0[2]` | 虚拟小腿零位偏置（左/右，rad） |
+  | `leg_off_phi0[2]` | 虚拟腿摆角零位偏置（左/右，rad）（原文误写"虚拟小腿"，2026-09-21 更正：它只加在 `virtual_leg_angle` 上） |
 - `machine_config.c`：两份机器表各填一组；大机器 `lu=0.21 / lg=0.25`，零点**照抄参考固件表** `{0.476998, -1.974491} / {1.974491, -0.476998}`（前左/前右 / 后左/后右）。
 - `robot_control.c`：五连杆几何与偏置从 `machine->leg_*` 读取（新增 `#include "machine_config.h"`），不再硬编码。
 
@@ -1976,6 +1976,410 @@ commTask (1kHz) → comm_task_body()
 - ①c 轮速腿摆补偿 `vel_leg_comp_sign`：推导上复现 Leg2 应为 +1，架空推腿看 ch19 取波动小者。
 - ①d 转向通道符号：右摇杆推右应右转，Leg2 对该通道取负号。
 - D 项恢复后首次落地观察腿长是否抖动（Leg2 手册：腿部振荡就降 KD）。
+
+---
+
+## 变更 66 · LQR 前置"手动腿测"：左拨杆中位 = 摇杆直接给腿长 + 虚拟腿摆角（作者：先测手动、先不输出看极性）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_solver.c` | 删掉第 176 行行尾误敲的 `FFFFFFFF`（上次提交带进来的，armcc 报 2 个错，整个工程编不过） |
+| `imcalib/Algorithm/lqr_balance.h/c` | 新增 `LQR_RC_ANG_MAX`（摆角满杆 ±0.5 rad）、`lqr_state_t.leg_ang_tgt[2]`；`LQR_Enable_Latch()` / `LQR_Target_Update()` 加 `manual` 参数；新增静态 `LQR_Len_Range()`：手动腿测取机器区间 0.10~0.20，LQR 才与 K 表域 0.13~0.23 求交；手动时左摇杆 Y (ch3) 直接给摆角目标，锁存时摆角目标清零 |
+| `imcalib/Algorithm/leg_balance.h/c` | 新增摆角 PD 宏 `LEG_BALANCE_ANG_KP/KD`（10 / 0，待台架）、`leg_ang[2]` PID、`tau[4]` 髋力矩命令观测；把"力域映射 + 限幅 + 轮限幅"抽成静态 `Leg_Balance_Output()`，`Leg_Balance_Compute()` 改为调它；新增 `Leg_Balance_Manual()`：F = 腿长 PID + 8 N 前馈（无横滚），Tp = 摆角 PD（**不取反**），轮 = 0；`Leg_Balance_Reset()` 一并清 6 个 PID |
+| `imcalib/task/inc/robot_control.h` | 枚举加 `CTRL_STRATEGY_LQR_MANUAL`（= 3） |
+| `imcalib/task/task_actuation.c` | 仲裁：左拨杆中位 + 右拨杆中位 = LQR，左中 + 右非中 = 手动腿测；两者共用使能/锁存/复位逻辑，模式切换时 `lqr_running=0` 重新锁存；手动腿测不查 IMU；新增 `output_task_lqr_manual()` |
+| `imcalib/task/robot_control.c` | `torque_output_enabled` 初值 1 → **0**（作者：先不输出，看极性对了再开） |
+| `imcalib/task/task_comm.c` | ch2 注释补 2 测试 / 3 手动腿测；**ch20~23 在 ch2=3 时改为四髋力矩命令**（前左/后左/前右/后右，`leg_balance.tau[]`），其余模式仍是 LQR 输出；通道下标未动 |
+| `md/LQR_PLAN.md` | 决策 2 改写、加决策 10；§2.1/§2.4 补条目；新增 §2.7 手动腿测链路；§六 加 ⓪a~⓪c 台架步骤；§八 加"手动腿测链路"行 |
+| `md/IO_CHAINS.md`、`md/RL_OVERVIEW.md`、`md/AGENTS.md` | 拨杆语义、总输出初值、策略仲裁描述同步 |
+
+**为什么**
+- 作者要在 LQR 之前，用与 RL 手动遥操同样的方式（摇杆直接给目标 → PID → 雅可比 → 电机）单独验证"腿长 / 虚拟腿摆角 → 力域映射 → 四髋力矩"的极性与雅可比；不碰 K 表、不碰 IMU，出了问题只可能是这一段。
+- Tp 不取反：`force_map = leg_jacᵀ`，Tp 就是与解算摆角 `virtual_leg_angle` 共轭的广义力，PD 直接作用即可；LQR 那处取反是因为模型 θ_ll 与本工程摆角反号（§3.1），与本链路无关。
+- 手动腿测的腿长区间不与 K 表域求交：K 表在这条链里不用，作者标定的机器区间 0.10~0.20 才是物理边界；否则腿收到 0.13 以下就进不去手动模式。
+- `torque_output_enabled=0`：作者要求先不输出，VOFA 看命令方向对了再开。
+
+**输入 / 输出 / 调用链**
+- 仲裁：`DR16_Snapshot()` → `s1==MID` → `s2==MID ? LQR : LQR_MANUAL` → `ctrl_strategy`（VOFA ch2）。
+- 投入：`motor_enabled && legs valid`（手动不查 `imu_state.online`）→ `LQR_Enable_Latch(manual)`：腿长在 `LQR_Len_Range()` 内才返回 1 → `leg_len_tgt` 锁当前、`leg_ang_tgt=0` → `Leg_Balance_Reset()`。
+- 每拍：`LQR_Target_Update(manual=1)`：拨轮 × 0.3 m/s 积分 → `leg_len_tgt`（夹到机器区间）；ch3 × 0.5 rad → `leg_ang_tgt` → `Leg_Balance_Manual()`：`pid_calc(leg_len, virtual_leg_length, tgt)` → F；`pid_calc(leg_ang, virtual_leg_angle, tgt)` → Tp → `Leg_Balance_Output()`：`Leg_Force_Map_Forward(F, Tp)` → 前/后髋 → `clampf(±trq_max_hip)` → `torque.dm[]`、`lb->tau[]`；轮 0 → `output_send()`（总输出关时只发零力矩，`lb->tau` 仍是计算值）。
+- `lqr_debug.hip_enable=0` 把 Tp 清零、`len_pid_enable=0` 只留 8 N 前馈，两条链共用。
+- 观测：ch9/13 摆角、ch10/14 腿长、ch15/16 腿长目标、ch20~23 四髋命令、ch28~31 髋力矩反馈；`lqr_state.leg_ang_tgt`、`leg_balance.F/Tp/tau` 调试器 Watch。（通道号已由变更 67 重排，以 67 为准）
+- 顺带修正：原 `Leg_Balance_Compute()` 对 `Leg_Force_Map_Forward()` 的返回值不检查，`force_valid=0` 时会把未初始化的 `tau` 发出去；现在返回 0 走零力矩，`lb->tau` 同步清零。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、`+LEG_PI`、IMU 轴宏、`MACHINE_DEFAULT`、腿长区间、LQR 里的 Tp 取反；VOFA 32 路下标未动，帧长 132 B 不变。
+- 雅可比有限差分：0.10~0.20 m 内 1148 个姿态，`leg_jac` 与数值导数最大差 1e−10（长度行 6e−11、角度行 5e−10）。
+- 手动闭环方向：3 组 `offset_phi0`（−0.13 / −0.07 / 0）× 全区间姿态 × 4 种目标偏移共 10416 例，沿 `Jᵀ[F;Tp]` 方向的虚位移全部使腿长/摆角朝目标移动，0 例反向。
+- Keil AC5 按 `compile_commands.json` 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**（`-D` 只加给 `.c`，汇编启动文件不吃该选项）。未链接、未上机。
+
+**待台架（按 LQR_PLAN §六 ⓪）**
+- ⓪a 总输出关着：左摇杆前推 → ch20~23 同号（对称站姿前后髋各约 −0.5×Tp）；拨轮上推 → ch15/16 升、前后髋命令异号；手掰腿 → 命令朝拉回方向。
+- ⓪b 开输出（`torque_output_enabled=1`，`trq_max_hip` 先压 3 N·m）：前推腿前摆、两腿同向；回中腿竖直（顺便定 ①a 零位）；拨轮腿长跟目标（8 N 前馈约 8 mm 静差属正常）。
+- 摆角 PD 10/0 是起步值，振荡就先降 KP；极性/零点异常只报现象不改数。
+
+---
+
+## 变更 67 · VOFA 换成"腿测 + 力域"观测帧（作者：把需要的数据放进去，开始测试）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` ch3~31 重排（下表）；去掉变更 66 里 ch20~23 按模式切换的分支，全程一套固定布局；ch2 注释不变 |
+| `imcalib/Algorithm/leg_balance.h/c` | `leg_balance_t` 的 `tau[4]`（变更 66）换成 `torque_output_t cmd`（六路力矩命令观测，含轮），`Leg_Balance_Output()` 成功时整份拷贝、失败时清零；`Leg_Balance_Reset()` 一并清 F / Tp / cmd |
+| `imcalib/task/task_actuation.c` | 手动腿测每拍也调 `LQR_State_Update()`，**只为 ch27~29 观测**，不参与控制（IMU 掉线时该函数直接返回 0，不影响腿测）；LQR / 手动腿测未投入时每拍 `Leg_Balance_Reset()`，避免 VOFA 显示上一次的旧命令 |
+| `md/LQR_PLAN.md` | 决策 10、§2.5、§2.7、§六 ⓪~② 通道号全部改到新布局 |
+| `md/IO_CHAINS.md`、`md/RL_OVERVIEW.md` | 去掉"大腿角 / 虚拟小腿角上 VOFA"与"不用 IMU"的说法 |
+
+**新帧（32 通道 / JustFloat / 500 Hz，帧长 132 B 不变）**
+
+| 通道 | 含义 | 来源 |
+| --- | --- | --- |
+| ch0 | 在线掩码：IMU / 遥控 / 髋 4 / 轮 2 | 同前 |
+| ch1 | 状态位：使能 / 跌倒 / 左腿有效 / 右腿有效 / 四髋使能 | 同前 |
+| ch2 | 策略号 0 手动 / 1 LQR / 2 测试 / 3 手动腿测 | `ctrl_strategy` |
+| ch3~6 | 四髋位置（零点后 rad）前左 / 后左 / 前右 / 后右 | `motor_state.dm.pos_zero_rad[]` |
+| ch7~10 | 左摆角 / 左腿长 / 右摆角 / 右腿长 | `leg_l/r.output.virtual_leg_angle / virtual_leg_length` |
+| ch11~14 | 左摆角目标 / 右摆角目标 / 左腿长目标 / 右腿长目标 | `lqr_state.leg_ang_tgt[] / leg_len_tgt[]` |
+| ch15~18 | 足端力 F 左 / 右 (N)，虚拟髋扭矩 Tp 左 / 右 (N·m) | `leg_balance.F[] / Tp[]` |
+| ch19~22 | 髋力矩命令 (N·m) 前左 / 后左 / 前右 / 后右（总输出关时仍是计算值） | `leg_balance.cmd.dm[]` |
+| ch23~26 | 髋力矩反馈 (N·m) 前左 / 后左 / 前右 / 后右 | `dm_motor_feedback[].trq_nm` |
+| ch27~29 | 俯仰角 / 俯仰角速度 / 前进速度（LQR 状态，手动腿测仅观测） | `lqr_state.x[THB / DTHB / DS]` |
+| ch30~31 | 轮力矩命令 (N·m) 左 / 右（手动腿测恒为 0） | `leg_balance.cmd.dji[]` |
+
+去掉的：大腿角 / 虚拟小腿角（RL 坐标，本阶段不用）、LQR 原始输出 `u[]`（髋侧由 Tp 与四髋命令替代，轮侧由轮力矩命令替代）、轮转速、轮实测电流。
+
+**为什么**
+- 作者要开始手动腿测，"先不输出看极性"需要在 VOFA 上同时看到：目标（摆角 / 腿长）→ 力向量（F / Tp）→ 四髋命令 → 四髋反馈，整条链每一级都可见，哪一级符号不对一眼能定位。
+- 不再按模式切换通道含义：作者的原则是"显示值不对先查下标"，一个通道两种含义是新的坑。
+- 手动腿测顺带跑状态估计：ch27~29 在安全的手动模式下就能做 §六 ①b（IMU 轴 / 极性）和 ①c（轮速腿摆补偿）的观察，不必先进 LQR。
+
+**输入 / 输出 / 调用链**
+- `Leg_Balance_Output()` → `torque->dm/dji` → `lb->cmd = *torque`（映射失败返回 0 前已清零）→ `Robot_Control_Send_Vofa()` ch19~22 / ch30~31。
+- `output_task_body()` LQR / 手动腿测分支未投入 → `Leg_Balance_Reset()` → F / Tp / cmd 清零 → ch15~22、ch30~31 为 0；`leg_len_tgt / leg_ang_tgt` 保留上次值（ch11~14 不清）。
+- `output_task_lqr_manual()` → `LQR_State_Update()`（IMU 在线才写 `x[]`）→ ch27~29。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、`+LEG_PI`、IMU 轴宏、`MACHINE_DEFAULT`、控制律；`Vofa_Send(dbg, 32u)` 与 `VOFA_MAX_CH` 不变。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。未链接、未上机。
+
+**待台架**：按 `LQR_PLAN.md` §六 ⓪a → ⓪b。
+
+---
+
+## 变更 68 · 🐞 手动腿测投不进去（作者台架：目标角一直是零）
+
+**现象**：左中位进手动腿测，ch2 = 3，但 ch11/12 摆角目标恒 0，推摇杆没反应。
+
+**根因（可证）**：变更 66 让手动腿测沿用了 `LQR_Enable_Latch()` 的"实测腿长必须在区间内"门槛（手动取机器区间 0.10~0.20）。总输出关着、电机零力矩时，小机器腿架空垂到机械限位 ≈0.20 m（作者实测；几何极限 lu+lg≈0.28 到不了），读数正好压在区间上沿，浮点略超 0.20 就被拒；趴地则缩到 0.10 以下。两种姿态都投不进 → 锁存返回 0 → `output_task_lqr_manual()` 一次都没跑 → `leg_ang_tgt` / `leg_len_tgt` / F / Tp / 四髋命令全为 0。这个门槛是给 LQR 防"使能瞬间弹起"的，手动腿测目标锁当前值本来就不会跳，不需要。
+
+**顺带核对（作者问"腿长是否还没加轮径"）**：不加，也不该加。本工程 `virtual_leg_length = |OP|` 是髋心到轮轴距离；Leg2_v1 `Leg_Position` 同一定义（其常数 0.0398891754 = 2·l1·l2，髋距项系数 0.0F），两者在工作区间逐点差 3e−9；Leg2 把这个值直接喂 `LQR_K_WBR(leg_len_lft, leg_len_rgt)`，K 表按它拟合。轮径只在 `LQR_State_Update()` 的 `ω·R_w` 里用。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.c` | `LQR_Enable_Latch()`：只有 `manual=0` 才查区间，手动腿测任意腿长都投入；`LQR_Target_Update()`：手动时拨轮的夹取区间扩到 `[min(0.10, 当前目标), max(0.20, 当前目标)]`——目标在区间外只能往区间里拨，进区间后不再出去 |
+| `imcalib/task/task_actuation.c`、`inc/robot_control.h` | 新增 `output_task_lqr_engaged()` 返回 `lqr_running` |
+| `imcalib/task/task_comm.c` | ch1 加 **bit8 = LQR / 手动腿测已投入**（`state_bits` 改 `uint16_t`），一眼能看出链路有没有跑 |
+| `md/LQR_PLAN.md` | §2.7 投入条件、§六 ⓪a/⓪b 同步；⓪b 补"架空时腿垂在机械限位 ≈0.20，开输出后要先拨轮往下拨"；§2.7 补腿长定义不含轮径 |
+
+**输入 / 输出 / 调用链**
+- 手动腿测：`motor_enabled && legs valid` → `LQR_Enable_Latch(manual=1)` 直接锁 `leg_len_tgt = 实测`、`leg_ang_tgt = 0` → 返回 1 → 每拍 `LQR_Target_Update(manual=1)`：`lo = min(len_min, tgt)`、`hi = max(len_max, tgt)`，积分后夹到 `[lo, hi]`。
+- 开输出时的安全性：目标 = 实测，腿长 PID 误差为 0，只有 8 N 前馈；腿垂在机械限位 ≈0.20 时前馈顶着限位不动，拨轮下拨才按 0.3 m/s 收腿，无阶跃。
+- LQR 路径（`manual=0`）逻辑不变：仍要求 0.13~0.20 才投入，仍夹在 0.13~0.20。
+- VOFA：`output_task_lqr_engaged()` → ch1 bit8（0x100）。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、`+LEG_PI`、IMU 轴宏、控制律、VOFA 下标（只扩 ch1 高位）。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：重新按 §六 ⓪a：ch1 应为 509（bit8 已投入 + 四髋使能 + 两腿有效 + 使能），推左摇杆 ch11/12 应跟着走。
+
+---
+
+## 变更 69 · 手动腿测首次出力：摆角 PD 调小 + 总输出打开（作者：把 PD 参数调小，然后把输出打开，先进行测试）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_balance.h` | `LEG_BALANCE_ANG_KP` 10 → **5**，`LEG_BALANCE_ANG_KD` 仍 0 |
+| `imcalib/task/robot_control.c` | `torque_output_enabled` 初值 0 → **1** |
+| `md/LQR_PLAN.md`、`md/RL_OVERVIEW.md` | 参数表、§2.7、§六 ⓪a/⓪b、总开关说明同步 |
+
+**为什么**：作者决定跳过"不出力看命令"直接上台架；摆角环先减半，满杆 0.5 rad 时 Tp = 2.5 N·m、单髋约 1.25 N·m。腿长 PID（1000/50000）和髋限幅（10 N·m）未动，仍是变更 65 定的 Leg2 值。
+
+**输入 / 输出 / 调用链**：`LEG_BALANCE_ANG_KP` → `Leg_Balance_Init()` → `pid_calc(leg_ang)` → `Tp`；`torque_output_enabled=1` → `output_send()` 真正下发 `Dm_Send_Torque()` / `Dji_Send_Wheel_Torque()`。
+
+**核对**：未改极性、零点、MIT 量程、镜像、IMU 轴宏、腿长 PID、限幅。Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：按 §六 ⓪b。首次出力前建议调试器 `lqr_debug.trq_max_hip=3`，防腿长环方向反时以满限幅顶限位。
+
+---
+
+## 变更 70 · 摆角 PD 恢复 10，准备下地直接跑 LQR（作者：恢复 PD 跟一些参数，下地试一下，直接用 LQR）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_balance.h` | `LEG_BALANCE_ANG_KP` 5 → **10**（回到变更 66 值） |
+| `md/LQR_PLAN.md` | 参数表、§2.7 同步；§六 ① 前补 ①0（从手动腿测切进 LQR 的手法）、①1（位移目标 −0.12 会让车后退 12 cm） |
+
+其余参数已是 Leg2 值，未动：腿长 1000/50000、防劈叉 30/500、横滚 500/100、前馈 8 N、髋限幅 10、轮限幅 1.8、轮径 0.04、K 表；`torque_output_enabled` 保持 1。
+
+**核对**：未改极性、零点、量程、IMU 轴宏。Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架（LQR 首次下地，§六 ①~⑥ 的符号项全部未定）**：IMU 俯仰轴与极性（①b）、腿摆角零位（①a）、轮速腿摆补偿符号（①c）、转向符号（①d）。最先看的是"前倾时轮子往前追"——反了就是 ①b，立即左下位。
+
+---
+
+## 变更 71 · 摆角 PD 照抄 Leg2 自救腿角环 + 轮补偿观测量（作者：虚拟腿摆角也按 Leg2 参数配置试一下）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_balance.h` | `LEG_BALANCE_ANG_KP/KD` 10/0 → **20/30**；新增 `LEG_BALANCE_ANG_TP_MAX 4.0f`（三者同 Leg2 `Code/App/app_self_rescue.h` 的 `SELF_RESCUE_KP/KD/TP_MAX`） |
+| `imcalib/Algorithm/leg_balance.c` | `Leg_Balance_Manual()` 的 Tp 先夹到 ±4 N·m 再进力域映射 |
+| `imcalib/Algorithm/lqr_balance.h/c` | `lqr_state_t` 加 `whl[2]`（补偿后的轮对地角速度，只供观测） |
+| `md/LQR_PLAN.md` | 参数表、§2.7；§六 ①c 改成"着地扶机身摆腿看 x[1] 归零"的测法；§八 补偿符号一行同步 |
+
+**为什么可以直接照抄**
+- Leg2 自救环 `Pid_Update(&self_rescue, 目标, leg.ang)` 作用在"腿相对机身的摆角"上，与本工程 `virtual_leg_angle` 同一个量；D 项两边都是 kd×(本拍误差−上拍误差)、同为 1 kHz，KD 直接照抄。
+- 符号：Leg2 腿角前摆为负、其 Tp 进 `Leg_Tougue` 也与本工程反号，两次反号抵消，正增益在本工程坐标下仍是正增益（已在 §3.1 数值核验的等价关系上推得）。
+- Tp 上限 4 N·m 是 Leg2 与 20/30 配套的保护（"扫腿时机体反作用太大"），照抄；单髋约 2 N·m，在 10 N·m 限幅之内。
+
+**轮速腿摆补偿现状（作者问）**
+- 公式：`whl = 轮速(已除减速比) + sign × d_virtual_leg_angle − 俯仰角速度`，再 `×R_w` 进速度估计；`sign = lqr_debug.vel_leg_comp_sign`，默认 −1。
+- 本工程约定（前摆为正、轮前滚为正）下推导：足端前摆时电机壳体反向转，编码器多读一份摆角速度，应减掉 → −1。Leg2 原式 `vel − d_ang − omg_pitch` 因其腿角前摆为负、逐字翻译成本工程约定是 +1；差异只能来自两边编码器/IMU 正向约定，台架 A/B 定。
+- 测法见 §六 ①c：着地、扶住机身、手动腿测摆腿，`lqr_state.x[1]` 接近 0 的那个符号是对的。
+
+**核对**：未改极性、零点、量程、IMU 轴宏、LQR 控制律；Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：20/30 首次出力若腿抖，先把 KD 减半；补偿符号按 ①c 定后写死并删掉 `vel_leg_comp_sign`。
+
+---
+
+## 变更 72 · VOFA 换成 IMU 极性测试帧（作者：开始对 IMU 进行测试，清空 VOFA，填入 IMU 相关数据）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` ch3~31 整块换成 IMU 链路（下表）；新增 `#include "hi229.h"` 读原始快照；四元数投影重力复用 `RL_Observation_Project_Gravity()`；作者已自行注掉 2 分频（1 kHz 直发），本批把 `vofa_div` 声明一并注掉消警告 |
+| `md/LQR_PLAN.md` | §2.5/§2.7/§六 里的通道号全部改成变量名（帧内容按阶段变，通道号不再写进文档），①b 补 IMU 帧测法 |
+| `md/RL_OVERVIEW.md`、`md/IO_CHAINS.md` | VOFA 说明去掉"500 Hz"、注明当前为 IMU 测试帧 |
+
+**IMU 测试帧（32 通道 / JustFloat）**
+
+| 通道 | 含义 | 来源 |
+| --- | --- | --- |
+| ch0~2 | 在线掩码 / 状态位（bit1 跌倒，bit8 已投入）/ 策略号 | 同前 |
+| ch3~5 | 模块原始欧拉角 Roll / Pitch / Yaw（deg，未乘符号） | `HI229_Snapshot().eul[]` |
+| ch6~8 | 模块原始角速度 X / Y / Z（deg/s，未乘符号） | `.gyr[]` |
+| ch9~11 | 模块原始加速度 X / Y / Z（G） | `.acc[]` |
+| ch12~14 | `imu_state.euler_rad[0/1/2]`（rad，已乘符号）；[0] 给 LQR 当俯仰、[1] 横滚、[2] 偏航 | `task_imu.c` |
+| ch15~17 | `imu_state.gyro_rad_s[0/1/2]`（rad/s，已乘符号）；[1] 给 LQR 当俯仰角速度、[2] 偏航角速度 | 同上 |
+| ch18~20 | 四元数投影重力 X / Y / Z（机体系，RL 阶段已验证） | `RL_Observation_Project_Gravity(imu_state.quat)` |
+| ch21~24 | LQR 吃到的：俯仰 `x[8]` / 俯仰角速度 `x[9]`（低通）/ 偏航角速度 `x[3]`（低通）/ 横滚 `lqr_state.roll` | `LQR_State_Update()` |
+| ch25~28 | 世界系腿摆角 `x[4]` 左 / `x[6]` 右 / 角速度 `x[5]` / `x[7]` | 同上 |
+| ch29 | 速度估计 `x[1]` | 同上 |
+| ch30~31 | 解算摆角（机体系）左 / 右 | `leg_l/r.output.virtual_leg_angle` |
+
+ch21~29 只在 LQR / 手动腿测投入后更新，其余随时有效。
+
+**为什么这么排**：一次动作能沿"模块原始 → 乘符号 → LQR 状态"三级同时看，哪一级把轴或符号弄错一眼可辨；原始加速度和四元数重力是两个不依赖欧拉角约定的独立参照（静止时加速度哪一轴 ≈ ±1 G 就是竖直轴，抬头时哪一轴变化就是前后轴）。
+
+**1 kHz 直发的后果**：32 路帧 132 B × 1 kHz = 132 kB/s，超过 1152000 bps 串口的约 115 kB/s；`Vofa_Send()` 在上一帧 DMA 未完时直接丢帧，实际约 870 帧/s，看图无影响。
+
+**核对**：未改极性、零点、IMU 符号宏、控制律；Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：§六 ①b，把"抬头 / 右倾 / 左转"三个动作下 ch3~17 各路的正负报回来再定 `LQR_IMU_*` 宏。
+
+---
+
+## 变更 73 · IMU 极性进机器配置表 + 欧拉角槽位改正（作者：做一个 IMU 极性配置表，跟机器配置表放一起）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/machine_config.h` | 新增 `imu_cfg_t`（`eul_src[3]` / `eul_sign[3]` / `gyr_sign[3]` / `acc_sign[3]` / `quat_sign[3]`），`machine_cfg_t` 加 `.imu` |
+| `imcalib/user-lib/machine_config.c` | 两份表各填一组（下表）；大机器照抄原宏值、注明待实测 |
+| `imcalib/user-lib/hi229.h` | 删除 12 个 `HI229_*_SIGN_*` 全局宏（已搬入表），驱动只出原始值 |
+| `imcalib/Algorithm/imu_state.h` | `imu_state_t` 加 `acc_g[3]`（G，乘符号后） |
+| `imcalib/task/task_imu.c` | 改读 `machine->imu`：欧拉角按 `eul_src` 取路再乘 `eul_sign`；角速度/加速度/四元数乘各自符号；新填 `acc_g` |
+| `imcalib/task/task_comm.c` | VOFA 换成 IMU 测试帧第二版：前 9 路为乘过极性后的欧拉角（俯仰/横滚/偏航）、角速度 X/Y/Z、加速度 X/Y/Z；原始欧拉角/角速度挪到 ch26~31，原始加速度不再发 |
+| `md/IO_CHAINS.md`、`md/LQR_PLAN.md` | IMU 链路与表、①b、§八、§十 同步 |
+
+**物理量变更确认（§0.1 单列）**
+- 谁 / 何时：作者于 **2026-09-21** 台架看原始值后指出："小机器 Roll/Yaw 的欧拉角、角速度、加速度极性都反，Pitch 没问题，轴没问题；即 Roll/Yaw 角与角速度取反，acc X/Z 取反，说的是原始值。"
+- 符号值：与原 `hi229.h` 宏**逐项相同**（eul −1/+1/−1 按 Roll/Pitch/Yaw，gyr −1/+1/−1，acc −1/+1/−1，quat −1/+1/−1），本次只是搬家，乘后的数值不变。
+- **槽位变更（真正改了行为的一处）**：原 `task_imu.c` 把 `sample.eul[0]`（模块 Roll）写进 `euler_deg[0]`，而 `ATTITUDE_PITCH = 0`，即 LQR 俯仰角、翻倒检测、`lqr_state.roll` 全部取错路（俯仰拿的是横滚，横滚拿的是俯仰）；角速度那边 `LQR_IMU_GYRO_PITCH = 1`（Y 轴）本来就对。按作者"轴没问题"，表里写 `eul_src = {1, 0, 2}`：俯仰←Pitch 路、横滚←Roll 路、偏航←Yaw 路。改后 `euler_rad[ATTITUDE_PITCH]` = +模块 Pitch，`euler_rad[ATTITUDE_ROLL]` = −模块 Roll。依据：作者台架陈述 + 角速度已用 Y 轴当俯仰、角与角速度须同轴。
+- 待作者复核（作者原话"做完这个之后我再检查一次乘过极性后的数据"）：见 §六 ①b。
+
+**小机器 `.imu` 表**
+
+| 字段 | 值 | 读法 |
+| --- | --- | --- |
+| `eul_src` | {1, 0, 2} | 俯仰←模块 Pitch(1)，横滚←Roll(0)，偏航←Yaw(2) |
+| `eul_sign` | {+1, −1, −1} | 俯仰不反，横滚反，偏航反 |
+| `gyr_sign` | {−1, +1, −1} | X（横滚轴）反，Y（俯仰轴）不反，Z（偏航轴）反 |
+| `acc_sign` | {−1, +1, −1} | X 反，Y 不反，Z 反 |
+| `quat_sign` | {−1, +1, −1} | 与上面一致（模块绕 Y 装反 180°） |
+
+**输入 / 输出 / 调用链**：`HI229_Snapshot()` → `imu_task_body()`：`euler_deg[i] = eul_sign[i] × eul[eul_src[i]]`、`gyro_rad_s[i] = gyr_sign[i] × gyr[i] × π/180`、`acc_g[i] = acc_sign[i] × acc[i]`、`quat[1..3] = quat_sign × quat[1..3]` → `Attitude_Update()` → `imu_state` → LQR（`euler_rad[ATTITUDE_*]`、`gyro_rad_s[1]/[2]`）、翻倒检测（`euler_rad[ATTITUDE_PITCH]`）、RL（`gyro_rad_s`、`quat`，本次数值不变）。
+
+**核对**
+- 未改 `dm_sign` / `dji_sign` / 零点 / 量程 / 腿几何 / `LQR_IMU_*` 宏 / `MACHINE_DEFAULT`；RL 观测用的角速度与四元数数值不变。
+- `grep HI229_.*_SIGN_` 全工程无残留。
+- Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：§六 ①b 三个动作复核乘过极性后的量；大机器 `.imu` 表待实测。
+
+---
+
+## 变更 74 · 状态估计每拍必算，与挡位解耦（作者：解算/估计一直算，控制律和出力才看挡位）
+
+**现象**：IMU 测试帧 ch15~23（`lqr_state.x[]`、`roll`）恒 0——`LQR_State_Update()` 原来只在 LQR / 手动腿测投入后被调用，测 IMU 时没使能、没投入，这些量从未算过。
+
+**作者定的分层**：解算与估计（五连杆、IMU、LQR 状态）每拍都算，同 RL 观测；控制律（LQR 求和 / RL 推理）只在对应挡位算；出力只在使能、解算有效、投入等条件齐全时才发。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/task_actuation.c` | `output_task_body()` 开头每拍无条件调 `LQR_State_Update()`（`wheel_vel` 在此取一次，RL 分支重复赋值删掉）；`output_task_lqr()` / `output_task_lqr_manual()` 不再各自调状态估计，LQR 分支改看 `lqr_state.valid` 再算控制律 |
+| `imcalib/Algorithm/lqr_balance.h/c` | `lqr_state_t` 加 `valid`（状态估计有效），`LQR_State_Update()` 入口清零、成功置 1；`LQR_Enable_Latch()` 只清位移积分 `pos` 与 `x[0]`，**不再复位三个低通**（常跑已是热态，复位反而制造一次从 0 恢复的瞬态） |
+| `imcalib/task/task_comm.c`、`md/LQR_PLAN.md` | 注释与 §2.2 链路图同步，写入分层原则 |
+
+**输入 / 输出 / 调用链**：每拍 `output_task_body()` → `LQR_State_Update()`（IMU 在线 + 两腿有效才写 `x[]`、`valid=1`，否则 `valid=0`、数值保持）→ 挡位仲裁 → 投入后 `LQR_Target_Update()` → `valid ? LQR_Control_Update() : 零力矩` → `Leg_Balance_Compute()` → `output_send()`。手动腿测不消费 `x[]`。位移积分在未投入期间也在累加，投入时 `pos`、`x[0]` 清零，首拍 LQR 看到的位移误差就是 −0.12 目标本身，无旧值冲击。
+
+**核对**：未改极性、零点、控制律、增益；Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+---
+
+## 变更 75 · 🐞 失能分支不可达：使能后拨杆下位 / 遥控离线 / 翻倒都不失能（作者台架测出）
+
+**现象**：作者报"左拨杆下位没有失能，遥控离线也没有失能，翻倒也没有失能"。
+
+**根因（可证，`git show fae783f`）**：变更 60 接入 DM 使能看门狗时，`Robot_Enable_Update()` 写成
+
+```c
+if (enable_request && !motor_enabled) { 使能 }
+if (motor_enabled) { Dm_Enable_Watchdog(); }
+else if (!enable_request && motor_enabled) { 失能 }   /* else 分支只在 motor_enabled==0 时进入, 条件永假 */
+```
+
+失能分支永远不可达：`motor_enabled` 一旦置 1 再也回不到 0，`Dm_All_Disable()` 再也不会发。后果分两级：
+- 拨杆下位 / 遥控离线：执行任务走零力矩分支，腿是软的，但 DM 仍处使能态，`motor_enabled` 仍为 1；看门狗还在给任何掉使能的电机重发使能。
+- **翻倒 / 电机离线 / CAN 故障：`motor_enabled` 不清零，LQR 与手动腿测分支的投入条件仍成立，控制器继续出力**——翻倒后车还在蹬。变更 60 之前的版本没有这个问题。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/task_comm.c` | `Robot_Enable_Update()` 改成"使能沿 / 失能沿"互斥的 `if / else if`，看门狗放在后面按 `motor_enabled` 二选一 |
+| `imcalib/user-lib/dm.c/h` | 新增 `Dm_Disable_Watchdog()`：总失能期间，在线且 `err_raw==1` 的电机每 100 ms 重发失能（失能帧丢了也兜得住），与使能看门狗对称 |
+| `md/RL_OVERVIEW.md`、`md/IO_CHAINS.md` | 使能状态机描述同步 |
+
+**输入 / 输出 / 调用链**：`rc_enable`（s1≠下 且遥控在线）、`ctrl_fault`（IMU / 遥控 / 电机 / CAN / 动作）、`fallen` → `enable_request` → 沿检测 → `Dm_All_Enable()` / `Dji_All_Stop()`+`Dm_All_Disable()` → 之后每拍按 `motor_enabled` 跑对应看门狗 → `motor_enabled` 被 `output_task_body()` 的投入条件消费，为 0 时 LQR / 手动腿测 / RL 全部只发零力矩。
+
+**核对**
+- 未改极性、零点、控制律。Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架（A2，作者要求"失能保底必须确保"）**
+1. 拨杆下位：ch1 bit0 清零、bit4~7 四髋使能位清零（≤100 ms），腿软。
+2. 遥控关机：同上，`ctrl_fault` 出现 bit1（=2）。
+3. 翻倒：车前倾超 80°，ch1 bit1 亮、bit0 与 bit4~7 清零；扶回 60° 内 bit1 灭、bit0 与 bit4~7 恢复，LQR 若在中位会重新锁存（腿长须在 0.13~0.20）。
+4. 拔一台 DM 的 CAN：`ctrl_fault` bit2（=4），四髋失能。
+
+---
+
+## 变更 76 · 拔一路 CAN 后"没全部失能"的解释 + 使能位显示修正（作者台架）
+
+**现象**：拔掉一路 CAN（一条腿的两台 DM），另一路的电机失能了，被拔那路的两台仍显示使能。
+
+**分析**
+- 软件侧链路是通的：被拔那路 10 ms 内 `Dm_Is_Online()` 掉 → `FAULT_MOTOR`；100 ms 后该总线 `Can_Bus_Online()` 判 DEAD → `FAULT_CAN`；`enable_request=0` → 失能沿发 `Dm_All_Disable()` + `Dji_All_Stop()`，另一路的电机与轮子随之失能，失能看门狗再每 100 ms 补发。
+- 被拔那路的两台**主控物理上够不到**：失能帧发到断了的总线上，控制器只会一直重发（`AutoRetransmission=ENABLE`），电机永远收不到。它们保持断线前的最后状态——断线前正在出力就保持那个力矩。**这一层只能靠电机自己的超时保护**：达妙电机有"CAN 通信超时"参数（上位机参数表里的 TIMEOUT，单位 ms，0 = 不检测），设了以后超过该时间没收到指令，电机自报 0xD 通信丢失并自动失能（Leg2 驱动指南 §7.1 同样描述）。本工程发 MIT 帧是 1 kHz，超时设 20~50 ms 即可，四台都要设，用达妙上位机改、断电重上电生效。
+- VOFA 显示上的一个坑：`Dm_Is_Enabled()` 原来只看 `err_raw==1`，电机离线后 `err_raw` 是断线前的旧值，ch1 bit4~7 会一直亮着"使能"，让人以为它没失能。现在离线一律显示未使能（状态未知 ≠ 使能）。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/dm.c` | `Dm_Is_Enabled()` 加 `Dm_Is_Online()` 条件 |
+
+**输入 / 输出 / 调用链**：`Dm_Is_Enabled()` 只被 `task_comm.c` 的 VOFA ch1 bit4~7 消费，不进控制与使能判定（那两处用的是 `online[]` 与 `Dm_Has_Fault()`）。
+
+**核对**：Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待作者做（电机侧，AI 做不了）**：达妙上位机逐台把 TIMEOUT 设为 20~50 ms（确认参数名与单位以上位机为准），重上电后复测：拔线 → 被拔那两台应在超时后自己失能（LED 状态 / 重新接回后反馈 `err_raw=0xD`），另一路在 100 ms 内失能。接回后先左下位再上位，主控会先发失能再发使能，0xD 需要清错的话在使能前发 0xFB。
+
+---
+
+## 变更 77 · VOFA 换成"零位 + 速度估计 + 出力"帧，速度估计加符号取反对照（作者：接着下一步）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h/c` | `lqr_state_t` 加 `ds_alt` 与 `lpf_vel_alt`；`LQR_State_Update()` 末尾把轮速腿摆补偿符号取反再算一遍速度估计写入 `ds_alt`（只供台架 A/B，不进控制；符号定后连 `vel_leg_comp_sign` 一起删） |
+| `imcalib/task/task_comm.c` | VOFA 第三版（下表）；去掉 `hi229.h` include（IMU 帧已完成使命） |
+| `md/LQR_PLAN.md` | §六 ①c 改成"两条曲线看哪条平"的测法，并补推车前置检查 |
+
+**帧（32 通道）**
+
+| 通道 | 含义 |
+| --- | --- |
+| ch0~2 | 在线掩码 / 状态位 / 策略号 |
+| ch3~6 | 四髋位置（零点后 rad） |
+| ch7~8 | 解算摆角 左 / 右（腿竖直时读零位） |
+| ch9~10 | 腿长 左 / 右 |
+| ch11~12 | 摆角速度 左 / 右 |
+| ch13~15 | 摆角目标 / 腿长目标 左 / 右 |
+| ch16~19 | 四髋力矩命令 |
+| ch20~23 | F 左 / 右、Tp 左 / 右 |
+| ch24~25 | 轮转速 左 / 右（轮轴 rad/s） |
+| ch26~27 | 速度估计 `x[1]` / 对照 `ds_alt` |
+| ch28~29 | 俯仰角 / 俯仰角速度 |
+| ch30~31 | 轮力矩命令 左 / 右 |
+
+**为什么两条一起发**：作者不用调试器切 `vel_leg_comp_sign`，两条候选同屏一次动作就能定，避免来回烧录。
+
+**核对**：未改极性、零点、控制律；`ds_alt` 无消费者。Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：§六 ①a（零位读数）、①c（推车方向与量级、摆腿看哪条平）。
+
+---
+
+## 变更 78 · 腿摆角零位由作者台架标定（作者自行改表）
+
+**物理量变更确认（§0.1 单列）**
+- 谁 / 何时：作者于 **2026-09-21** 按 §六 ①a（腿吊铅垂线竖直读 `virtual_leg_angle`）自行改 `machine_config.c` 小机器表 `leg_off_phi0`：{−0.13, −0.07} → **{−0.12, −0.17}**。
+- 依据：作者台架读数；此前值是大机器换算值抄来的占位。
+- 影响：`virtual_leg_angle` 零点、LQR 世界系腿摆角 `x[4]/x[6]` 与站立目标 −0.05 的参考、手动腿测摆角目标 0 的位置。
+- AI 未改任何代码；本条只作记录。
+
+---
+
+## 变更 79 · LQR 分级放开改成宏 + VOFA 露出轮输出原值 + 俯仰方向约定更正（作者：直接做 E）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.c` | 顶部新增 `LQR_DBG_WHEEL_ENABLE`（0）/ `LQR_DBG_HIP_ENABLE`（0）/ `LQR_DBG_LEN_PID_ENABLE`（1）/ `LQR_DBG_TRQ_MAX_WHEEL`（0.5）四个宏，`LQR_Init()` 用它们初始化 `lqr_debug`（轮限幅再与机器表取小）。作者不用调试器，改宏烧录即可分级 |
+| `imcalib/task/task_comm.c` | VOFA ch24/25 由轮转速改为 `lqr_state.u[0/1]`（LQR 轮输出原值，未门控未限幅），轮不出力也能看方向 |
+| `md/LQR_PLAN.md` | §2.5、§六 ①b/②/③/④/⑥、§八、§十 同步；**更正俯仰方向约定** |
+
+**俯仰方向约定更正（重要）**
+- 之前文档与我给作者的 IMU 测法都写"抬头为正"，作者据此定了 `eul_sign[0]=+1`、`gyr_sign[1]=+1`（抬头读正）。复核模型后确认这是**错的**：
+  - 本工程 `x[θ_l] = −θ + pitch`：机身低头 β 而腿在世界系竖直时，腿在机体系里足端前偏 β（θ=+β），要 `x[θ_l]=0` 必须 `pitch=+β` → 低头为正。
+  - K 表轮行 `θ_b` 增益 −1.11、`θ_l` 增益 −1.40，u = K·(0−x) → 机身/腿"上端前倾"时轮子前驱去接，也要求 θ_b 正 = 低头。
+  - Leg2 对原始俯仰取 −1 能站，其注释"Pitch抬头+"与自身公式矛盾，之前抄了注释。
+- 按 §0.1 不由 AI 改表：先做 E0（低头看 ch24/25 应为正），作者看到反号后再决定把 `machine_config.c` 小机器 `.imu.eul_sign` 第 0 项与 `.gyr_sign` 第 1 项改成 −1。翻倒检测取绝对值不受影响；四元数只供 RL 重力投影，不动。
+
+**核对**：Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：§六 ③ E0 三个动作（手转车体、右摇杆推右、机头下压）看 ch24/25 正负。
+
+---
+
+## 变更 80 · 撤掉分级宏、髋轮全开；作者改定俯仰符号（作者：不需要这么多宏，直接髋轮全开，pitch 极性我改好了）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.c` | 删除变更 79 加的四个 `LQR_DBG_*` 宏，`LQR_Init()` 回到全开：轮 1 / 髋 1 / 腿长环 1，轮限幅取机器表 1.8、髋 10 |
+| `md/LQR_PLAN.md` | §2.5、§六 ③④ 改成"架空看方向 → 落地"两步 |
+
+**物理量变更确认（§0.1 单列）**
+- 谁 / 何时：作者于 **2026-09-21** 自行改 `machine_config.c` 小机器表 `.imu`，把俯仰方向改成模型要求的"低头为正"（见变更 79 的推导）。具体值以文件为准。
+- AI 未改表；本条只作记录。
+
+**核对**：Keil AC5 全量编译默认与 `-DSYSID_ENABLE=1` 均 **103 文件，0 fail / 0 warn**。
+
+**待台架**：§六 ③（架空看方向）→ ④（落地）。
 
 ---
 

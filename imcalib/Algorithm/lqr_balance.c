@@ -44,6 +44,18 @@ static float LQR_RC_Axis(int16_t raw, uint16_t deadband)
     return (float)value / (float)DR16_CH_LIMIT;
 }
 
+/* 腿长目标区间: 手动腿测取机器区间, LQR 再与 K 表域求交 */
+static void LQR_Len_Range(uint8_t manual, float *len_min, float *len_max)
+{
+    *len_min = machine->leg_len_min;
+    *len_max = machine->leg_len_max;
+    if (!manual)
+    {
+        *len_min = fmaxf(*len_min, LQR_K_LEN_MIN);
+        *len_max = fminf(*len_max, LQR_K_LEN_MAX);
+    }
+}
+
 /* 初始化 */
 void LQR_Init(lqr_state_t *st)
 {
@@ -57,46 +69,55 @@ void LQR_Init(lqr_state_t *st)
     st->len_eval[0] = -1.0f;
     st->len_eval[1] = -1.0f;
     Lowpass_Init(&st->lpf_vel, LQR_LPF_ALPHA);
+    Lowpass_Init(&st->lpf_vel_alt, LQR_LPF_ALPHA);
     Lowpass_Init(&st->lpf_omg_pitch, LQR_LPF_ALPHA);
     Lowpass_Init(&st->lpf_omg_yaw, LQR_LPF_ALPHA);
 }
 
-/* 使能边沿: 腿长目标锁到当前实测, 位移与滤波器复位
- * 实测腿长必须在 K 表有效域内才允许投入, 否则返回 0 保持零力矩——
- * 直接夹到域内会让腿长 PID 瞬间产生几十牛的伸长力, 在使能瞬间把车弹起来 */
+/* 使能边沿: 腿长目标锁到当前实测, 位移积分清零 (滤波器常跑不复位)
+ * LQR 要求实测腿长在 K 表域内才投入, 否则返回 0 保持零力矩——
+ * 直接夹到域内会让腿长 PID 瞬间产生几十牛的伸长力, 在使能瞬间把车弹起来
+ * 手动腿测任意腿长都投入 (目标锁当前值, 拨轮再拨回区间), 架空/趴地也能先看命令 */
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
-                         const leg_state_t *leg_r)
+                         const leg_state_t *leg_r, uint8_t manual)
 {
     float len_min;
     float len_max;
 
-    len_min = fmaxf(machine->leg_len_min, LQR_K_LEN_MIN);
-    len_max = fminf(machine->leg_len_max, LQR_K_LEN_MAX);
-    if (leg_l->output.virtual_leg_length < len_min
-        || leg_l->output.virtual_leg_length > len_max
-        || leg_r->output.virtual_leg_length < len_min
-        || leg_r->output.virtual_leg_length > len_max)
+    if (!manual)
     {
-        return 0u;
+        LQR_Len_Range(0u, &len_min, &len_max);
+        if (leg_l->output.virtual_leg_length < len_min
+            || leg_l->output.virtual_leg_length > len_max
+            || leg_r->output.virtual_leg_length < len_min
+            || leg_r->output.virtual_leg_length > len_max)
+        {
+            return 0u;
+        }
     }
 
     st->leg_len_tgt[0] = leg_l->output.virtual_leg_length;
     st->leg_len_tgt[1] = leg_r->output.virtual_leg_length;
+    st->leg_ang_tgt[0] = 0.0f;
+    st->leg_ang_tgt[1] = 0.0f;
+    /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
     st->pos = 0.0f;
-    Lowpass_Reset(&st->lpf_vel);
-    Lowpass_Reset(&st->lpf_omg_pitch);
-    Lowpass_Reset(&st->lpf_omg_yaw);
+    st->x[LQR_X_S] = 0.0f;
     return 1u;
 }
 
-/* 遥控 → 目标: 右摇杆Y 前后速度, 右摇杆X 转向, 拨轮 升降 */
-uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
+/* 遥控 → 目标: 右摇杆Y 前后速度, 右摇杆X 转向, 拨轮 升降; 手动腿测: 左摇杆Y 摆角 */
+uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
+                          uint8_t manual)
 {
     float axis_vel;
     float axis_yaw;
     float axis_len;
+    float axis_ang;
     float len_min;
     float len_max;
+    float lo;
+    float hi;
     uint8_t i;
 
     if (rc == NULL || !rc->online)
@@ -107,8 +128,8 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     axis_vel = LQR_RC_Axis(rc->ch1, LQR_RC_DEADBAND);
     axis_yaw = LQR_RC_Axis(rc->ch0, LQR_RC_DEADBAND);
     axis_len = LQR_RC_Axis(rc->wheel, LQR_RC_DEADBAND);
-    len_min = fmaxf(machine->leg_len_min, LQR_K_LEN_MIN);
-    len_max = fminf(machine->leg_len_max, LQR_K_LEN_MAX);
+    axis_ang = manual ? LQR_RC_Axis(rc->ch3, LQR_RC_DEADBAND) : 0.0f;
+    LQR_Len_Range(manual, &len_min, &len_max);
 
     st->target[LQR_X_S]     = LQR_POS_TARGET;
     st->target[LQR_X_DS]    = axis_vel * LQR_RC_VEL_MAX;
@@ -121,16 +142,25 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     st->target[LQR_X_THB]   = 0.0f;
     st->target[LQR_X_DTHB]  = 0.0f;
 
-    /* 腿长目标: 拨轮按速率积分, 限制在腿长工作区间 */
+    /* 腿长目标: 拨轮按速率积分, 限制在腿长工作区间 (手动腿测从区间外投入时只许往区间里拨);
+     * 摆角目标: 摇杆直接给 */
     for (i = 0u; i < 2u; i++)
     {
+        lo = len_min;
+        hi = len_max;
+        if (manual)
+        {
+            lo = fminf(lo, st->leg_len_tgt[i]);
+            hi = fmaxf(hi, st->leg_len_tgt[i]);
+        }
         st->leg_len_tgt[i] += axis_len * LQR_RC_LEN_RATE * dt;
-        st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], len_min, len_max);
+        st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], lo, hi);
+        st->leg_ang_tgt[i] = axis_ang * LQR_RC_ANG_MAX;
     }
     return 1u;
 }
 
-/* 状态估计 */
+/* 状态估计: 每拍必算, 有效性写 st->valid 并返回 */
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt)
@@ -140,6 +170,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
     float whl[2];
     float vel[2];
 
+    st->valid = 0u;
     if (imu == NULL || leg_l == NULL || leg_r == NULL || wheel_vel == NULL)
     {
         return 0u;
@@ -174,6 +205,8 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
              * leg_l->output.d_virtual_leg_angle - omg_pitch;
     whl[1] = wheel_vel[1] + lqr_debug.vel_leg_comp_sign
              * leg_r->output.d_virtual_leg_angle - omg_pitch;
+    st->whl[0] = whl[0];
+    st->whl[1] = whl[1];
 
     /* 机体水平速度: 轮心线速度 + 摆杆摆动 + 摆杆伸缩 */
     vel[0] = whl[0] * machine->wheel_r
@@ -186,6 +219,21 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
            + leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
     st->x[LQR_X_DS] = Lowpass_Update(&st->lpf_vel, (vel[0] + vel[1]) * 0.5f);
 
+    /* 对照: 补偿符号取反再算一遍, 只供台架 A/B 看哪条平 */
+    whl[0] = wheel_vel[0] - lqr_debug.vel_leg_comp_sign
+             * leg_l->output.d_virtual_leg_angle - omg_pitch;
+    whl[1] = wheel_vel[1] - lqr_debug.vel_leg_comp_sign
+             * leg_r->output.d_virtual_leg_angle - omg_pitch;
+    vel[0] = whl[0] * machine->wheel_r
+           + leg_l->output.virtual_leg_length * st->x[LQR_X_DTHL]
+             * cosf(st->x[LQR_X_THL])
+           + leg_l->output.d_virtual_leg_length * sinf(st->x[LQR_X_THL]);
+    vel[1] = whl[1] * machine->wheel_r
+           + leg_r->output.virtual_leg_length * st->x[LQR_X_DTHR]
+             * cosf(st->x[LQR_X_THR])
+           + leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
+    st->ds_alt = Lowpass_Update(&st->lpf_vel_alt, (vel[0] + vel[1]) * 0.5f);
+
     /* 位移积分: 有速度指令时不积分, 避免跟着指令漂 */
     if (st->target[LQR_X_DS] == 0.0f)
     {
@@ -196,6 +244,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
         st->pos = 0.0f;
     }
     st->x[LQR_X_S] = st->pos;
+    st->valid = 1u;
     return 1u;
 }
 

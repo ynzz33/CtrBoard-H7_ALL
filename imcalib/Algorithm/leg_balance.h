@@ -20,13 +20,19 @@
 #define LEG_BALANCE_SYM_KD         500.0f
 #define LEG_BALANCE_ROLL_KP        500.0f
 #define LEG_BALANCE_ROLL_KD        100.0f
+/* 手动腿测: 腿摆角 PD, 同 Leg2_v1 app_self_rescue.h (KP/KD/Tp 上限) */
+#define LEG_BALANCE_ANG_KP         20.0f
+#define LEG_BALANCE_ANG_KD         30.0f
+#define LEG_BALANCE_ANG_TP_MAX     4.0f
 
 typedef struct {
     pid_t leg_len[2];   /* 腿长 */
+    pid_t leg_ang[2];   /* 腿摆角 (手动腿测) */
     pid_t leg_sym;      /* 防劈叉 */
     pid_t roll;         /* 横滚补偿 */
     float F[2];         /* 足端力 (调试) */
     float Tp[2];        /* 虚拟髋扭矩 (调试) */
+    torque_output_t cmd;     /* 力矩命令 (调试) */
 } leg_balance_t;
 
 void    Leg_Balance_Init(leg_balance_t *lb);
@@ -34,5 +40,8 @@ void    Leg_Balance_Reset(leg_balance_t *lb);
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             float dt, torque_output_t *torque);
+uint8_t Leg_Balance_Manual(leg_balance_t *lb, const lqr_state_t *st,
+                           const leg_state_t *leg_l, const leg_state_t *leg_r,
+                           float dt, torque_output_t *torque);
 
 #endif

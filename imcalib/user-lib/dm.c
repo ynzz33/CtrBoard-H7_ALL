@@ -195,7 +195,8 @@ bool Dm_Is_Enabled(uint8_t index)
     {
         return false;
     }
-    return dm_motor_feedback[index].err_raw == 1u;
+    /* 离线时 err_raw 是旧值, 状态未知, 不当作使能 */
+    return Dm_Is_Online(index) && dm_motor_feedback[index].err_raw == 1u;
 }
 
 /* 查故障 */
@@ -211,7 +212,7 @@ bool Dm_Has_Fault(uint8_t index)
     return err >= 0x08u && err <= 0x0Eu;
 }
 
-/* 失能重发 */
+/* 使能看门狗: 总使能期间, 在线且仍处失能态的电机每 100ms 重发使能 */
 void Dm_Enable_Watchdog(void)
 {
     static uint32_t last_enable_tick[DM_MOTOR_NUM];
@@ -226,6 +227,25 @@ void Dm_Enable_Watchdog(void)
         {
             (void)Dm_Send_Command(i, DM_CMD_ENABLE);
             last_enable_tick[i] = now;
+        }
+    }
+}
+
+/* 失能看门狗: 总失能期间, 在线且仍处使能态的电机每 100ms 重发失能 (丢帧兜底) */
+void Dm_Disable_Watchdog(void)
+{
+    static uint32_t last_disable_tick[DM_MOTOR_NUM];
+    uint32_t now;
+    uint8_t i;
+
+    now = HAL_GetTick();
+    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        if (Dm_Is_Online(i) && dm_motor_feedback[i].err_raw == 1u
+            && now - last_disable_tick[i] >= 100u)
+        {
+            (void)Dm_Send_Command(i, DM_CMD_DISABLE);
+            last_disable_tick[i] = now;
         }
     }
 }

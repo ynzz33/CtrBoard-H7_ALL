@@ -12,16 +12,20 @@ void Leg_Balance_Init(leg_balance_t *lb)
                     LEG_BALANCE_LEN_KP, 0.0f, LEG_BALANCE_LEN_KD, 0.0f, 0.0f);
     PID_struct_init(&lb->leg_len[1], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
                     LEG_BALANCE_LEN_KP, 0.0f, LEG_BALANCE_LEN_KD, 0.0f, 0.0f);
+    PID_struct_init(&lb->leg_ang[0], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
+                    LEG_BALANCE_ANG_KP, 0.0f, LEG_BALANCE_ANG_KD, 0.0f, 0.0f);
+    PID_struct_init(&lb->leg_ang[1], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
+                    LEG_BALANCE_ANG_KP, 0.0f, LEG_BALANCE_ANG_KD, 0.0f, 0.0f);
     PID_struct_init(&lb->leg_sym, POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
                     LEG_BALANCE_SYM_KP, 0.0f, LEG_BALANCE_SYM_KD, 0.0f, 0.0f);
     PID_struct_init(&lb->roll, POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
                     LEG_BALANCE_ROLL_KP, 0.0f, LEG_BALANCE_ROLL_KD, 0.0f, 0.0f);
 }
 
-/* 清控制器历史 */
+/* 清控制器历史与调试观测值 */
 void Leg_Balance_Reset(leg_balance_t *lb)
 {
-    pid_t *pid[4];
+    pid_t *pid[6];
     uint8_t i;
 
     if (lb == NULL)
@@ -30,9 +34,11 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     }
     pid[0] = &lb->leg_len[0];
     pid[1] = &lb->leg_len[1];
-    pid[2] = &lb->leg_sym;
-    pid[3] = &lb->roll;
-    for (i = 0u; i < 4u; i++)
+    pid[2] = &lb->leg_ang[0];
+    pid[3] = &lb->leg_ang[1];
+    pid[4] = &lb->leg_sym;
+    pid[5] = &lb->roll;
+    for (i = 0u; i < 6u; i++)
     {
         memset(pid[i]->err, 0, sizeof(pid[i]->err));
         memset(pid[i]->set, 0, sizeof(pid[i]->set));
@@ -43,6 +49,58 @@ void Leg_Balance_Reset(leg_balance_t *lb)
         pid[i]->pos_out = 0.0f;
         pid[i]->last_pos_out = 0.0f;
     }
+    memset(lb->F, 0, sizeof(lb->F));
+    memset(lb->Tp, 0, sizeof(lb->Tp));
+    memset(&lb->cmd, 0, sizeof(lb->cmd));
+}
+
+/* 力域映射 + 限幅: (足端力, 髋扭矩) → 前后髋电机力矩 (虚功原理), 轮扭矩直接限幅 */
+static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
+                                  const leg_state_t *leg_r, const float F[2],
+                                  const float Tp[2], const float wheel[2],
+                                  torque_output_t *torque)
+{
+    float tau[2];
+    uint8_t i;
+
+    memset(&lb->cmd, 0, sizeof(lb->cmd));   /* 失败时与零力矩一致 */
+    for (i = 0u; i < 2u; i++)
+    {
+        if (!isfinite(F[i]) || !isfinite(Tp[i]))
+        {
+            return 0u;
+        }
+    }
+    lb->F[0] = F[0];
+    lb->F[1] = F[1];
+    lb->Tp[0] = Tp[0];
+    lb->Tp[1] = Tp[1];
+
+    if (!Leg_Force_Map_Forward(leg_l, F[0], Tp[0], tau))
+    {
+        return 0u;
+    }
+    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau[0], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau[1], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+
+    if (!Leg_Force_Map_Forward(leg_r, F[1], Tp[1], tau))
+    {
+        return 0u;
+    }
+    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau[0], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau[1], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+
+    /* 轮扭矩 (输出极性在 dji.c 驱动边界统一处理) */
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = clampf(wheel[0], -lqr_debug.trq_max_wheel,
+                                              lqr_debug.trq_max_wheel);
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(wheel[1], -lqr_debug.trq_max_wheel,
+                                              lqr_debug.trq_max_wheel);
+    lb->cmd = *torque;
+    return 1u;
 }
 
 /* 腿长/防劈叉/横滚 PID + 力向量 + 雅可比映射 → 电机力矩 */
@@ -52,8 +110,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
 {
     float Tp[2];
     float F[2];
-    float tau[2];
-    uint8_t i;
+    float wheel[2];
 
     if (lb == NULL || st == NULL || leg_l == NULL || leg_r == NULL
         || torque == NULL)
@@ -90,39 +147,60 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
         F[0] = LEG_BALANCE_F_FEEDFORWARD;
         F[1] = LEG_BALANCE_F_FEEDFORWARD;
     }
+    wheel[0] = lqr_debug.wheel_enable ? st->u[LQR_U_WL] : 0.0f;
+    wheel[1] = lqr_debug.wheel_enable ? st->u[LQR_U_WR] : 0.0f;
 
-    for (i = 0u; i < 2u; i++)
+    /* 3. 力域映射 + 限幅 */
+    return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, torque);
+}
+
+/* 手动腿测: 腿长 PID + 摆角 PD → 力向量 → 电机力矩, 轮零, 不用 IMU */
+uint8_t Leg_Balance_Manual(leg_balance_t *lb, const lqr_state_t *st,
+                           const leg_state_t *leg_l, const leg_state_t *leg_r,
+                           float dt, torque_output_t *torque)
+{
+    float Tp[2];
+    float F[2];
+    float wheel[2];
+
+    if (lb == NULL || st == NULL || leg_l == NULL || leg_r == NULL
+        || torque == NULL)
     {
-        if (!isfinite(F[i]) || !isfinite(Tp[i]))
-        {
-            return 0u;
-        }
+        return 0u;
     }
-    lb->F[0] = F[0];
-    lb->F[1] = F[1];
-    lb->Tp[0] = Tp[0];
-    lb->Tp[1] = Tp[1];
+    if (!leg_l->output.valid || !leg_r->output.valid)
+    {
+        return 0u;
+    }
 
-    /* 3. 力域映射: (足端力, 髋扭矩) → 前后髋电机力矩 (虚功原理) */
-    (void)Leg_Force_Map_Forward(leg_l, F[0], Tp[0], tau);
-    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau[0], -lqr_debug.trq_max_hip,
-                                            lqr_debug.trq_max_hip);
-    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau[1], -lqr_debug.trq_max_hip,
-                                            lqr_debug.trq_max_hip);
+    /* 1. 腿长 PID + 摆角 PD */
+    (void)pid_calc(&lb->leg_len[0], leg_l->output.virtual_leg_length,
+                   st->leg_len_tgt[0], dt);
+    (void)pid_calc(&lb->leg_len[1], leg_r->output.virtual_leg_length,
+                   st->leg_len_tgt[1], dt);
+    (void)pid_calc(&lb->leg_ang[0], leg_l->output.virtual_leg_angle,
+                   st->leg_ang_tgt[0], dt);
+    (void)pid_calc(&lb->leg_ang[1], leg_r->output.virtual_leg_angle,
+                   st->leg_ang_tgt[1], dt);
 
-    (void)Leg_Force_Map_Forward(leg_r, F[1], Tp[1], tau);
-    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau[0], -lqr_debug.trq_max_hip,
-                                            lqr_debug.trq_max_hip);
-    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau[1], -lqr_debug.trq_max_hip,
-                                            lqr_debug.trq_max_hip);
+    /* 2. 力向量: Tp 不取反, 摆角 PD 直接作用在解算摆角坐标上; Tp 上限同 Leg2 自救 */
+    Tp[0] = clampf(lb->leg_ang[0].pos_out, -LEG_BALANCE_ANG_TP_MAX, LEG_BALANCE_ANG_TP_MAX);
+    Tp[1] = clampf(lb->leg_ang[1].pos_out, -LEG_BALANCE_ANG_TP_MAX, LEG_BALANCE_ANG_TP_MAX);
+    F[0] = lb->leg_len[0].pos_out + LEG_BALANCE_F_FEEDFORWARD;
+    F[1] = lb->leg_len[1].pos_out + LEG_BALANCE_F_FEEDFORWARD;
+    if (!lqr_debug.hip_enable)
+    {
+        Tp[0] = 0.0f;
+        Tp[1] = 0.0f;
+    }
+    if (!lqr_debug.len_pid_enable)
+    {
+        F[0] = LEG_BALANCE_F_FEEDFORWARD;
+        F[1] = LEG_BALANCE_F_FEEDFORWARD;
+    }
+    wheel[0] = 0.0f;
+    wheel[1] = 0.0f;
 
-    /* 4. 轮扭矩 (输出极性在 dji.c 驱动边界统一处理) */
-    torque->dji[DJI_MOTOR_WHEEL_LFT] = lqr_debug.wheel_enable
-        ? clampf(st->u[LQR_U_WL], -lqr_debug.trq_max_wheel,
-                 lqr_debug.trq_max_wheel) : 0.0f;
-    torque->dji[DJI_MOTOR_WHEEL_RGT] = lqr_debug.wheel_enable
-        ? clampf(st->u[LQR_U_WR], -lqr_debug.trq_max_wheel,
-                 lqr_debug.trq_max_wheel) : 0.0f;
-
-    return 1u;
+    /* 3. 力域映射 + 限幅 */
+    return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, torque);
 }

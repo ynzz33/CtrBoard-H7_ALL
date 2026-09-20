@@ -26,6 +26,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .leg_len_min    = 0.14f,
         .leg_len_max    = 0.34f,
         .leg_off_phi0   = {-0.13f, -0.07f},
+        /* IMU: 照抄原 hi229.h 全局宏, 大机器待实测 */
+        .imu = {
+            .eul_src   = {1, 0, 2},
+            .eul_sign  = {1, -1, -1},
+            .gyr_sign  = {-1, 1, -1},
+            .acc_sign  = {-1, 1, -1},
+            .quat_sign = {-1, 1, -1},
+        },
     },
     [MACHINE_ID_LOCAL] = {
         .name           = "local-m2006-j4310",
@@ -47,9 +55,17 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* 腿几何 (本机原值) */
         .leg_lu         = 0.13087f,
         .leg_lg         = 0.15240f,
-        .leg_len_min    = 0.10f,
-        .leg_len_max    = 0.20f,
-        .leg_off_phi0   = {-0.13f, -0.07f},
+        .leg_len_min    = 0.09f,
+        .leg_len_max    = 0.21f,
+        .leg_off_phi0   = {-0.165f, -0.165f},
+        /* IMU (作者 2026-09-21 台架): 轴不换, 俯仰←模块 Pitch 路; 原始 Roll/Yaw 角与角速度、加速度 X/Z 反 */
+        .imu = {
+            .eul_src   = {1, 0, 2},
+            .eul_sign  = {-1,-1, +1},
+            .gyr_sign  = {-1,-1, +1},
+            .acc_sign  = {-1, 1, -1},
+            .quat_sign = {-1, 1, -1},
+        },
     },
 };
 

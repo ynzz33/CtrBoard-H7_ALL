@@ -173,7 +173,7 @@ static void Leg_Solve_Force_Map(leg_state_t *leg)
     leg->output.force_map[1][1] = leg->output.leg_jac[1][1];
     leg->output.force_det = leg->output.force_map[0][0] * leg->output.force_map[1][1]
                           - leg->output.force_map[0][1] * leg->output.force_map[1][0];
-    leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);FFFFFFFF
+    leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);
     if (!leg->output.force_valid)
     {
         return;
