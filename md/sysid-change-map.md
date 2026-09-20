@@ -1826,6 +1826,49 @@ commTask (1kHz) → comm_task_body()
 
 ---
 
+## 变更 62 · 小机器 LQR 批次 3：调试开关、限幅、K 表腿长域与轮径入表
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h/c` | 新增全局 `lqr_debug`；默认符号保持现状；轮/髋/腿长 PID 三个输出开关；轮/髋运行时限幅；K 表域 0.13~0.23 m |
+| `imcalib/Algorithm/leg_balance.c` | 关闭轮通道时轮输出为 0；关闭髋通道时 `Tp=0`；关闭腿长 PID 时足端力只留固定前馈；PID 始终继续计算 |
+| `imcalib/user-lib/machine_config.h/c` | `machine_cfg_t` 新增独立轮半径 `wheel_r`；大机器 0.04 m（占位待实测），小机器 0.03 m（Leg2_v1 建模值） |
+
+**`lqr_debug` 默认值与行为**
+
+| 字段 | 默认值 | 行为 |
+| --- | ---: | --- |
+| `vel_leg_comp_sign` | `-1.0f` | `wheel_vel + sign×d_virtual_leg_angle - omg_pitch`；默认与改前完全相同，`+1` 仅供台架 A/B |
+| `wheel_enable` | `1` | 关闭只把最终 DJI 输出置 0 |
+| `hip_enable` | `1` | 关闭只把左右 `Tp` 置 0 |
+| `len_pid_enable` | `1` | 关闭后两腿 `F` 只保留 `LEG_BALANCE_F_FEEDFORWARD`，腿长与横滚 PID 输出都不下发 |
+| `trq_max_wheel` | `machine->dji_trq_clamp` | 小机器默认 1.8 N·m，替代原 1.5 N·m 宏 |
+| `trq_max_hip` | `5.0f` | 替代原 2.0 N·m 宏，低于 J4310 10 N·m 上限 |
+
+**输入 / 输出 / 调用链**
+- 调试器 Watch → `lqr_debug` → `LQR_State_Update()` 的腿摆速度补偿、`LQR_Control_Update()` 一级限幅、`Leg_Balance_Compute()` 通道门与二级限幅；未增加 VOFA 通道。
+- 腿长有效域：`max(machine->leg_len_min, 0.13)` 到 `min(machine->leg_len_max, 0.23)` → `LQR_Enable_Latch()` 投入判定与 `LQR_Target_Update()` 目标夹取。小机器实际为 **0.13~0.20 m**。
+- 轮速度：DJI 输出轴角速度 × `machine->wheel_r` → 轮心线速度；轮径是机器表独立字段，没有叠加进腿长。
+
+**物理量变更确认（§0.1 单列）**
+- 谁 / 何时：作者于 **2026-09-20** 明确确认小机器轮径从开源 `Leg2_v1` 查取，并确认速度补偿运行时 A/B 开关。
+- 依据：`Leg2_v1/轮腿上交建模MATLAB/WBR_modeling.mlx` 的小机器参数组写明 `R_w_ac=0.03 m`；大机器活动参数组为 `0.04 m`。
+- 实际写入：`machine_config.c` 大机器 `wheel_r=0.04f`（占位、待实测），小机器 `wheel_r=0.03f`；原 `lqr_balance.c` 固定宏 `0.04f` 删除。
+- 符号：`vel_leg_comp_sign=-1.0f` 对应改前 `wheel_vel - d_virtual_leg_angle - omg_pitch`，默认行为不变；`+1.0f` 不作为当前物理结论，只允许台架比较。
+
+**核对**
+- `MACHINE_DEFAULT=MACHINE_ID_LOCAL` 不变；杆长、机器腿长表、极性、零点、MIT 量程、镜像、`+LEG_PI` 与 IMU 五个轴宏均未改。
+- 开关关闭时 PID 仍更新，仅门控最终物理输出，重新开启不会因暂停计算产生额外历史跳变。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均为 **105 文件，0 fail / 0 warn**。
+
+**待台架**
+- 架空看 ch19，将 `vel_leg_comp_sign` 在 `-1/+1` 间切换，选择速度估计波动更小的一侧；确定后写死并删除字段。
+- 小机器 K 表当前按 **0.04 m** 轮径生成，而机器表采用 **0.03 m**，轮通道尺度偏差约 25%；待用 `Leg2_v1` 的 `WBR_modeling.mlx` 以小机器参数重跑 K 表。
+- 大机器 `wheel_r=0.04 m` 仍是占位值，必须实测后才能标定完成。
+- `trq_max_hip=5.0 N·m`、各通道开关与 0.13~0.20 m 投入域均待按小机器台架顺序验证；IMU 轴本批未动。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

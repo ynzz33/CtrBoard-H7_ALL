@@ -7,6 +7,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = 15.5f,                       /* 转子→轮子总减速比 */
         .dji_trq_clamp  = 4.8f,                        /* 15.5 箱比下的输出轴物理上限 */
+        .wheel_r        = 0.04f,                       /* 占位，待实测 */
         .dm_pos_max     = 3.14159f,                    /* DM-J8009P: 上位机 ±π */
         .dm_vel_max     = 45.0f,
         .dm_trq_max     = 54.0f,                       /* MIT 刻度, 勿改 */
@@ -31,6 +32,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,
         .dji_trq_clamp  = 1.8f,                        /* 满限幅 = 0.18 Nm/A × 10A */
+        .wheel_r        = 0.03f,                       /* Leg2_v1 建模值 */
         .dm_pos_max     = 3.14159f,                    /* DM-J4310 */
         .dm_vel_max     = 30.0f,
         .dm_trq_max     = 10.0f,

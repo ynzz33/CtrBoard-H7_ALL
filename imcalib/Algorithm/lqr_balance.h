@@ -32,7 +32,9 @@ enum {
     LQR_U_NUM,
 };
 
-/* 腿长工作区间改由机器配置表提供: machine->leg_len_min / leg_len_max */
+/* K 表拟合域 */
+#define LQR_K_LEN_MIN       0.13f
+#define LQR_K_LEN_MAX       0.23f
 
 /* 遥控量程 */
 #define LQR_RC_DEADBAND     20
@@ -40,9 +42,14 @@ enum {
 #define LQR_RC_YAW_MAX      3.0f    /* rad/s */
 #define LQR_RC_LEN_RATE     0.3f    /* m/s */
 
-/* 输出限幅 (N·m), 首次上电保守值 */
-#define LQR_WHEEL_TRQ_MAX   1.5f
-#define LQR_HIP_TRQ_MAX     2.0f
+typedef struct {
+    float   vel_leg_comp_sign; /* 速度补偿 */
+    uint8_t wheel_enable;      /* 轮通道 */
+    uint8_t hip_enable;        /* 髋通道 */
+    uint8_t len_pid_enable;    /* 腿长PID */
+    float   trq_max_wheel;     /* 轮限幅 */
+    float   trq_max_hip;       /* 髋限幅 */
+} lqr_debug_t;
 
 typedef struct {
     float x[LQR_X_NUM];             /* 状态 */
@@ -58,6 +65,8 @@ typedef struct {
     lowpass1d_t lpf_omg_pitch;      /* 俯仰角速度低通 */
     lowpass1d_t lpf_omg_yaw;        /* 偏航角速度低通 */
 } lqr_state_t;
+
+extern lqr_debug_t lqr_debug;
 
 void    LQR_Init(lqr_state_t *st);
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,

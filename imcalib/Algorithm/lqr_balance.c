@@ -5,8 +5,6 @@
 #include <math.h>
 #include <string.h>
 
-/* 轮半径 (m) */
-#define LQR_WHEEL_R         0.04f
 /* 一阶低通系数 */
 #define LQR_LPF_ALPHA       0.3f
 /* 腿长变化超此阈值才重算增益 (m) */
@@ -26,6 +24,8 @@
 #define LQR_IMU_YAW_IDX      ATTITUDE_YAW
 #define LQR_IMU_GYRO_PITCH   1u
 #define LQR_IMU_GYRO_YAW     2u
+
+lqr_debug_t lqr_debug;
 
 /* 摇杆归一化: 死区 + 限幅 → [-1,1] */
 static float LQR_RC_Axis(int16_t raw, uint16_t deadband)
@@ -48,6 +48,12 @@ static float LQR_RC_Axis(int16_t raw, uint16_t deadband)
 void LQR_Init(lqr_state_t *st)
 {
     memset(st, 0, sizeof(*st));
+    lqr_debug.vel_leg_comp_sign = -1.0f;
+    lqr_debug.wheel_enable = 1u;
+    lqr_debug.hip_enable = 1u;
+    lqr_debug.len_pid_enable = 1u;
+    lqr_debug.trq_max_wheel = machine->dji_trq_clamp;
+    lqr_debug.trq_max_hip = 5.0f;
     st->len_eval[0] = -1.0f;
     st->len_eval[1] = -1.0f;
     Lowpass_Init(&st->lpf_vel, LQR_LPF_ALPHA);
@@ -61,10 +67,15 @@ void LQR_Init(lqr_state_t *st)
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
                          const leg_state_t *leg_r)
 {
-    if (leg_l->output.virtual_leg_length < machine->leg_len_min
-        || leg_l->output.virtual_leg_length > machine->leg_len_max
-        || leg_r->output.virtual_leg_length < machine->leg_len_min
-        || leg_r->output.virtual_leg_length > machine->leg_len_max)
+    float len_min;
+    float len_max;
+
+    len_min = fmaxf(machine->leg_len_min, LQR_K_LEN_MIN);
+    len_max = fminf(machine->leg_len_max, LQR_K_LEN_MAX);
+    if (leg_l->output.virtual_leg_length < len_min
+        || leg_l->output.virtual_leg_length > len_max
+        || leg_r->output.virtual_leg_length < len_min
+        || leg_r->output.virtual_leg_length > len_max)
     {
         return 0u;
     }
@@ -84,6 +95,8 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     float axis_vel;
     float axis_yaw;
     float axis_len;
+    float len_min;
+    float len_max;
     uint8_t i;
 
     if (rc == NULL || !rc->online)
@@ -94,6 +107,8 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     axis_vel = LQR_RC_Axis(rc->ch1, LQR_RC_DEADBAND);
     axis_yaw = LQR_RC_Axis(rc->ch0, LQR_RC_DEADBAND);
     axis_len = LQR_RC_Axis(rc->wheel, LQR_RC_DEADBAND);
+    len_min = fmaxf(machine->leg_len_min, LQR_K_LEN_MIN);
+    len_max = fminf(machine->leg_len_max, LQR_K_LEN_MAX);
 
     st->target[LQR_X_S]     = LQR_POS_TARGET;
     st->target[LQR_X_DS]    = axis_vel * LQR_RC_VEL_MAX;
@@ -110,8 +125,7 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt)
     for (i = 0u; i < 2u; i++)
     {
         st->leg_len_tgt[i] += axis_len * LQR_RC_LEN_RATE * dt;
-        st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i],
-                                    machine->leg_len_min, machine->leg_len_max);
+        st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], len_min, len_max);
     }
     return 1u;
 }
@@ -156,15 +170,17 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                                        imu->gyro_rad_s[LQR_IMU_GYRO_YAW]);
 
     /* 轮子相对地面角速度: 反馈已扣减速比, 再补偿腿摆与俯仰 */
-    whl[0] = wheel_vel[0] - leg_l->output.d_virtual_leg_angle - omg_pitch;
-    whl[1] = wheel_vel[1] - leg_r->output.d_virtual_leg_angle - omg_pitch;
+    whl[0] = wheel_vel[0] + lqr_debug.vel_leg_comp_sign
+             * leg_l->output.d_virtual_leg_angle - omg_pitch;
+    whl[1] = wheel_vel[1] + lqr_debug.vel_leg_comp_sign
+             * leg_r->output.d_virtual_leg_angle - omg_pitch;
 
     /* 机体水平速度: 轮心线速度 + 摆杆摆动 + 摆杆伸缩 */
-    vel[0] = whl[0] * LQR_WHEEL_R
+    vel[0] = whl[0] * machine->wheel_r
            + leg_l->output.virtual_leg_length * st->x[LQR_X_DTHL]
              * cosf(st->x[LQR_X_THL])
            + leg_l->output.d_virtual_leg_length * sinf(st->x[LQR_X_THL]);
-    vel[1] = whl[1] * LQR_WHEEL_R
+    vel[1] = whl[1] * machine->wheel_r
            + leg_r->output.virtual_leg_length * st->x[LQR_X_DTHR]
              * cosf(st->x[LQR_X_THR])
            + leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
@@ -224,11 +240,13 @@ void LQR_Control_Update(lqr_state_t *st)
         }
         if (i == LQR_U_WL || i == LQR_U_WR)
         {
-            st->u[i] = clampf(sum, -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
+            st->u[i] = clampf(sum, -lqr_debug.trq_max_wheel,
+                              lqr_debug.trq_max_wheel);
         }
         else
         {
-            st->u[i] = clampf(sum, -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
+            st->u[i] = clampf(sum, -lqr_debug.trq_max_hip,
+                              lqr_debug.trq_max_hip);
         }
     }
 }

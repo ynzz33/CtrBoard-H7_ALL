@@ -80,6 +80,16 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     Tp[1] = -(st->u[LQR_U_BR] - lb->leg_sym.pos_out);
     F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + LEG_BALANCE_F_FEEDFORWARD;
     F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + LEG_BALANCE_F_FEEDFORWARD;
+    if (!lqr_debug.hip_enable)
+    {
+        Tp[0] = 0.0f;
+        Tp[1] = 0.0f;
+    }
+    if (!lqr_debug.len_pid_enable)
+    {
+        F[0] = LEG_BALANCE_F_FEEDFORWARD;
+        F[1] = LEG_BALANCE_F_FEEDFORWARD;
+    }
 
     for (i = 0u; i < 2u; i++)
     {
@@ -95,18 +105,24 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
 
     /* 3. 力域映射: (足端力, 髋扭矩) → 前后髋电机力矩 (虚功原理) */
     (void)Leg_Force_Map_Forward(leg_l, F[0], Tp[0], tau);
-    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau[0], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
-    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau[1], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
+    torque->dm[DM_MOTOR_LEG_F_LFT] = clampf(tau[0], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+    torque->dm[DM_MOTOR_LEG_B_LFT] = clampf(tau[1], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
 
     (void)Leg_Force_Map_Forward(leg_r, F[1], Tp[1], tau);
-    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau[0], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
-    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau[1], -LQR_HIP_TRQ_MAX, LQR_HIP_TRQ_MAX);
+    torque->dm[DM_MOTOR_LEG_F_RGT] = clampf(tau[0], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
+    torque->dm[DM_MOTOR_LEG_B_RGT] = clampf(tau[1], -lqr_debug.trq_max_hip,
+                                            lqr_debug.trq_max_hip);
 
     /* 4. 轮扭矩 (输出极性在 dji.c 驱动边界统一处理) */
-    torque->dji[DJI_MOTOR_WHEEL_LFT] =
-        clampf(st->u[LQR_U_WL], -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
-    torque->dji[DJI_MOTOR_WHEEL_RGT] =
-        clampf(st->u[LQR_U_WR], -LQR_WHEEL_TRQ_MAX, LQR_WHEEL_TRQ_MAX);
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = lqr_debug.wheel_enable
+        ? clampf(st->u[LQR_U_WL], -lqr_debug.trq_max_wheel,
+                 lqr_debug.trq_max_wheel) : 0.0f;
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = lqr_debug.wheel_enable
+        ? clampf(st->u[LQR_U_WR], -lqr_debug.trq_max_wheel,
+                 lqr_debug.trq_max_wheel) : 0.0f;
 
     return 1u;
 }

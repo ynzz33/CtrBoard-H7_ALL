@@ -28,6 +28,7 @@ typedef struct {
     uint8_t     dji_type;
     float       dji_gear_ratio;
     float       dji_trq_clamp;
+    float       wheel_r;
     /* 腿: MIT 三个满量程 + 满限幅力矩(Nm) */
     float       dm_pos_max;
     float       dm_vel_max;
