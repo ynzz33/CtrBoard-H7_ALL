@@ -18,6 +18,33 @@ void Leg_Balance_Init(leg_balance_t *lb)
                     LEG_BALANCE_ROLL_KP, 0.0f, LEG_BALANCE_ROLL_KD, 0.0f, 0.0f);
 }
 
+/* 清控制器历史 */
+void Leg_Balance_Reset(leg_balance_t *lb)
+{
+    pid_t *pid[4];
+    uint8_t i;
+
+    if (lb == NULL)
+    {
+        return;
+    }
+    pid[0] = &lb->leg_len[0];
+    pid[1] = &lb->leg_len[1];
+    pid[2] = &lb->leg_sym;
+    pid[3] = &lb->roll;
+    for (i = 0u; i < 4u; i++)
+    {
+        memset(pid[i]->err, 0, sizeof(pid[i]->err));
+        memset(pid[i]->set, 0, sizeof(pid[i]->set));
+        memset(pid[i]->get, 0, sizeof(pid[i]->get));
+        pid[i]->pout = 0.0f;
+        pid[i]->iout = 0.0f;
+        pid[i]->dout = 0.0f;
+        pid[i]->pos_out = 0.0f;
+        pid[i]->last_pos_out = 0.0f;
+    }
+}
+
 /* 腿长/防劈叉/横滚 PID + 力向量 + 雅可比映射 → 电机力矩 */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,

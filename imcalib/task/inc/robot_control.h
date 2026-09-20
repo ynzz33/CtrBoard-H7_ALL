@@ -81,18 +81,6 @@ typedef struct {
     uint8_t mode;
 } input_command_t;
 
-/* 腿部调试历史 */
-typedef struct {
-    float virtual_leg_length;
-    float virtual_leg_angle;
-    float virtual_shank_angle;
-    float measured[3];
-    float predicted[3];
-    float residual[3];
-    uint32_t tick_ms;
-    uint8_t ready;
-} leg_debug_history_t;
-
 #define FAULT_NONE    0u
 #define FAULT_IMU     0x01u
 #define FAULT_RC      0x02u

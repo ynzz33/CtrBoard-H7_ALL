@@ -34,6 +34,7 @@ typedef struct {
 } leg_balance_t;
 
 void    Leg_Balance_Init(leg_balance_t *lb);
+void    Leg_Balance_Reset(leg_balance_t *lb);
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             float dt, torque_output_t *torque);

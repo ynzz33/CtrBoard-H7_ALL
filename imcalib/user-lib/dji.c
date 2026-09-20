@@ -1,6 +1,9 @@
 #include "dji.h"
 #include "machine_config.h"
+#include "sysid_config.h"
+#if SYSID_ENABLE
 #include "mono_ns.h"
+#endif
 
 /* 编译期检查: 极性表长度对齐 */
 typedef char dji_num_check[(MACHINE_WHEEL_NUM == DJI_MOTOR_NUM) ? 1 : -1];
@@ -94,7 +97,9 @@ static void Dji_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
     }
     (void)id;
 
+#if SYSID_ENABLE
     feedback->rx_ns = Mono_Ns_Get();    /* 到达时刻 */
+#endif
 
     for (uint8_t i = 0; i < 8u; i++)
     {

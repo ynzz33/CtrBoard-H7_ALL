@@ -1759,6 +1759,38 @@ commTask (1kHz) → comm_task_body()
 
 ---
 
+## 变更 60 · 小机器 LQR 批次 1：清测试残留、隔离时间戳、修复解算竞态与使能链
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/task_comm.c` | VOFA 恢复 2 分频 500 Hz；删除正常链路 CAN 完成环清空与腿速度自检；两腿 `Leg_Solve()` 用调度器锁保护；接入 DM 使能看门狗、故障码和 ch1 bit4~7 使能位 |
+| `imcalib/task/inc/robot_control.h` | 删除无人消费的 `leg_debug_history_t` |
+| `imcalib/user-lib/dr16.c/h` | 删除过时的三项接收诊断计数 |
+| `imcalib/user-lib/can_bus.c/h` | TX 完成登记、完成中断、环形缓冲与统计 API 全部限制在 `SYSID_ENABLE=1`；正常固件直接入发送 FIFO |
+| `imcalib/user-lib/dm.c/h`、`dji.c` | RX 纳秒时间戳仅在 sysid 构建启用；新增 DM 使能/故障判定和每台独立 100 ms 使能看门狗 |
+| `imcalib/Algorithm/leg_balance.c/h` | 新增 `Leg_Balance_Reset()`，只清四个 PID 的历史与输出，不改参数 |
+| `imcalib/task/task_actuation.c` | LQR 投入锁存成功时复位辅助 PID |
+
+**输入 / 输出 / 调用链**
+- 正常通信：`comm_task_body()` → `Leg_State_Update()` → `vTaskSuspendAll()` → 两次 `Leg_Solve()` → `xTaskResumeAll()`；高优先级 `actuationTask` 不再读到求解中途的 `valid=0`。
+- DM 状态：反馈字节 0 高 4 位 → `Dm_Parse().err_raw` → `Dm_Is_Enabled()` / `Dm_Has_Fault()`；故障码 `0x8~0xE` 进入 `FAULT_MOTOR`。
+- DM 看门狗：`Robot_Enable_Update()` 在 `motor_enabled=1` 时调用 `Dm_Enable_Watchdog()`；仅对在线且 `err_raw=0` 的电机按各自计时每 100 ms 重发 `DM_CMD_ENABLE`。
+- LQR 投入：`LQR_Enable_Latch()` 返回 1 → `Leg_Balance_Reset()` → 首个控制周期从清零的 PID 历史开始。
+- VOFA：`commTask 1 kHz` → 2 分频 → `Vofa_Send(dbg, 32)` 500 Hz；ch1 bit4~7 依次表示左前、左后、右前、右后 DM 的 `err_raw==1`。
+- sysid 时间戳：`SYSID_ENABLE=1` 时保留 `Can_Bus_Transmit_Tagged()` → TX 完成回调 → 环形缓冲 → `Sysid_Mode_Run()` 出队；关闭时不登记、不启用 TX complete 中断，DM/DJI RX 中断也不读 `Mono_Ns_Get()`。
+
+**核对**
+- 未改 `dm_sign` / `dji_sign`、零点、MIT 量程、镜像、腿几何和 `MACHINE_DEFAULT`。
+- VOFA 32 路下标未移动，只扩展 ch1 高 4 位；帧长仍为 132 B，500 Hz 约 66 kB/s。
+- Keil AC5 按 `build/CtrBoard-H7_ALL/compile_commands.json` 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均为 **105 文件，0 fail / 0 warn**。
+
+**待台架**
+- 失能任一 J4310 后确认仍有反馈且 ch1 对应 bit 清零，100 ms 看门狗能重新使能。
+- 人为触发 DM `0x8~0xE` 故障码，确认 `FAULT_MOTOR` 置位并停止输出。
+- 反复进入 LQR，确认首拍辅助 PID 不再因旧历史产生冲击；竞态修复只完成代码与编译核对，实时行为待台架。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

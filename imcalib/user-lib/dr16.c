@@ -6,11 +6,6 @@
 dr16_t dr16 = {0};
 static volatile bool dr16_parsing = false;
 
-/* 接收诊断 (临时占用 VOFA ch46/47) */
-volatile uint32_t dr16_idle_cnt;
-volatile uint32_t dr16_ok_cnt;
-volatile uint16_t dr16_last_len;
-
 /* 数据校验 */
 static bool DR16_Validate(const dr16_t *r)
 {
@@ -57,7 +52,6 @@ static void DR16_Parse(const uint8_t *buf)
     parsed.last_rx_tick = HAL_GetTick();
     dr16               = parsed;
     dr16_parsing       = false;
-    dr16_ok_cnt++;
 }
 
 /* 回调桩 */
@@ -85,9 +79,6 @@ void DR16_Process(void)
     uint8_t buf[DBUS_BUF_SIZE];
     uint16_t len = dbus_rx.isr_len;
     memcpy(buf, dbus_rx.isr_buf, len);
-
-    dr16_idle_cnt++;
-    dr16_last_len = len;
 
     /* 允许尾部带下一帧的字节; 帧长不足才丢弃 */
     if (len >= DR16_FRAME_LEN)

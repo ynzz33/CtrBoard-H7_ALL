@@ -32,11 +32,6 @@ typedef struct {
 
 extern dr16_t dr16;
 
-/* 接收诊断 (临时占用 VOFA ch46/47) */
-extern volatile uint32_t dr16_idle_cnt;
-extern volatile uint32_t dr16_ok_cnt;
-extern volatile uint16_t dr16_last_len;
-
 void        DR16_Init(void);
 void        DR16_Process(void);
 bool        DR16_Online(void);

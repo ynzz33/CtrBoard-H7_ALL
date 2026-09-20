@@ -1,6 +1,9 @@
 #include "dm.h"
 #include "machine_config.h"
+#include "sysid_config.h"
+#if SYSID_ENABLE
 #include "mono_ns.h"
+#endif
 #include <string.h>
 #include <math.h>
 
@@ -91,7 +94,9 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
     }
     (void)id;
 
+#if SYSID_ENABLE
     feedback->rx_ns = Mono_Ns_Get();    /* 到达时刻 */
+#endif
 
     for (uint8_t i = 0; i < 8u; i++)
     {
@@ -181,6 +186,48 @@ bool Dm_Is_Online(uint8_t index)
     }
     return (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick)
            <= DM_OFFLINE_MS;
+}
+
+/* 查使能 */
+bool Dm_Is_Enabled(uint8_t index)
+{
+    if (index >= DM_MOTOR_NUM)
+    {
+        return false;
+    }
+    return dm_motor_feedback[index].err_raw == 1u;
+}
+
+/* 查故障 */
+bool Dm_Has_Fault(uint8_t index)
+{
+    uint8_t err;
+
+    if (index >= DM_MOTOR_NUM)
+    {
+        return false;
+    }
+    err = dm_motor_feedback[index].err_raw;
+    return err >= 0x08u && err <= 0x0Eu;
+}
+
+/* 失能重发 */
+void Dm_Enable_Watchdog(void)
+{
+    static uint32_t last_enable_tick[DM_MOTOR_NUM];
+    uint32_t now;
+    uint8_t i;
+
+    now = HAL_GetTick();
+    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        if (Dm_Is_Online(i) && dm_motor_feedback[i].err_raw == 0u
+            && now - last_enable_tick[i] >= 100u)
+        {
+            (void)Dm_Send_Command(i, DM_CMD_ENABLE);
+            last_enable_tick[i] = now;
+        }
+    }
 }
 
 /* 发MIT */

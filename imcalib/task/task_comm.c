@@ -7,76 +7,13 @@
 #include "machine_config.h"
 #include "Vofa_send.h"
 #include "ws2812.h"
+#include "task.h"
 #include "../Sysid/sysid_config.h"
 #if SYSID_ENABLE
 #include "../Sysid/sysid_log.h"
 #endif
 
 #include <math.h>
-
-static leg_debug_history_t leg_debug_l;
-static leg_debug_history_t leg_debug_r;
-
-static float Leg_Debug_Angle_Diff(float current, float previous)
-{
-    float diff;
-
-    diff = current - previous;
-    while (diff > 3.14159265358979f)
-    {
-        diff -= 6.28318530717959f;
-    }
-    while (diff < -3.14159265358979f)
-    {
-        diff += 6.28318530717959f;
-    }
-    return diff;
-}
-
-/* 速度自检 */
-static void Leg_Debug_Validate(const leg_state_t *leg, leg_debug_history_t *history)
-{
-    float dt_s;
-    uint32_t now_ms;
-
-    if (leg == NULL || history == NULL || !leg->output.valid)
-    {
-        if (history != NULL)
-        {
-            history->ready = 0u;
-        }
-        return;
-    }
-    now_ms = HAL_GetTick();
-    if (!history->ready)
-    {
-        history->virtual_leg_length = leg->output.virtual_leg_length;
-        history->virtual_leg_angle = leg->output.virtual_leg_angle;
-        history->virtual_shank_angle = leg->output.virtual_shank_angle;
-        history->tick_ms = now_ms;
-        history->ready = 1u;
-        return;
-    }
-    if (now_ms == history->tick_ms)
-    {
-        return;
-    }
-
-    dt_s = (float)(now_ms - history->tick_ms) * 0.001f;
-    history->measured[0] = (leg->output.virtual_leg_length - history->virtual_leg_length) / dt_s;
-    history->measured[1] = Leg_Debug_Angle_Diff(leg->output.virtual_leg_angle, history->virtual_leg_angle) / dt_s;
-    history->measured[2] = Leg_Debug_Angle_Diff(leg->output.virtual_shank_angle, history->virtual_shank_angle) / dt_s;
-    history->predicted[0] = leg->output.d_virtual_leg_length;
-    history->predicted[1] = leg->output.d_virtual_leg_angle;
-    history->predicted[2] = leg->output.d_virtual_shank_angle;
-    history->residual[0] = history->predicted[0] - history->measured[0];
-    history->residual[1] = history->predicted[1] - history->measured[1];
-    history->residual[2] = history->predicted[2] - history->measured[2];
-    history->virtual_leg_length = leg->output.virtual_leg_length;
-    history->virtual_leg_angle = leg->output.virtual_leg_angle;
-    history->virtual_shank_angle = leg->output.virtual_shank_angle;
-    history->tick_ms = now_ms;
-}
 
 /* 更新电机状态 */
 static void Motor_State_Update(void)
@@ -124,10 +61,10 @@ static void Leg_State_Update(void)
         leg_r.input.d_hip_f = motor_state.dm.vel_rad_s[leg_map_r.dm_front];
         leg_r.input.d_hip_b = motor_state.dm.vel_rad_s[leg_map_r.dm_rear];
     }
+    vTaskSuspendAll();
     (void)Leg_Solve(&leg_l);
     (void)Leg_Solve(&leg_r);
-    Leg_Debug_Validate(&leg_l, &leg_debug_l);
-    Leg_Debug_Validate(&leg_r, &leg_debug_r);
+    (void)xTaskResumeAll();
 }
 
 /* 更新遥控使能 (指令由 policyTask 统一处理) */
@@ -151,7 +88,7 @@ static void Robot_Fault_Update(void)
     motors_ok = 1u;
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
-        if (!motor_state.dm.online[i])
+        if (!motor_state.dm.online[i] || Dm_Has_Fault(i))
         {
             motors_ok = 0u;
         }
@@ -215,6 +152,10 @@ static void Robot_Enable_Update(void)
         robot_state.motor_enabled = 1u;
         (void)Dm_All_Enable();
     }
+    if (robot_state.motor_enabled)
+    {
+        Dm_Enable_Watchdog();
+    }
     else if (!enable_request && robot_state.motor_enabled)
     {
         robot_state.motor_enabled = 0u;
@@ -224,9 +165,9 @@ static void Robot_Enable_Update(void)
 }
 
 /*
- * VOFA 观测帧 (JustFloat, 32 通道, 200Hz)
+ * VOFA 观测帧 (JustFloat, 32 通道, 500Hz)
  * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
- * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效
+ * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能
  * ch2  策略号: 0 手动 / 1 LQR
  * ch3~6   四髋位置 (零点后 rad): 前左 / 后左 / 前右 / 后右
  * ch7~10  左腿: 大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 (rad, m)
@@ -244,9 +185,13 @@ static void Robot_Control_Send_Vofa(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint8_t state_bits;
-    uint8_t kind;
-    uint16_t seq;
-    uint64_t tx_ns;
+    vofa_div++;
+    if (vofa_div < 2u)
+    {
+        return;
+    }
+    vofa_div = 0u;
+
     /* ch0 在线掩码 */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
     online_mask |= DR16_Online() ? 0x02u : 0x00u;
@@ -263,6 +208,10 @@ static void Robot_Control_Send_Vofa(void)
     state_bits |= robot_state.fallen ? 0x02u : 0x00u;
     state_bits |= leg_l.output.valid ? 0x04u : 0x00u;
     state_bits |= leg_r.output.valid ? 0x08u : 0x00u;
+    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_LFT) ? 0x10u : 0x00u;
+    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_LFT) ? 0x20u : 0x00u;
+    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_RGT) ? 0x40u : 0x00u;
+    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_RGT) ? 0x80u : 0x00u;
     dbg[1] = (float)state_bits;
 
     /* ch2 策略号: 0 手动 / 1 LQR */
@@ -314,14 +263,6 @@ static void Robot_Control_Send_Vofa(void)
     dbg[29] = dm_motor_feedback[DM_MOTOR_LEG_B_LFT].trq_nm;
     dbg[30] = dm_motor_feedback[DM_MOTOR_LEG_F_RGT].trq_nm;
     dbg[31] = dm_motor_feedback[DM_MOTOR_LEG_B_RGT].trq_nm;
-    /* 清空 CAN 发送完成环 (不进通道, 防止积满) */
-    while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &kind, &seq, &tx_ns)) 
-    {
-    }
-    while (Can_Bus_Tx_Pop((uint8_t)machine->dm_bus[0], &kind, &seq, &tx_ns))
-    {
-    }
-
     Vofa_Send(dbg, 32u);
 }
 

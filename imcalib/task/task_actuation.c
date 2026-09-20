@@ -110,6 +110,10 @@ void output_task_body(void)
         {
             /* 使能边沿: 腿长锁到当前实测, 且必须在 K 表有效域内才投入 */
             lqr_running = LQR_Enable_Latch(&lqr_state, &leg_l, &leg_r);
+            if (lqr_running)
+            {
+                Leg_Balance_Reset(&leg_balance);
+            }
         }
 
         if (lqr_running)
