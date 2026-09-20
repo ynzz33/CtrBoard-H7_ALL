@@ -39,7 +39,7 @@ enum {
 /* 遥控量程 */
 #define LQR_RC_DEADBAND     20
 #define LQR_RC_VEL_MAX      1.2f    /* m/s */
-#define LQR_RC_YAW_MAX      3.0f    /* rad/s */
+#define LQR_RC_YAW_MAX      5.0f    /* rad/s */
 #define LQR_RC_LEN_RATE     0.3f    /* m/s */
 
 typedef struct {

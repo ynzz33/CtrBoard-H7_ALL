@@ -454,7 +454,7 @@ task_comm.c:
 | vshank_jac[2] | 虚拟小腿雅可比 | RL 力矩分解 |
 | force_map[2][2] | 力矩映射矩阵 | 力矩输出 |
 
-**VOFA 通道：**正常控制的 32 路布局与 500 Hz 发送参数统一见 [VOFA_SEND.md](VOFA_SEND.md)。
+**VOFA 观测：**正常控制为 32 路、500 Hz；通道 Markdown 已删除，当前打包顺序以 `task_comm.c::Robot_Control_Send_Vofa()` 为准。
 
 ---
 

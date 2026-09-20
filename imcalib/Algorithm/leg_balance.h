@@ -13,13 +13,13 @@
 /* 足端支持力恒定前馈 (N) — 参考值, 台架对账后标定 */
 #define LEG_BALANCE_F_FEEDFORWARD  8.0f
 
-/* 辅助 PID 参数，D 项先关闭，待台架单独标定 */
+/* 辅助 PID 参数: 同 Leg2_v1 balance.h (同为 1kHz, kd 直接照抄) */
 #define LEG_BALANCE_LEN_KP         1000.0f
-#define LEG_BALANCE_LEN_KD         0.0f
+#define LEG_BALANCE_LEN_KD         50000.0f
 #define LEG_BALANCE_SYM_KP         30.0f
-#define LEG_BALANCE_SYM_KD         0.0f
+#define LEG_BALANCE_SYM_KD         500.0f
 #define LEG_BALANCE_ROLL_KP        500.0f
-#define LEG_BALANCE_ROLL_KD        0.0f
+#define LEG_BALANCE_ROLL_KD        100.0f
 
 typedef struct {
     pid_t leg_len[2];   /* 腿长 */

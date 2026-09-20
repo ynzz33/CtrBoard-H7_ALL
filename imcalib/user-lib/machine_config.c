@@ -32,7 +32,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,
         .dji_trq_clamp  = 1.8f,                        /* 满限幅 = 0.18 Nm/A × 10A */
-        .wheel_r        = 0.03f,                       /* Leg2_v1 建模值 */
+        .wheel_r        = 0.04f,                       /* Leg2_v1 WHEEL_R */
         .dm_pos_max     = 3.14159f,                    /* DM-J4310 */
         .dm_vel_max     = 30.0f,
         .dm_trq_max     = 10.0f,

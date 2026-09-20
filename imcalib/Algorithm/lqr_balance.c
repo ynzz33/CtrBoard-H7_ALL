@@ -53,7 +53,7 @@ void LQR_Init(lqr_state_t *st)
     lqr_debug.hip_enable = 1u;
     lqr_debug.len_pid_enable = 1u;
     lqr_debug.trq_max_wheel = machine->dji_trq_clamp;
-    lqr_debug.trq_max_hip = 5.0f;
+    lqr_debug.trq_max_hip = machine->dm_trq_clamp;
     st->len_eval[0] = -1.0f;
     st->len_eval[1] = -1.0f;
     Lowpass_Init(&st->lpf_vel, LQR_LPF_ALPHA);

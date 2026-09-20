@@ -2,10 +2,6 @@
 
 > 大机器测试专用，`SYSID_ENABLE=1` 时生效。
 
-> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
-
-> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
-
 > **上游文档**：`chuanliantui-wheel-joint-sysid-handoff.md`（算法侧交接单，定义要采什么）
 > **本文用途**：把交接单翻译成下位机可执行、可验收的实施计划（改哪些文件、按什么顺序、怎么验证）。
 > **状态**：按 §15 分步实施中。
@@ -13,7 +9,7 @@
 > **改动记录**：每处改动的输入 / 输出 / 调用链见 `md/sysid-change-map.md`。
 > **数值纪律**：本文只记结构、约定和"为什么"；具体限值/力矩/电流以签字的 `manifest.yaml` 与代码常量为准。
 > **依据**：`DM-J8009P-2EC V1.1 减速电机说明书 V1.0`（Specifications / MIT Mode / Register Map 三节）。
-> **作者决策（已定）**：两台机器两套配置表；数据走 VOFA（UART8）+ Vofa+ 存盘；测试类型编译期选、run 自动连续跑；遥控只做 deadman 和中止；时间戳按 DWT 单调 ns + CAN 收发时刻；FK 用 RL 侧定义；激励全部直发（轮=电流 raw，腿=力矩 N·m）。
+> **作者决策（已定）**：两台机器两套配置表；数据走 VOFA 串口（`VOFA_PORT` 选口，当前 1 = USART1）+ Vofa+ 存盘；测试类型编译期选、run 自动连续跑；遥控只做 deadman 和中止；时间戳按 DWT 单调 ns + CAN 收发时刻；FK 用 RL 侧定义；激励全部直发（轮=电流 raw，腿=力矩 N·m）。
 
 ---
 
@@ -30,7 +26,7 @@
                │ 打 mono_ns 时间戳                   │ 打 mono_ns 时间戳
                └──────────────┬──────────────────────┘
                               ▼
-                 VOFA 帧（UART8 @921600，JustFloat）
+                 VOFA 帧（1152000，JustFloat）
                               ▼
                     Vofa+ 存盘 → Python 脚本
                               ▼
@@ -74,11 +70,11 @@
 | 纯力矩下发 | `dm.c:286-311` | kp=0/kd=0，右腿在驱动边界取反 |
 | 裸电流下发 | `dji.c:200-217` | `Dji_Send_Current(handle, 0x200, raw[4])` |
 | FK / 雅可比 | `leg_solver.c:33-160` | 腿长、腿倾角、虚拟小腿、雅可比 |
-| 500 Hz 硬实时节拍 | `task_actuation.c:13-16` + TIM6 | 信号量驱动 |
+| 1 kHz 硬实时节拍 | `task_actuation.c` + TIM6 | 信号量驱动，`CTRL_DT=0.001 s` |
 | 1 kHz 通信节拍 | `task_comm.c:320-332` | 解析、状态、故障、VOFA |
 | 使能机与故障门 | `task_comm.c:141-220` | 遥控使能、失能、翻倒检测 |
 | 遥控解析 | `dr16.c/h`、`md/IO_CHAINS.md` §4 | `s1` 已用；`s2/wheel/键鼠` 本计划不需要 |
-| 32 通道 VOFA 调试（上限 32） | `task_comm.c`、`Vofa_send.c` | FireWater + DMA，200 Hz |
+| 32 通道 VOFA 调试（上限 32） | `task_comm.c`、`Vofa_send.c` | JustFloat + DMA，500 Hz |
 | 串口空闲接收框架 | `uart_idle.c/h` | UART9=DR16、UART7=HI229 在用 |
 | UART8（TX+RX） | `usart.c:360-361`、`stm32h7xx_it.c:409` | 本计划只用作**数据出口**（RX 不启用） |
 
@@ -92,7 +88,7 @@
 | DM 故障码判据 | `err_raw` 是**状态码**（0=失能/1=使能/8~E=故障），现在解析了没人看（`dm.c:146`） |
 | sysid 独占模式 | 执行链只有 LQR / 手动两路（`task_actuation.c:50-117`） |
 | 激励序列执行器 | 没有 stiction/plateau/step/chirp 的编排与 run 自动切换 |
-| 高码率 VOFA 流 | 现有 32ch@200Hz 列与速率都不满足 sysid |
+| 高码率 VOFA 流 | 正常 32ch@500Hz 的列定义不满足 sysid |
 | 丢帧可见性 | `Vofa_send.c:17` 忙就丢帧且不留痕 |
 | 机器配置表 | 电机型号/几何/限值散落在 `dji.h`、`dm.h`、`robot_control.c` |
 
@@ -175,7 +171,7 @@ CubeMX 保护区：`fdcan.c`、`usart.c`、`dma.c` 等生成文件只在 `USER C
 ```
 [ISR] CAN RX ──(mono_ns)──┐
 [ISR] CAN TX 完成 ─(mono_ns)─┤
-[500Hz] 力矩下发+FK 快照 ─────┤──> sysid_log 环形缓冲 ──> 帧组装 ──> UART8 DMA ──> Vofa+
+[1kHz] 力矩下发+FK 快照 ──────┤──> sysid_log 环形缓冲 ──> 帧组装 ──> VOFA_UART DMA ──> Vofa+
 [遥控 s1] deadman/中止 ───────┘（只做开关，不选用例；不入数据流）
 [启动] DM 参数自检（0x7FF 读 PMAX/VMAX/TMAX/CTRL_MODE）
 ```
@@ -235,12 +231,12 @@ CubeMX 保护区：`fdcan.c`、`usart.c`、`dma.c` 等生成文件只在 `USER C
 | --- | --- |
 | 时钟源 | `DWT->CYCCNT`，CPU = 550 MHz（`main.c` PLL：24/3 × 68.75 = 550 MHz） |
 | 开启顺序 | `CoreDebug->DEMCR |= TRCENA` → **`DWT->LAR = 0xC5ACCE55`**（M7 需要解锁）→ 清 CYCCNT → `DWT->CTRL |= CYCCNTENA` |
-| 回绕处理 | CYCCNT 是 32 位，550 MHz 下 7.81 s 一圈；在**已有的 TIM6 500 Hz 中断**（`main.c:240`）里累加 64 位周期基数，不新增中断 |
+| 回绕处理 | CYCCNT 是 32 位，550 MHz 下 7.81 s 一圈；在**已有的 TIM6 1 kHz 中断**（`main.c`）里累加 64 位周期基数，不新增中断 |
 | 读取 | `ns = (cyc_base + (DWT->CYCCNT - last_cyc)) * 20 / 11`（1000/550 = 20/11） |
 | 中断安全 | 读侧取一次快照；ISR 内先读后写再更新基数，保证不会读到撕裂值 |
 | 精度 | 分辨率 1.82 ns，扩展无累计漂移 |
 | 依赖 | 自己开 TRCENA，不依赖调试器 |
-| 验证 | 运行 10 s 与 `HAL_GetTick()` 对比，偏差 < 2 ms；连续两个 500 Hz 节拍差值应 ≈ 2 ms |
+| 验证 | 运行 10 s 与 `HAL_GetTick()` 对比，偏差 < 2 ms；连续两个 1 kHz 节拍差值应 ≈ 1 ms |
 
 ### 6.2 CAN RX 时间戳
 
@@ -271,7 +267,7 @@ CubeMX 保护区：`fdcan.c`、`usart.c`、`dma.c` 等生成文件只在 `USER C
 
 ### 7.1 带宽预算（硬约束）
 
-UART8 @921600 8N1 = **92160 B/s**。JustFloat 帧 = `4N + 4` 字节（`Vofa_send.c:6` 的帧尾 `00 00 80 7F`）。
+VOFA 串口 @1152000 8N1 = **115200 B/s**。JustFloat 帧 = `4N + 4` 字节（帧尾 `00 00 80 7F`）。
 
 | 实验 | 帧 | 通道 | 字节/帧 | 速率 | 占用 |
 | --- | --- | --- | --- | --- | --- |
@@ -282,6 +278,7 @@ UART8 @921600 8N1 = **92160 B/s**。JustFloat 帧 = `4N + 4` 字节（`Vofa_send
 
 - 结论：**轮测试命令率 ≤ 500 Hz**（1 kHz 会把 A 推到 88 KB/s，超过链路可用余量）。
 - 腿测试 500 Hz 安全（37%）；开旁证帧后 B 合计约 60 KB/s（65%），默认关。
+- **现状（2026-09-20）**：实际实现是单一 37 列帧（152 B），控制节拍已提到 1 kHz；152 B × 1 kHz = 152 kB/s 超过 115.2 kB/s 线速，`SYSID_TX_DIV=4` 只发 250 Hz（38 kB/s，33%）。推帧仍是每周期一帧，接回发送泵前必须先做推帧抽取，见 `sysid-delivery.md` §5.3。
 
 ### 7.2 帧格式
 
@@ -369,7 +366,7 @@ sysid 帧 → 字节流写入环形缓冲（SPSC）
 
 ### 7.7 上位机（Vofa+ + Python）
 
-1. Vofa+：协议 JustFloat（文档里写的 FireWater，代码里其实就是 JustFloat 帧尾）、COM 口、921600、开启数据记录到 CSV。
+1. Vofa+：协议 JustFloat、COM 口、1152000、开启数据记录到 CSV。
 2. Python 脚本（算法侧仓库里放，下位机不实现）职责：
    - 按 `kind` 拆分：轮 → 命令行 + 反馈行；腿 → 快照行（+ 旁证）。
    - 重建 `t_ns`；按 `seq` 检查连续性；检查时间戳单调。
@@ -421,6 +418,7 @@ IDLE ──s1 中/上──> RECORDING（自动跑完当前用例的全部 run�
 - 被测轮给 `cmd_test_wheel_raw = round(I_A × 819.2)`，**另一轮在同一 0x200 帧里写 0**，四腿 0 N·m 但保持使能。
 - 不走 `Dji_Torque_To_Current()`（那是 N·m 通道），直接调 `Dji_Send_Current(FDCAN2, 0x200, raw[4])`。
 - 硬钳 `|raw| ≤ 12288`（±15 A，文档规定的测试上限，**不是** DM 许可、也不是轮端 N·m）。
+- **现状**：固件实际钳位 `SYSID_CURRENT_LIMIT_RAW=4096`（±5 A），run 表只剩 plateau ±0.5~4 A（见 `sysid-delivery.md` §4.2）；上面的 ±15 A 与全套用例是上游交接单的目标值。
 - 命令率 500 Hz；反馈行按实际收到的帧率记录（C620 反馈率≈命令率，以实测为准）。
 - 每次只测左轮或右轮：编译期选（`SYSID_TEST = WHEEL_L` / `WHEEL_R`）。
 
@@ -468,7 +466,7 @@ IDLE ──s1 中/上──> RECORDING（自动跑完当前用例的全部 run�
   - 手册原文：`kp=0, kd=0` 时给定 `t_ff` 即直接输出力矩；`kp=0, kd≠0` 时给定 `v_des` 可匀速转动。本实验只用前者。
   - 下发帧里 `p_des`/`v_des` 字段仍在（8 字节固定），但乘 0 后无影响；填满量程整数即可。
 - 轮 0；不用位置 PD；不用 `reference.csv`；进入记录阶段后不得有位置纠正。
-- 采样率 500 Hz（文档要求 ≥200 Hz）。
+- 采样率：控制节拍 1 kHz 产生快照，但串口只能带 250 Hz（文档要求 ≥200 Hz）；抽取方案待定，见 §7.1 现状。
 - **位置/速度不能"忽略"**：腿长/腿倾角是从反馈 `POS` 字段算出来的，而 `POS`/`VEL` 的刻度就是 `P_MAX`/`V_MAX`（见 §8.2 自检）。忽略的只是"下发时的位置/速度目标"。
 
 ### 10.2 单周期时序（保证"同一时刻"）
@@ -720,7 +718,7 @@ tau_rf0_Nm,tau_rf00_Nm,leg_length_right_m,leg_pitch_right_rad
 | TX 完成配对按顺序 | 优先级模式下配错 | 按 TX 元素索引配对；必要时改 Queue 模式（CubeMX） |
 | 腿倾角零位与模型不一致 | 四个任务坐标对不上 | §14.3 定义 + 静态 FK 核对 + manifest 记录 |
 | 自动连跑时失控 | 机械损伤 | 急停随手可及；s1 下位立即中止；`±15 A`/力矩钳位；run 结束必回零 |
-| 记录占 CPU | 影响 500 Hz 实时性 | 中断只入环、任务里打包；帧长固定、避免浮点格式化 |
+| 记录占 CPU | 影响 1 kHz 实时性 | 中断只入环、任务里打包；帧长固定、避免浮点格式化 |
 
 ---
 
@@ -738,7 +736,7 @@ tau_rf0_Nm,tau_rf00_Nm,leg_length_right_m,leg_pitch_right_rad
 | 1 | 机器配置表 | ✅ | `machine_config.c/h`，两份表 + `Machine_Select` |
 | 2 | 单调时钟 | ✅ | `mono_ns.c/h` |
 | 3 | CAN 收发时间戳 | ✅ | 变更 32（RX）、35（TX 完成 + pending 表）、38（修 TX 中断假记录） |
-| 4 | VOFA sysid 通路 | ✅ | `sysid_log.c/h`：31 列独立帧 + 环形缓冲 + 500 Hz 发送泵 |
+| 4 | VOFA sysid 通路 | 🟡 待接回 | `sysid_log.c/h`：37 列独立帧 + 环形缓冲 + 250 Hz 发送泵已写好；但 `task_comm.c` 当前未调用发送泵、也未在测试模式停发 32 路，且 1 kHz 推帧需抽取（见 §7.1 现状） |
 | 5 | 节奏与触发 | ✅ | 变更 39：激励表 + 状态机写在 `sysid_mode.c`（**未按 §4.1 新建 `sysid_program.c`**，改动更小）；s1 上 + s2 中进入，离开即中止 |
 | 6 | sysid 仲裁 | ✅ | 变更 33 + 39：`task_actuation.c` 第三分支，进入后 LQR/手动不发力 |
 | 7 | 试验 B 最小闭环 | ✅ 代码就绪，🟡 待台架 | `torque_baseline`（四路 0 Nm 5 s）+ FK 快照；静态 FK 卷尺核对未做 |

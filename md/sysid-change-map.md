@@ -1901,6 +1901,84 @@ commTask (1kHz) → comm_task_body()
 
 ---
 
+## 变更 64 · 删除 VOFA 通道文档 + 各 md 对齐代码现状（作者：更新各 md，把 vofa 通道 md 都删了）
+
+| 文件 | 改动 |
+| --- | --- |
+| `md/VOFA_SEND.md`、`md/sysid/vofa-channel-map.md`、`md/sysid/wheel-test-vofa.md` | **删除**。正常 32 路通道表只保留 `task_comm.c` 里 `Robot_Control_Send_Vofa()` 上方的注释；sysid 列定义以 `sysid_log.c::assemble_frame()` 为准；旧文可从提交 `24efef2` 恢复 |
+| `md/AGENTS.md`、`md/CLAUDE.md`、`md/RL_OVERVIEW.md`、`md/IO_CHAINS.md` | 去掉指向三份通道 md 的链接与文件树条目；VOFA 描述统一为 JustFloat、500 Hz、"布局以代码为准"；模块表标注 sysid 发送泵未接 |
+| `md/sysid/sysid-delivery.md` | 帧 33 列 → **37 列 / 152 B**（补列 33~36）；心跳状态码补 5；轮用例改成代码实际的 10 个 plateau run（±0.5~4 A，钳位 ±5 A）；`SYSID_ENABLE` 默认 0、`SYSID_PLAN` 默认 2、补 `SYSID_MODE`；测试限幅 10 Nm；VOFA+ 通道数 37；写明发送泵未接与 1 kHz 推帧问题；去掉 FireWater 说法；文件头去重 |
+| `md/sysid/controller-spec-for-mujoco.md` | 日期改回 2026-09-20；PD 参数 25/300 → **10/0**；姿态表改为 45°/90°/135° × 2.40/2.60/2.80；斜坡改为 `Ramp_Update()` 斜率限幅（0.4/0.2 rad/s，t_pre 4.2 s + 保持 3 s）；右腿动作值按各自 `dof_pos`；限幅层级补 `SYSID_TRQ_LIMIT_NM`；帧列 35 → 37；行号同步 |
+| `md/sysid/sysid-lower-machine-plan.md` | 数据流/时钟/风险中的 500 Hz → 1 kHz；§7.1 补当前带宽现状；§10.1 采样率说明；§17.1 步 4 改为"待接回"；文件头去重 |
+| `md/sysid-change-map.md` | 本条；附录 B 时钟行 500 Hz → 1 kHz |
+
+**核对时发现、本次未改（属代码，需作者授权后另开变更）**
+- `imcalib/task/task_comm.c`：`SYSID_ENABLE=1` 时没有任何地方调用 `Sysid_Log_Send_Pump()`（提交 `48b087e` 有该调用，`87c6628` 改成 10 通道轮帧直发时去掉，之后小机器 LQR 批次里 10 通道分支也删了），也没有"测试模式停发 32 路"的早退。现状：快照只进环形缓冲，串口上仍是 32 路 LQR 帧。
+- `Sysid_Mode_Run()` 每个 1 ms 周期推一帧，发送泵最多 250 Hz 取一帧，接回后 128 帧环形缓冲约 0.17 s 即溢出；152 B × 1 kHz = 152 kB/s 也超过 1152000 波特的 115 kB/s 线速。需要先定"每 N 拍推一帧"的抽取方案。
+- 过期注释：`sysid_log.h` 顶部列表仍写"33 列 / @921600 / 每 2 个周期发一次"；`tools/sysid_export.py` docstring 仍写"31 列"；`sysid_mode.c:722` 注释写 1 rad/s（实际 0.4/0.2）；`SYSID_POSE_RAMP_RATE` 宏无人引用。
+- `sysid_mode.c` 的 `#ifndef SYSID_PLAN` 兜底值 1 与 `sysid_config.h` 的 2 不一致（后者先包含，实际生效 2）。
+
+**输入 / 输出 / 调用链**
+- 正常 VOFA：`comm_task_body()` → `Robot_Control_Send_Vofa()`（2 分频）→ `Vofa_Send(dbg, 32)` → `VOFA_UART`（USART1 @1152000）JustFloat；通道含义见该函数上方注释。
+- sysid 帧：`Sysid_Mode_Run()` → `Sysid_Log_Push()` → 环形缓冲 → （**缺调用**）`Sysid_Log_Send_Pump()` → `assemble_frame()` 37 列 → DMA。
+- 文档入口：`AGENTS.md` 关键约束 → `task_comm.c` 注释 / `sysid_log.c`；训练端 → `sysid-delivery.md` §1.2 快速索引 + `controller-spec-for-mujoco.md` §6/§7。
+
+**核对**
+- `md/` 内 Markdown 链接无死链；`VOFA_SEND.md` / `vofa-channel-map` / `wheel-test-vofa` 仅在本账本历史条目中以文件名出现（保留作记录）。
+- 未改任何代码、配置、极性、零点、量程、镜像与 `MACHINE_DEFAULT`；本次只动 md，未编译。
+
+**待台架 / 待决定**
+- 大机器再次启用 sysid 前：作者定抽取方案 → 接回发送泵 + 测试模式停发 32 路 → 台架看心跳行列 10/11（drop/busy）恒 0、`seq` 连续、VOFA+ 37 列对齐。
+
+---
+
+## 变更 65 · 小机器 LQR 参数对齐 Leg2_v1（作者：把 D 加回去、参数按 Leg2 来；腿长区间与投入下限按本机自标）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_balance.h` | 腿长/防劈叉/横滚 KD：0/0/0 → **50000/500/100**（Leg2_v1 `Code/Task/balance.h` 原值） |
+| `imcalib/Algorithm/lqr_balance.c` | `lqr_debug.trq_max_hip` 默认：5.0 → `machine->dm_trq_clamp`（小机器 10 N·m） |
+| `imcalib/Algorithm/lqr_balance.h` | `LQR_RC_YAW_MAX`：3.0 → **5.0 rad/s**（Leg2_v1 `app_rc.c`）；`LQR_K_LEN_MIN` 0.13 **不动** |
+| `imcalib/user-lib/machine_config.c` | 小机器 `wheel_r`：0.03 → **0.04**（物理量，见下方单列）；`leg_len_min/max` 0.10/0.20 **不动** |
+| `md/LQR_PLAN.md` | §一 加决策 9；§1.1/§2.4/§五/§八 数值同步；§六 ① 拆成 ①a~①d 四项符号/零点测法；新增 §十 与 Leg2_v1 参数对照表 |
+| `md/AGENTS.md`、`md/RL_OVERVIEW.md` | 辅助 PID 描述同步 |
+
+**为什么**
+- KD：两边 PID 的 D 项都是 kd×(本拍误差−上拍误差)、不除 dt，周期同为 1 kHz，Leg2 原值就是同一物理阻尼。腿长环是 1000 N/m 弹簧顶机身，无阻尼会以约 3 Hz 弹跳；50000 折合约 50 N·s/m。之前减半是 500 Hz 时的换算，改 1 kHz 时作者先归零，现在不再需要换算。
+- 髋限幅：Leg2 正常模式虚拟髋力矩不限幅，电机侧只受 MIT ±10 N·m；本机原 5 N·m 比 Leg2 严一倍，大扰动时会先饱和。
+- 偏航量程：只影响满杆转向速度，按"参数一样"取 5.0。
+- 轮径：见下。
+
+**物理量变更确认（§0.1 单列）**
+- 谁 / 何时：作者于 **2026-09-20** 回复"其他的按你说的改"，确认小机器轮半径 0.03 → 0.04。
+- 依据：Leg2_v1 `Code/User/app_config.h` 的 `WHEEL_R 0.04f`；`轮腿上交建模MATLAB/WBR_modeling.mlx` 生效参数组 `R_w_ac = 0.04`（机身 5.25 kg、轮 0.13463 kg，与 Leg2 `BODY_MASS`/`WHEEL_MASS` 一致）；现用 K 表就是按这组生成。
+- 纠错：变更 62 引用的"mlx 小机器参数组 R_w_ac=0.03"是**被百分号注释掉**的另一台车参数组（机身 1.103 kg、半轮距 0.075），属 AI 误读，本次纠正。
+- 实际写入：`machine_config.c` 小机器行 `wheel_r = 0.04f`；大机器 0.04 占位不变，仍待实测。
+- 复核：卡尺量轮子直径应接近 80 mm；即便有出入，先用 0.04 复现 Leg2 行为，因为 K 表与速度估计必须用同一个值。
+
+**作者保留本机自标（未改）**
+- 腿长区间 `leg_len_min/max` = 0.10/0.20，LQR 投入下限 `LQR_K_LEN_MIN` = 0.13（Leg2 为 0.12~0.29、默认站姿 0.12）。提醒：使能时腿长须 ≥0.13，否则 `LQR_Enable_Latch()` 返回 0 只发零力矩。
+
+**输入 / 输出 / 调用链**
+- KD：`Leg_Balance_Init()` → `PID_struct_init(kd)` → `pid_calc()` 的 `dout = d×(err[NOW]−err[LAST])` → F / Tp；`Leg_Balance_Reset()` 投入时清历史，首拍 D 输出为 0，无冲击。
+- 髋限幅：`LQR_Init()` → `lqr_debug.trq_max_hip` → `LQR_Control_Update()` 虚拟髋力矩夹取 + `Leg_Balance_Compute()` 四台 DM 力矩夹取；仍可在调试器 Watch 里临时压低。
+- 偏航：`LQR_Target_Update()` → `target[LQR_X_DPHI] = axis × 5.0`。
+- 轮径：`LQR_State_Update()` → `whl × machine->wheel_r` → `x[LQR_X_DS]`；与 K 表生成参数一致后，LQR_PLAN "轮径与 K 表待重跑"一项关闭。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、`+LEG_PI`、IMU 轴宏与 `MACHINE_DEFAULT`。
+- K 表核对：`lqr_gain_table.c` 与 `Leg2_v1/Code/Matlab/LQR_K_WBR.c` 除 include 行外逐字节一致。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均为 **105 文件，0 fail / 0 warn**。未链接、未上机。
+
+**待台架（作者：等会测试并修改）**
+- ①a 腿摆角零位 `leg_off_phi0`（小机器表现为大机器换算值 −0.13/−0.07，Leg2 为 0）：腿竖直看 ch9/ch13 应 ≈0。
+- ①b IMU 轴与极性：本机 `euler_rad[0]` 装的是模块 Roll 通道，`gyro_rad_s[1]` 是模块 Y 轴角速度，角与角速度不在同一根轴；Leg2 两者同取第 1 路且抬头为正。抬头看 ch17/18，只改 `lqr_balance.c` 顶部五个 `LQR_IMU_*` 宏并核对翻倒检测；右倾看 `lqr_state.roll` 应为正；架空手转车体，两轮应出反向阻转力矩。
+- ①c 轮速腿摆补偿 `vel_leg_comp_sign`：推导上复现 Leg2 应为 +1，架空推腿看 ch19 取波动小者。
+- ①d 转向通道符号：右摇杆推右应右转，Leg2 对该通道取负号。
+- D 项恢复后首次落地观察腿长是否抖动（Leg2 手册：腿部振荡就降 KD）。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。
@@ -1918,7 +1996,7 @@ commTask (1kHz) → comm_task_body()
 | 读参窗口丢帧 | 启动期可能吃掉 1 帧正常反馈 | 仅启动期、电机未使能，接受 |
 | 启动延时 | 自检最多 +160 ms | 接受；失败不阻塞 |
 | 满量程不一致 | ~~`P_MAX` 12.5 而实际 ±π~~ → 变更 23 已改为 ±π | 已解决；VMAX/TMAX 由作者上位机核对为 45/54 |
-| 时钟调用周期 | Tick 必须 ≥ 每 7.81 s 一次 | 目前唯一挂在 500 Hz TIM6 上，满足 |
+| 时钟调用周期 | Tick 必须 ≥ 每 7.81 s 一次 | 目前唯一挂在 1 kHz TIM6 上，满足 |
 | 时钟溢出 | `cyc×1000` 约 9 小时上限 | 单次实验远小于该时长 |
 | 力矩记录点 | 现在仍是"命令值"，量化后回算在步 5 | 见计划 §10.2 |
 | 腿几何已进配置表 | ~~切机器时 `robot_control.c:43-63` 必须手改~~ → 变更 20 后只改 `MACHINE_DEFAULT` | 已完成 |

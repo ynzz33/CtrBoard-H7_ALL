@@ -2,11 +2,9 @@
 
 > 大机器测试专用，`SYSID_ENABLE=1` 时生效。
 
-> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
-
 > 目的：让 MuJoCo 端一字不差地复现下位机的虚拟关节 PD 位置跟踪控制律。
 > 适用固件：`imcalib/Sysid/`（`SYSID_ENABLE=1`, `SYSID_MODE=SYSID_MODE_POSE`）
-> 最后更新：2026-09-22
+> 最后更新：2026-09-20
 
 ---
 
@@ -21,7 +19,7 @@
   │  pid_calc() 对 6 个虚拟关节分别计算
   │  输出: tau_v[0..5] (虚拟关节力矩)
   ▼
-雅可比映射 (rl_torque.c:217-220)
+雅可比映射 (rl_torque.c:222-225)
   │  τ_前髋 = τ_大腿 + τ_小腿 × vshank_jac[1]
   │  τ_后髋 = τ_小腿 × vshank_jac[0]
   ▼
@@ -37,10 +35,11 @@ CAN 总线 → DM 电机执行
 
 | 步骤 | 函数 | 文件:行 |
 |------|------|---------|
-| 1. 500Hz 节拍 | `Sysid_Mode_Run()` | `imcalib/Sysid/sysid_mode.c:572` |
-| 2. 斜坡插值得到目标角 | `ramp = t / t_pre` | `imcalib/Sysid/sysid_mode.c:717-725` |
-| 3. 目标角→动作值 | `act_buf = (target - dof_pos) × 2.0` | `imcalib/Sysid/sysid_mode.c:731-734` |
-| 4. 虚拟关节 PD + 雅可比映射 | `RL_Torque_Compute()` | `imcalib/Algorithm/rl_torque.c:124` |
+| 1. 1kHz 节拍 | `Sysid_Mode_Run()` | `imcalib/Sysid/sysid_mode.c` |
+| 2. 斜率限幅得到目标角 | `Ramp_Update()`（大腿 0.4 / 小腿 0.2 rad/s） | `imcalib/Sysid/sysid_mode.c:715-724`、`user-lib/simple-function.c` |
+| 3. 目标角→动作值 | `act_buf = (target - dof_pos) × 2.0` | `imcalib/Sysid/sysid_mode.c:730-733` |
+| 4. 虚拟关节 PD + 雅可比映射 | `RL_Torque_Compute()` | `imcalib/Algorithm/rl_torque.c:126` |
+| 4b. 测试限幅 | `clampf(±SYSID_TRQ_LIMIT_NM)`（当前 10 Nm） | `imcalib/Sysid/sysid_mode.c:747-748` |
 | 5. PID 计算 | `pid_calc()` | `imcalib/user-lib/pid.c:42` |
 | 6. 力矩下发 | `Dm_Send_Torque()` | `imcalib/user-lib/dm.c:291` |
 | 7. MIT 编码 | `Dm_Mit_Control()` | `imcalib/user-lib/dm.c:187` |
@@ -78,13 +77,13 @@ abs_limit(pos_out, MaxOutput)                        // 总输出限幅
 
 ### 2.2 位置扫描的 PID 参数
 
-`sysid_mode.c:543-564` 初始化 `sysid_pose_param`，然后 `RL_Torque_State_Init()` 将其写入 PID 控制器：
+`sysid_mode.c:538-560` 初始化 `sysid_pose_param`，然后 `RL_Torque_State_Init()` 将其写入 PID 控制器：
 
 | 参数 | 大腿 (VJ_THIGH) | 小腿 (VJ_SHANK) | 轮 (VJ_WHEEL) | 来源 |
 |------|-----------------|-----------------|---------------|------|
-| kp | **25.0** | **25.0** | 0.0 | `sysid_mode.c:59` `SYSID_POSE_KP` |
+| kp | **10.0** | **10.0** | 0.0 | `sysid_mode.c:66` `SYSID_POSE_KP`（待台架） |
 | ki | 0.0 | 0.0 | 0.0 | `sysid_mode.c:545` 继承自 `RL_MODEL_STABLE` |
-| kd | **300.0** | **300.0** | 0.0 | `sysid_mode.c:60` `SYSID_POSE_KD` |
+| kd | **0.0** | **0.0** | 0.0 | `sysid_mode.c:67` `SYSID_POSE_KD`（作者定：去掉 D 项） |
 | MaxOutput | **1000.0** | **1000.0** | **1000.0** | `rl_torque.c:98-109` |
 | IntegralLimit | 0.0 | 0.0 | 0.0 | `rl_torque.c:98-109` |
 | deadband | 0.0 | 0.0 | 0.0 | `pid.c:133`（`pid_param_init` 不设则为 0） |
@@ -92,7 +91,7 @@ abs_limit(pos_out, MaxOutput)                        // 总输出限幅
 | angle_wrap | **开 (1)** | **开 (1)** | 关 (0) | `rl_torque.c:111-114` |
 | pid_mode | POSITION_PID | POSITION_PID | POSITION_PID | `rl_torque.c:98-109` |
 
-**控制周期 dt = 0.002 s**（500 Hz），硬编码在 `rl_torque.c:204/211` 的 `pid_calc(..., 0.002f)` 调用中。
+**控制周期 dt = `CTRL_DT = 0.001 s`**（1 kHz），LQR、RL 与 sysid 共用该定义。
 
 ### 2.3 一句话公式
 
@@ -103,12 +102,12 @@ abs_limit(pos_out, MaxOutput)                        // 总输出限幅
 ```
 
 其中：
-- `kp = 25.0`，`kd = 300.0`
+- `kp = 10.0`，`kd = 0.0`（当前为纯 P；下面 D 项公式保留，供 kd 恢复时使用）
 - `e[i] = wrap180(q_des[i] − q[i])`（角度环绕到 [-π, π]）
 - D 项 = `kd × (e[k] − e[k−1])`，**不除 dt**
-- 等效连续阻尼 = `kd × dt = 300 × 0.002 = 0.6 Nm·s/rad`
+- 等效连续阻尼 = `kd × dt`，当前 kd = 0 → 0；若恢复 D 项，按 `kd × 0.001` 换算
 - 无积分项（ki=0），无死区，无 max_err 门限
-- 输出限幅 ±1000.0 Nm（实际被 `dm_trq_clamp = 20.0` 先截断，见 §4.3）
+- 输出限幅 ±1000.0 Nm（实际先被 `dm_trq_clamp = 20.0` 截断，再被测试限幅 `SYSID_TRQ_LIMIT_NM = 10.0` 截断，见 §4.3）
 
 轮子（i ∈ {2, 5}）在位置扫描模式下增益全零，不出力矩。
 
@@ -178,7 +177,7 @@ virtual_shank_angle = wrap(mirror × vs_raw)
 
 ## 4. 虚拟关节力矩 → 电机力矩的映射
 
-### 4.1 映射公式（`rl_torque.c:217-220`）
+### 4.1 映射公式（`rl_torque.c:222-225`）
 
 ```
 τ_前左髋 = τ_v[0] + τ_v[1] × vshank_jac[1]    // 大腿力矩 + 小腿力矩×前髋雅可比
@@ -187,7 +186,7 @@ virtual_shank_angle = wrap(mirror × vs_raw)
 τ_后右髋 = τ_v[4] × vshank_jac[0]
 ```
 
-代码对应（`rl_torque.c:217-220`）：
+代码对应（`rl_torque.c:222-225`）：
 ```c
 tau_f[0] = tau_v[VJ_L_THIGH] + tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[1];
 tau_b[0] = tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[0];
@@ -216,7 +215,7 @@ jac_b = -cache->lu * sin_fb / (cache->lg * sin_ab) - 1.0f;  // vshank_jac[1]
 
 **注意**：`vshank_jac` 是姿态相关的（随腿的构型实时变化），`leg_solver.c` 每个控制周期重新计算。左右腿各有一套，但代码中 `mirror = 1`（`robot_control.c:47/52`），左右共用同一套公式。
 
-### 4.3 电机力矩限幅（`rl_torque.c:223-227`）
+### 4.3 电机力矩限幅（`rl_torque.c:228-232`）
 
 ```c
 leg_limit = machine->dm_trq_clamp;   // chuanliantui = 20.0 Nm（machine_config.c:13）
@@ -235,8 +234,9 @@ torque->dji[1] = clampf(tau_v[5], -wheel_limit, wheel_limit);  // 右轮
 
 **限幅层级**（从内到外）：
 1. PID MaxOutput = 1000.0 Nm（`pid.c:69`）—— 远大于实际需要
-2. `dm_trq_clamp` = 20.0 Nm（`rl_torque.c:224`）—— **实际生效的软件限幅**
-3. MIT 力矩满量程 = ±54 Nm（`dm.c:308`，`machine->dm_trq_max`）—— 硬件编码限幅
+2. `dm_trq_clamp` = 20.0 Nm（`rl_torque.c:228`）—— 机器表软件限幅
+3. `SYSID_TRQ_LIMIT_NM` = 10.0 Nm（`sysid_mode.c:16`，位置扫描分支 `:747`）—— **测试模式当前真正生效的上限**
+4. MIT 力矩满量程 = ±54 Nm（`dm.c:308`，`machine->dm_trq_max`）—— 硬件编码限幅
 
 ---
 
@@ -274,13 +274,17 @@ Dm_Mit_Control(i, DM_MIT_FIELD_MAX,   // angle_raw = 4095（位置场填满值�
 
 **与力矩激励模式的区别**：力矩模式直接下发力矩脉冲记录角度响应；位置模式通过 PD 控制器跟踪目标角，记录跟踪所需的力矩。
 
-### 6.2 姿态表（`sysid_mode.c:213-217`）
+### 6.2 姿态表（`sysid_mode.c:189-197`）
 
 ```c
+#define POSE_RUN(th, sh) \
+    { TID_POSE, SYSID_KIND_CMD_LEG, 0, TPL_POSE, \
+      th, 4.2f, SYSID_POSE_HOLD_S, 0.0f, 1, 0.0f, 0.0f, sh }
 static const sysid_run_t sysid_pose_runs[] = {
-    POSE_RUN(-0.15f, 2.50f), POSE_RUN(0.00f, 2.50f), POSE_RUN(0.15f, 2.50f),
-    POSE_RUN(-0.15f, 2.80f), POSE_RUN(0.00f, 2.80f), POSE_RUN(0.15f, 2.80f),
-    POSE_RUN(-0.15f, 3.10f), POSE_RUN(0.00f, 3.10f), POSE_RUN(0.15f, 3.10f),
+    /* 大腿角 45°/90°/135° = 0.7854/1.5708/2.3562 rad; 虚拟小腿角 2.40/2.60/2.80 rad */
+    POSE_RUN(0.7854f, 2.40f), POSE_RUN(1.5708f, 2.40f), POSE_RUN(2.3562f, 2.40f),
+    POSE_RUN(0.7854f, 2.60f), POSE_RUN(1.5708f, 2.60f), POSE_RUN(2.3562f, 2.60f),
+    POSE_RUN(0.7854f, 2.80f), POSE_RUN(1.5708f, 2.80f), POSE_RUN(2.3562f, 2.80f),
 };
 ```
 
@@ -288,66 +292,68 @@ static const sysid_run_t sysid_pose_runs[] = {
 
 | run | 大腿角 (rad) | 虚拟小腿角 (rad) |
 |-----|-------------|-----------------|
-| 0 | −0.15 | 2.50 |
-| 1 | 0.00 | 2.50 |
-| 2 | +0.15 | 2.50 |
-| 3 | −0.15 | 2.80 |
-| 4 | 0.00 | 2.80 |
-| 5 | +0.15 | 2.80 |
-| 6 | −0.15 | 3.10 |
-| 7 | 0.00 | 3.10 |
-| 8 | +0.15 | 3.10 |
+| 0 | 0.7854 (45°) | 2.40 |
+| 1 | 1.5708 (90°) | 2.40 |
+| 2 | 2.3562 (135°) | 2.40 |
+| 3 | 0.7854 | 2.60 |
+| 4 | 1.5708 | 2.60 |
+| 5 | 2.3562 | 2.60 |
+| 6 | 0.7854 | 2.80 |
+| 7 | 1.5708 | 2.80 |
+| 8 | 2.3562 | 2.80 |
 
-**两条腿走同一目标**（`sysid_mode.c:733-734`）：`act_buf[3] = act_buf[0]`，`act_buf[4] = act_buf[1]`。
+**两条腿走同一目标**（`sysid_mode.c:730-733`）：左右各自按 `target - dof_pos[i]` 算动作值，目标角相同、静息位分别取 `dof_pos[0/1]` 与 `dof_pos[3/4]`。整表跑完 `SYSID_LOOP_CNT`（当前 1）遍后停机，心跳行状态码为 5。
 
-### 6.3 每个 run 的时序（`sysid_mode.c:57-58`）
+### 6.3 每个 run 的时序（`sysid_mode.c:64-65, 188-191`）
 
 ```
-SYSID_POSE_RAMP_S = 0.5 s    // 从上一姿态线性滑到目标的时间
-SYSID_POSE_HOLD_S = 2.0 s    // 到位后保持的时间（准静态取数）
+t_pre             = 4.2 s    // 斜坡段上限 (大腿最大跨度 90° @ 0.4 rad/s ≈ 3.93 s, 留余量)
+SYSID_POSE_HOLD_S = 3.0 s    // 到位后保持的时间（准静态取数）
 ```
 
-每个 run 总时长 = 0.5 + 2.0 = **2.5 s**（`sysid_run_dur()` at `sysid_mode.c:271`）。
+每个 run 总时长 = 4.2 + 3.0 = **7.2 s**（`sysid_run_dur()` 的 `TPL_POSE` 分支：`t_pre + t_excite`）。段号：`t < t_pre` 为 1（斜坡），之后为 2（保持）。
 
-### 6.4 斜坡实现（`sysid_mode.c:710-725`）
+> `SYSID_POSE_RAMP_RATE 1.2f` 这个宏当前没有被引用，真正的斜率写在 §6.4 的 `ramp_t` 初值里。
+
+### 6.4 斜坡实现（`sysid_mode.c:230-231, 715-724` + `user-lib/simple-function.c::Ramp_Update()`）
 
 ```c
-// 首次 run: 斜坡起点取当前实测角
-if (tick_in_run == 0 && !sysid_pose_ready) {
-    sysid_pose_prev[0] = leg_l.output.thigh_angle;        // 当前大腿角
-    sysid_pose_prev[1] = leg_l.output.virtual_shank_angle; // 当前虚拟小腿角
-    sysid_pose_ready = 1;
+static ramp_t sysid_ramp_th = {0.0f, 0.4f};   // 大腿角斜坡, 斜率 0.4 rad/s
+static ramp_t sysid_ramp_sh = {0.0f, 0.2f};   // 虚拟小腿角斜坡, 0.2 rad/s
+
+// 首次进入测试模式: 斜坡起点对齐当时的实测角
+if (sysid_pose_ready == 0u) {
+    Ramp_Reset(&sysid_ramp_th, leg_l.output.thigh_angle);
+    Ramp_Reset(&sysid_ramp_sh, leg_l.output.virtual_shank_angle);
+    sysid_pose_ready = 1u;
 }
-
-ramp = 1.0f;
-if (t_pre > 0 && t < t_pre)
-    ramp = t / t_pre;                           // 线性斜坡: 0 → 1
-
-thigh_t = prev_thigh + (target_thigh - prev_thigh) * ramp;  // 线性插值
-shank_t = prev_shank + (target_shank - prev_shank) * ramp;
+thigh_t = Ramp_Update(&sysid_ramp_th, run->amplitude, SYSID_DT);   // amplitude = 大腿角目标
+shank_t = Ramp_Update(&sysid_ramp_sh, run->amp2,      SYSID_DT);   // amp2 = 小腿角目标
 ```
 
-- `ramp = t / t_pre`：从 **0 线性增长到 1**，持续 `t_pre = 0.5 s`
-- `t ≥ t_pre` 后 `ramp = 1.0`，即保持目标角（`t_excite = 2.0 s`）
-- **斜坡起点**：第一个 run 取当前实测角；后续 run 取上一个 run 的最终目标角（`sysid_mode.c:756-757`）
+`Ramp_Update()` 是**斜率限幅器**，不是按时间归一化的线性插值：每个周期最多向目标走 `rate × dt`（大腿 0.4 mrad、小腿 0.2 mrad），到目标后停住。因此：
 
-### 6.5 目标角→动作值的转换（`sysid_mode.c:731-734`）
+- 斜坡实际时长 = `|目标 − 当前| / rate`，与 `t_pre` 无关；`t_pre = 4.2 s` 只是段号切换点和保持段起点
+- **斜坡起点**：第一个 run 对齐实测角；后续 run 从上一 run 斜坡器停住的值（= 上一目标）继续
+- 仿真端复刻：用同样的斜率限幅器生成目标，不要用 `t / t_pre` 插值
+
+### 6.5 目标角→动作值的转换（`sysid_mode.c:729-733`）
 
 ```c
-act_buf[0] = (thigh_t - dof_pos[0]) * 2.0f;   // 左大腿
-act_buf[1] = (shank_t - dof_pos[1]) * 2.0f;   // 左小腿
-act_buf[3] = act_buf[0];                        // 右大腿（同值）
-act_buf[4] = act_buf[1];                        // 右小腿（同值）
+act_buf[0] = (thigh_t - sysid_pose_param.dof_pos[0]) * 2.0f;   // 左大腿
+act_buf[1] = (shank_t - sysid_pose_param.dof_pos[1]) * 2.0f;   // 左小腿
+act_buf[3] = (thigh_t - sysid_pose_param.dof_pos[3]) * 2.0f;   // 右大腿
+act_buf[4] = (shank_t - sysid_pose_param.dof_pos[4]) * 2.0f;   // 右小腿
 ```
 
-这里 `× 2.0` 是因为 `RL_Torque_Compute` 内部做 `pos_ref = act × RL_TQ_POS_SCALE`（`rl_torque.c:190-193`），其中 `RL_TQ_POS_SCALE = 0.5`（`rl_torque.c:7`）。所以：
+这里 `× 2.0` 是因为 `RL_Torque_Compute` 内部做 `pos_ref = act × RL_TQ_POS_SCALE`（`rl_torque.c:192-195`），其中 `RL_TQ_POS_SCALE = 0.5`（`rl_torque.c:8`）。所以：
 
 ```
 pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 最终 PD 目标 = pos_ref + dof_pos = target
 ```
 
-**静息位 dof_pos**（来自 `RL_MODEL_STABLE`，`rl_torque.c:77`）：
+**静息位 dof_pos**（来自 `RL_MODEL_STABLE`，`rl_torque.c` 的 `RL_Torque_Param_Init()`；三套模型静息位相同）：
 
 | 索引 | dof_pos | 含义 |
 |------|---------|------|
@@ -358,18 +364,20 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 | 4 (右小腿) | +0.65 rad | |
 | 5 (右轮) | 0.0 | |
 
-### 6.6 帧内目标角记录（列 33/34）
+### 6.6 帧内目标角与实测角（列 33~36）
 
-在 `SYSID_MODE_POSE` 模式下，帧长扩展为 **35 列**（`SYSID_LOG_FRAME_N = 35`，`sysid_log.h:18`），比力矩模式多 2 列：
+帧固定 **37 列**（`SYSID_LOG_FRAME_N = 37`，`sysid_log.h:18`，152 B），两种模式同一布局；位置扫描用到最后 4 列：
 
 | 列 | 名称 | 含义 |
 |----|------|------|
-| 33 | `pose_tgt[0]` | 当前大腿目标角 (rad)，左右腿同值 |
-| 34 | `pose_tgt[1]` | 当前虚拟小腿目标角 (rad)，左右腿同值 |
+| 33 | `pose_tgt[0]` | 当前大腿目标角 (rad)，左右腿同值；力矩模式恒 0 |
+| 34 | `pose_tgt[1]` | 当前虚拟小腿目标角 (rad)，左右腿同值；力矩模式恒 0 |
+| 35 | `pose_now[0]` | 左腿实测大腿角 `leg_l.output.thigh_angle` (rad) |
+| 36 | `pose_now[1]` | 左腿实测虚拟小腿角 `leg_l.output.virtual_shank_angle` (rad) |
 
-来源：`sysid_log.c:120-121`，值来自 `sysid_pose_prev[]`（`sysid_mode.c:823-824`）。
+来源：`sysid_log.c:120-123`；目标角取自斜坡器输出 `thigh_t/shank_t`（`sysid_mode.c:827-828`），实测角由 `sysid_fill_fb()` 填（`sysid_mode.c:398-399`）。
 
-> **注意**：列 33/34 仅在 `SYSID_MODE=SYSID_MODE_POSE` 时有定义。`md/sysid/vofa-channel-map.md` 和 `md/sysid/sysid-delivery.md` 描述的是力矩模式（`SYSID_MODE_TORQUE`）的 33 列布局，不包含这两列。训练端应以本节为准。
+> 力矩模式快速索引见 `md/sysid/sysid-delivery.md` §1.2；最终列定义以 `imcalib/Sysid/sysid_log.c` 的 `assemble_frame()` 为准（`sysid_log.h` 顶部注释表仍写 33 列，未同步）。
 
 ---
 
@@ -377,9 +385,9 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 
 ### 7.1 记录方式
 
-测试模式下，每 2 ms（500 Hz）由 `Sysid_Mode_Run()` 产生一帧快照（`sysid_snap_t`），推入环形缓冲（128 帧），由 `commTask`（1 kHz）以 **250 Hz**（`SYSID_TX_DIV=4`）通过 VOFA 串口（JustFloat 协议，921600 8N1）DMA 发出。
+测试模式下，`Sysid_Mode_Run()` 由 1 kHz 控制节拍调用，每周期产生一帧快照推入环形缓冲（128 帧）；设计上由 `commTask` 调 `Sysid_Log_Send_Pump()` 以 **250 Hz**（`SYSID_TX_DIV=4`）经 VOFA 串口（JustFloat，1152000 8N1）DMA 发出。**现状**：`task_comm.c` 目前没有调用发送泵（小机器 LQR 阶段重写 VOFA 函数时去掉了），且 1 kHz 推帧 > 250 Hz 发送会让环形缓冲必然溢出；再次启用前必须先定推帧抽取方案并接回发送泵，见 `sysid-delivery.md` §5.3。
 
-### 7.2 位置扫描模式的帧布局（35 列）
+### 7.2 位置扫描模式的帧布局（37 列）
 
 | 列 | 名称 | 单位 | 含义 |
 |----|------|------|------|
@@ -400,10 +408,12 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 | 31/32 | whl/leg_drop_cnt | - | 总线发送丢帧累计 |
 | **33** | **pose_tgt[0]** | **rad** | **大腿目标角** |
 | **34** | **pose_tgt[1]** | **rad** | **虚拟小腿目标角** |
+| **35** | **pose_now[0]** | **rad** | **左腿实测大腿角** |
+| **36** | **pose_now[1]** | **rad** | **左腿实测虚拟小腿角** |
 
 **训练端可用的输入输出配对**：
 - **输入** = 列 5~8（PD 控制器算出的指令力矩）+ 列 33/34（目标角）
-- **输出** = 列 9~12（实测髋角）+ 列 17~20（腿长/摆角）+ 列 25~28（导数）
+- **输出** = 列 9~12（实测髋角）+ 列 17~20（腿长/摆角）+ 列 25~28（导数）+ 列 35/36（左腿实测大腿角/虚拟小腿角，可直接与 33/34 对照）
 
 时间戳还原：`ns = 列_hi × 1048576 + 列_lo`。
 
@@ -411,10 +421,10 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 
 | 文档 | 内容 |
 |------|------|
-| `md/sysid/vofa-channel-map.md` | 力矩模式（33 列）的逐列对照表 |
 | `md/sysid/sysid-delivery.md` | 交付总说明：坐标系定义、单位、用例清单、SOP |
+| `imcalib/Sysid/sysid_log.h` | 当前 sysid 帧列定义的代码真值 |
 
-> 以上两份文档描述的是力矩模式（`SYSID_MODE_TORQUE`）的帧布局。位置扫描模式多了列 33/34（目标角），其余列含义相同。
+> 两种模式帧布局相同（37 列）；力矩模式下列 33/34 恒 0，列 35/36 照样填实测角。
 
 ---
 
@@ -446,15 +456,16 @@ DM 电机的减速传动机构存在：
 | 杆长 lu / lg | 0.21 / 0.25 m | `machine_config.c:23-24` |
 | 腿长工作区间 | 0.14 ~ 0.34 m | `machine_config.c:25-26` |
 | dm_trq_clamp（腿力矩限幅） | 20.0 Nm | `machine_config.c:13` |
+| SYSID_TRQ_LIMIT_NM（测试模式再钳一次） | 10.0 Nm | `sysid_mode.c:16` |
 | dji_trq_clamp（轮力矩限幅） | 4.8 Nm | `machine_config.c:9` |
 | dm_trq_max（MIT 力矩满量程） | 54.0 Nm | `machine_config.c:12` |
 | dm_pos_max（MIT 位置满量程） | ±π rad | `machine_config.c:10` |
 | dm_vel_max（MIT 速度满量程） | ±45 rad/s | `machine_config.c:11` |
 | mirror（左右腿） | 1 | `robot_control.c:47/52` |
-| 控制频率 | 500 Hz (dt = 0.002 s) | `task_actuation.c:12` |
-| SYSID_POSE_KP | 25.0 | `sysid_mode.c:59` |
-| SYSID_POSE_KD | 300.0 | `sysid_mode.c:60` |
-| RL_TQ_POS_SCALE | 0.5 | `rl_torque.c:7` |
+| 控制频率 | 1 kHz (`CTRL_DT=0.001 s`) | `robot_control.h` |
+| SYSID_POSE_KP | 10.0（待台架） | `sysid_mode.c:66` |
+| SYSID_POSE_KD | 0.0 | `sysid_mode.c:67` |
+| RL_TQ_POS_SCALE | 0.5 | `rl_torque.c:8` |
 | PID MaxOutput | 1000.0 | `rl_torque.c:98` |
 | PID IntegralLimit | 0.0 | `rl_torque.c:98` |
 

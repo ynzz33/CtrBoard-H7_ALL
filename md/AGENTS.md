@@ -1,6 +1,6 @@
 # AI 协作规范 — 轮腿平衡步兵 RL 部署
 
-> 最后更新：2026-09-18
+> 最后更新：2026-09-20
 > 适用：Claude / Cursor / Copilot / Codex / Gemini / Kimi Code 等任何 AI 助手。
 > 接手本仓库前**先读完这一篇**，再动手。
 
@@ -166,14 +166,11 @@ CtrBoard-H7_ALL/
     ├── DBUS.md              ← 遥控器解析说明
     ├── UART_IDLE_DMA.md     ← 串口接收框架说明
     ├── sysid-change-map.md  ← 每处改动的输入/输出/调用链
-    ├── VOFA_SEND.md         ← Vofa 发送说明
     └── sysid/               ← 大机器测试专用文档 (SYSID_ENABLE=1)
         ├── sysid-lower-machine-plan.md
         ├── sysid-delivery.md
-        ├── vofa-channel-map.md
         ├── controller-spec-for-mujoco.md
-        ├── chuanliantui-wheel-joint-sysid-handoff.md
-        └── wheel-test-vofa.md
+        └── chuanliantui-wheel-joint-sysid-handoff.md
 ```
 
 `tools/sysid_export.py` ← 上位机导出 (VOFA 文件 → 契约 CSV + manifest + 校验和)
@@ -188,12 +185,12 @@ CtrBoard-H7_ALL/
 | 串口底层 | uart_idle.c/h | ✅ 完成 |
 | 遥控器解析 | dr16.c/h | ✅ 完成，已实测 |
 | HI229 IMU | hi229.c/h | ✅ 完成 |
-| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，32 通道（上限 32）FireWater DMA |
+| Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，32 通道（上限 32）JustFloat DMA；通道表见 `task_comm.c` 的 `Robot_Control_Send_Vofa()` 上方注释 |
 | FDCAN 总线 | can_bus.c/h | ✅ 完成 |
 | DM 电机 | dm.c/h | ✅ 完成 |
 | 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT + TIM6 扩展；供 CAN 收发时间戳用（步 3 接入） |
 | 机器配置表 | machine_config.c/h | ✅ 新增，**两份表 + 运行时切换**（`Machine_Select`） |
-| 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 新增，测试模式体 + sysid 独立数据帧；关掉开关即回到原样；✅ 激励序列 + 自动跑批 + 事件标记 + 安全链（变更 39） |
+| 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 测试模式体 + 激励序列 + 自动跑批 + 事件标记 + 安全链；关掉开关即回到原样；🟡 sysid 独立数据帧**当前发不出去**：`task_comm.c` 未调用 `Sysid_Log_Send_Pump()`，且 1 kHz 推帧需先定抽取方案（变更 64） |
 | DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
 | 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证 |
 | RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置 |
@@ -214,13 +211,13 @@ CtrBoard-H7_ALL/
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
 - **控制频率**：actuationTask 1kHz（TIM6 Prescaler=274 / Period=999）。LQR 与手动遥操共用该节拍
 - **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集；小机器当前为 0.13~0.20 m
-- **LQR 辅助 PID**：当前腿长/防劈叉/横滚 D 项均关闭，待台架单独标定；投入时会清 PID 历史
+- **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，同为 1 kHz 直接照抄）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
-- **VOFA 调试**：32 通道 FireWater（上限 32），commTask 每 2 周期发送一次（500Hz）；通道定义见 [VOFA_SEND.md](VOFA_SEND.md)
+- **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz；不再维护通道 Markdown，当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准；sysid 帧 37 列，以 `Sysid/sysid_log.c::assemble_frame()` 为准（`sysid_log.h` 顶部注释表尚未同步）
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）

@@ -11,7 +11,7 @@
 - 当前不加入气弹簧补偿、斜率限制或额外控制策略。
 - 多次计算保持单一中间量和短表达式；注释简短。循环索引在 `for` 内定义。
 
-> 最后更新：2026-09-17
+> 最后更新：2026-09-20
 > 参考实车：XYEGA_RM2026_WheelLeg_Infatry_RLdeploy（复旦 EGA 2026 国赛上场版）
 
 ---
@@ -114,7 +114,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-VOFA 正常控制帧为 32 通道、500Hz，通道布局统一见 [VOFA_SEND.md](VOFA_SEND.md)。
+VOFA 正常控制帧为 32 通道、500Hz；不再维护通道 Markdown，当前布局直接以 `task_comm.c::Robot_Control_Send_Vofa()` 为准。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -232,7 +232,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 - LQR 模式不检查 `base_action_locked`，改查 `imu_state.online && leg_l.valid && leg_r.valid`
 - LQR 不满足条件时直接零力矩，**不自动降级**到别的策略
 - `lqr_debug` 可在调试器 Watch 中独立开关轮、髋、腿长 PID 并调整轮/髋限幅；不占 VOFA 通道
-- LQR 腿长/横滚/防劈叉 PID 的 D 项当前关闭，待台架单独标定
+- LQR 腿长/横滚/防劈叉 PID 参数与 Leg2_v1 同值（D 项已恢复）；腿长区间与投入下限按本机自标；符号/零点待台架，见 `LQR_PLAN.md` §六 ①
 
 ---
 
@@ -251,7 +251,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 | DR16 遥控 | dr16.c/h | ✅ 解析 + 实测正常 |
 | HI229 IMU | hi229.c/h | ✅ 通信 + 数据提取 |
 | 姿态解算 | Attitude_Algorithm.c/h | ✅ Mahony + HI229 融合 |
-| Vofa 调试 | Vofa_send.c/h | ✅ FireWater DMA 发送 |
+| Vofa 调试 | Vofa_send.c/h | ✅ JustFloat DMA 发送；通道布局以代码为准 |
 | 五连杆 | leg_solver.c/h | ✅ 几何/腿长/腿角/虚拟小腿/雅可比/force_map/极性，含 thigh_angle 根因修复，已上机验证 |
 | RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置（param.configured=0） |
 | CubeAI 推理 | rl_policy.c/h | ✅ 4 模型初始化 + 运行 + 维度静态检查；🟡 推理未在任务中调用 |
