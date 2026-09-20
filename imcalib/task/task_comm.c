@@ -223,68 +223,30 @@ static void Robot_Enable_Update(void)
     }
 }
 
+/*
+ * VOFA 观测帧 (JustFloat, 32 通道, 200Hz)
+ * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
+ * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效
+ * ch2  策略号: 0 手动 / 1 LQR
+ * ch3~6   四髋位置 (零点后 rad): 前左 / 后左 / 前右 / 后右
+ * ch7~10  左腿: 大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 (rad, m)
+ * ch11~14 右腿: 大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 (rad, m)
+ * ch15~16 腿长目标 (左 / 右 m)
+ * ch17~19 俯仰角 (rad) / 俯仰角速度 (rad/s) / 前进速度 (m/s)
+ * ch20~23 LQR 输出 (N·m): 左轮 / 右轮 / 左髋 / 右髋
+ * ch24~25 轮转速 (rad/s): 左 / 右
+ * ch26~27 轮实测电流 (A): 左 / 右
+ * ch28~31 髋力矩反馈 (N·m): 前左 / 后左 / 前右 / 后右
+ */
 static void Robot_Control_Send_Vofa(void)
 {
     static uint8_t vofa_div;
     static float dbg[VOFA_MAX_CH];
-    const pid_t *pid;
     uint8_t online_mask;
+    uint8_t state_bits;
     uint8_t kind;
     uint16_t seq;
     uint64_t tx_ns;
-
-#if SYSID_ENABLE
-    /* 轮测试模式: 最简 10 通道, 每个周期都发 (1kHz) */
-    extern const uint8_t sysid_is_wheel_mode;
-    if (sysid_is_wheel_mode && (ctrl_strategy == CTRL_STRATEGY_SYSID))
-    {
-        extern volatile int16_t sysid_wheel_cmd_raw[DJI_MOTOR_NUM];
-        static uint64_t tx_last_ns;
-        uint8_t m;
-        uint8_t k;
-        uint16_t s;
-        uint64_t t;
-
-        m  = imu_state.online ? 0x01u : 0x00u;
-        m |= DR16_Online() ? 0x02u : 0x00u;
-        m |= motor_state.dm.online[0] ? 0x04u : 0x00u;
-        m |= motor_state.dm.online[1] ? 0x08u : 0x00u;
-        m |= motor_state.dm.online[2] ? 0x10u : 0x00u;
-        m |= motor_state.dm.online[3] ? 0x20u : 0x00u;
-        m |= motor_state.dji.online[0] ? 0x40u : 0x00u;
-        m |= motor_state.dji.online[1] ? 0x80u : 0x00u;
-
-        while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &k, &s, &t))
-        {
-            tx_last_ns = t;
-        }
-
-        dbg[0] = (float)m;
-        dbg[1] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_LFT];
-        dbg[2] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw;
-        dbg[3] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw;
-        dbg[4] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_raw;
-        dbg[5] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_raw;
-        dbg[6] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].vel_raw
-                 * (0.1047198f / machine->dji_gear_ratio);
-        dbg[7] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].vel_raw
-                 * (0.1047198f / machine->dji_gear_ratio);
-        dbg[8] = (float)(uint32_t)(tx_last_ns / 1000u);
-        dbg[9] = (float)(uint32_t)(dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].rx_ns
-                                   / 1000u);
-
-        Vofa_Send(dbg, 10u);
-        return;
-    }
-#endif
-
-    vofa_div++;
-    if (vofa_div < 5u)
-    {
-        return;
-    }
-    vofa_div = 0u;
-
     /* ch0 在线掩码 */
     online_mask  = imu_state.online ? 0x01u : 0x00u;
     online_mask |= DR16_Online() ? 0x02u : 0x00u;
@@ -296,63 +258,62 @@ static void Robot_Control_Send_Vofa(void)
     online_mask |= motor_state.dji.online[1] ? 0x80u : 0x00u;
     dbg[0] = (float)online_mask;
 
-    /* ch1~3 左前髋: 大腿角目标 / 当前 / 输出力矩 */
-    pid    = &rl_control.torque_state.controller[0];    /* 0=左大腿 */
-    dbg[1] = pid->set[NOW];
-    dbg[2] = pid->get[NOW];
-    dbg[3] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_LFT];
+    /* ch1 状态位: 使能/跌倒/左腿有效/右腿有效 */
+    state_bits  = robot_state.motor_enabled ? 0x01u : 0x00u;
+    state_bits |= robot_state.fallen ? 0x02u : 0x00u;
+    state_bits |= leg_l.output.valid ? 0x04u : 0x00u;
+    state_bits |= leg_r.output.valid ? 0x08u : 0x00u;
+    dbg[1] = (float)state_bits;
 
-    /* ch4~6 左后髋: 小腿角目标 / 当前 / 输出力矩 */
-    pid    = &rl_control.torque_state.controller[1];    /* 1=左小腿 */
-    dbg[4] = pid->set[NOW];
-    dbg[5] = pid->get[NOW];
-    dbg[6] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_LFT];
+    /* ch2 策略号: 0 手动 / 1 LQR */
+    dbg[2] = (float)ctrl_strategy;
 
-    /* ch7~9 右前髋: 大腿角目标 / 当前 / 输出力矩 */
-    pid    = &rl_control.torque_state.controller[3];    /* 3=右大腿 */
-    dbg[7] = pid->set[NOW];
-    dbg[8] = pid->get[NOW];
-    dbg[9] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_F_RGT];
+    /* ch3~6 四髋位置 (零点后 rad) */
+    dbg[3] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_LFT];
+    dbg[4] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_LFT];
+    dbg[5] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_RGT];
+    dbg[6] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_RGT];
 
-    /* ch10~12 右后髋: 小腿角目标 / 当前 / 输出力矩 */
-    pid     = &rl_control.torque_state.controller[4];   /* 4=右小腿 */
-    dbg[10] = pid->set[NOW];
-    dbg[11] = pid->get[NOW];
-    dbg[12] = rl_control.torque_state.last_torque.dm[DM_MOTOR_LEG_B_RGT];
+    /* ch7~10 左腿解算: 大腿角/小腿角/摆角/腿长 */
+    dbg[7]  = leg_l.output.thigh_angle;
+    dbg[8]  = leg_l.output.virtual_shank_angle;
+    dbg[9]  = leg_l.output.virtual_leg_angle;
+    dbg[10] = leg_l.output.virtual_leg_length;
 
-    /* 轮测试: ch13~19 左轮 / ch20~26 右轮
-       命令raw / 命令A / 实测raw / 实测A / 编码器 / 转速rpm / 转速rad-s */
-    extern volatile int16_t sysid_wheel_cmd_raw[DJI_MOTOR_NUM];
-#if SYSID_ENABLE
-    dbg[13] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_LFT];
-#else
-    dbg[13] = 0.0f;
-#endif
-    dbg[14] = dbg[13] / 819.2f;
-    dbg[15] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw;
-    dbg[16] = dbg[15] / 819.2f;
-    dbg[17] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].angle_raw;
-    dbg[18] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].vel_raw;
-    dbg[19] = dbg[18] * (0.1047198f / machine->dji_gear_ratio);
+    /* ch11~14 右腿解算 */
+    dbg[11] = leg_r.output.thigh_angle;
+    dbg[12] = leg_r.output.virtual_shank_angle;
+    dbg[13] = leg_r.output.virtual_leg_angle;
+    dbg[14] = leg_r.output.virtual_leg_length;
 
-#if SYSID_ENABLE
-    dbg[20] = (float)sysid_wheel_cmd_raw[DJI_MOTOR_WHEEL_RGT];
-#else
-    dbg[20] = 0.0f;
-#endif
-    dbg[21] = dbg[20] / 819.2f;
-    dbg[22] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw;
-    dbg[23] = dbg[22] / 819.2f;
-    dbg[24] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].angle_raw;
-    dbg[25] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].vel_raw;
-    dbg[26] = dbg[25] * (0.1047198f / machine->dji_gear_ratio);
+    /* ch15~16 腿长目标 (左/右 m) */
+    dbg[15] = lqr_state.leg_len_tgt[0];
+    dbg[16] = lqr_state.leg_len_tgt[1];
 
-    /* ch27~31 腿部解算值 (从原 ch19~24 挪过来) */
-    dbg[27] = leg_l.output.virtual_shank_angle;
-    dbg[28] = leg_l.output.thigh_angle;
-    dbg[29] = leg_l.output.virtual_leg_length;
-    dbg[30] = leg_r.output.thigh_angle;
-    dbg[31] = leg_r.output.virtual_leg_length;
+    /* ch17~19 俯仰角/俯仰角速度/前进速度 */
+    dbg[17] = lqr_state.x[LQR_X_THB];
+    dbg[18] = lqr_state.x[LQR_X_DTHB];
+    dbg[19] = lqr_state.x[LQR_X_DS];
+
+    /* ch20~23 LQR 输出: 左轮/右轮/左髋/右髋 (N·m) */
+    dbg[20] = lqr_state.u[LQR_U_WL];
+    dbg[21] = lqr_state.u[LQR_U_WR];
+    dbg[22] = lqr_state.u[LQR_U_BL];
+    dbg[23] = lqr_state.u[LQR_U_BR];
+
+    /* ch24~25 轮转速 (rad/s) */
+    dbg[24] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[25] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+
+    /* ch26~27 轮实测电流 (A) */
+    dbg[26] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_LFT].current_raw / 819.2f;
+    dbg[27] = (float)dji_motor_feedback[DJI_MOTOR_WHEEL_RGT].current_raw / 819.2f;
+
+    /* ch28~31 髋力矩反馈 (N·m): 左前/左后/右前/右后 */
+    dbg[28] = dm_motor_feedback[DM_MOTOR_LEG_F_LFT].trq_nm;
+    dbg[29] = dm_motor_feedback[DM_MOTOR_LEG_B_LFT].trq_nm;
+    dbg[30] = dm_motor_feedback[DM_MOTOR_LEG_F_RGT].trq_nm;
+    dbg[31] = dm_motor_feedback[DM_MOTOR_LEG_B_RGT].trq_nm;
     /* 清空 CAN 发送完成环 (不进通道, 防止积满) */
     while (Can_Bus_Tx_Pop((uint8_t)machine->dji_bus, &kind, &seq, &tx_ns)) 
     {

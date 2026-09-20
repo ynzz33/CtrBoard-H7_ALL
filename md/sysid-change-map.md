@@ -1681,6 +1681,84 @@ commTask (1kHz) → comm_task_body()
 
 ---
 
+## 变更 58 · 切回小机器（`MACHINE_DEFAULT` → `MACHINE_ID_LOCAL`，作者：测小机器 LQR）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/machine_config.h` | `MACHINE_DEFAULT`：`MACHINE_ID_CHUANLIANTUI` → `MACHINE_ID_LOCAL` |
+| `imcalib/user-lib/machine_config.c` | 未改；`machine` 初值 `&machine_table[MACHINE_DEFAULT]` 自动指向小机器表 |
+
+**为什么只改这一行**：机器相关的量（型号/减速比/限幅/极性/零点/总线/腿几何/腿长区间）全部在两份表里，切换机器只切指针。
+
+**切换后实际生效参数（大机器 → 小机器）**
+
+| 项 | 大机器 `chuanliantui` | 小机器 `local-m2006-j4310` |
+| --- | --- | --- |
+| 轮型号/减速比/限幅 | M3508 / 15.5 / ±4.8 N·m | **M2006** / 36.0 / ±1.8 N·m |
+| 腿电机 (DM) | J8009P：±π / 45 rad/s / 54 N·m | **J4310**：±π / 30 rad/s / 10 N·m |
+| 腿力矩限幅 | 20 N·m | 10 N·m |
+| 腿总线 | FDCAN1 ×4 | **FDCAN1 左腿 + FDCAN3 右腿** |
+| 轮总线 | FDCAN3 | **FDCAN2** |
+| DM 零点 | {0.476998, 1.974491, …} | {-0.03, -0.04, -0.038, -0.023} |
+| 腿几何 lu / lg | 0.21 / 0.25 | 0.13087 / 0.15240 |
+| 腿长区间 | 0.14 ~ 0.34 | 0.10 ~ 0.20 |
+
+**输入 / 输出 / 调用链**
+- 定义：`machine_config.h` 的 `MACHINE_DEFAULT` → `machine_config.c` 的 `machine` 指针 → 全工程只读 `machine->`
+- 消费者：`dm.c`（极性/零点/量程/限幅/总线）、`dji.c`（型号→`per_raw`、减速比、总线）、`leg_solver.c`（lu/lg/腿长区间/phi0）、`lqr_balance.c`（`leg_len_min/max` 参与 LQR 投入判定与腿长目标夹取）、`rl_torque.c`（限幅）、`task_comm.c`（VOFA 换算）
+- 运行时切换口：`Machine_Select(id)`（`main.c` 上电调用 `Machine_Select(MACHINE_DEFAULT)`）
+
+**核对**：armcc 全量 105 文件 0 fail / 0 warn（默认配置）。
+
+**已确认不需要改的**：**FDCAN 波特率不用动**。`can_bus.c:91-92` 的发送模板是 `BitRateSwitch=FDCAN_BRS_OFF` + `FDFormat=FDCAN_CLASSIC_CAN`，发出的全是**经典 CAN 帧**，只走仲裁段（nominal）时序；三路 FDCAN 的 nominal 都是 `24 MHz / (3×8) = 1 Mbps`（HSE 24 MHz 直供 FDCAN）。FDCAN1 上那个 4 Mbps 的 DataPrescaler 只影响 FD 数据段，对经典帧**不起作用**。（待台架：若小机器 J4310 曾被达妙上位机改成非 1 Mbps，则以电机实际波特率为准。）
+
+**待台架 / 未决**
+- LQR K 表拟合域 0.13~0.23 m，小机器腿长区间 0.10~0.20 m：站姿腿长低于 0.13 m 时增益为外推值。
+- `lqr_balance.c:9` 的 `LQR_WHEEL_R = 0.04f` 硬编码，未进配置表；小机器轮径若不等于 0.04 m，速度估计会成比例偏。
+- 测试模式（左上 + 右中）的姿态表仍是按大机器几何标的，小机器上不要进。
+
+---
+
+## 变更 59 · 关测试开关 + FDCAN1 数据段改回原值 + VOFA 换成 LQR 观测帧（作者：开始测小机器 LQR）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Sysid/sysid_config.h` | `SYSID_ENABLE`：1 → **0**（测试代码整块不参与编译，策略仲裁回到 LQR / 手动两路） |
+| `Core/Src/fdcan.c` | FDCAN1 `DataPrescaler` 1→3、`DataTimeSeg1` 4→5、`DataTimeSeg2` 1→2 |
+| `CtrBoard-H7_ALL.ioc` | 同上三行（与 CubeMX 保持同源，重新生成不会变回 4 Mbps） |
+| `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` 的 32 通道内容整块换成 LQR 观测；函数上方补通道表注释；删掉 `const pid_t *pid;` 与 `sysid_wheel_cmd_raw` 的 extern 引用 |
+
+**为什么改 FDCAN1**：作者要求把大机器那次的改动还原。注：`can_bus.c:91-92` 发送模板是 `BRS_OFF + CLASSIC_CAN`，仲裁段 1 Mbps 不变，这 3 行只影响 FD 数据段（当前固件用不到）；改回去是为了与 CubeMX 配置、与两机器一致的原始状态对齐。
+
+**VOFA 新帧（32 通道 / JustFloat / 200 Hz，`vofa_div < 5u` 分频不变）**
+
+| 通道 | 含义 | 来源 |
+| --- | --- | --- |
+| ch0 | 在线掩码：IMU / 遥控 / 髋 4 / 轮 2 | `imu_state.online`、`DR16_Online()`、`motor_state.dm.online[]`、`motor_state.dji.online[]` |
+| ch1 | 状态位：使能 / 跌倒 / 左腿有效 / 右腿有效 | `robot_state.*`、`leg_l/r.output.valid` |
+| ch2 | 策略号 0 手动 / 1 LQR | `ctrl_strategy` |
+| ch3~6 | 四髋位置（零点后 rad） | `motor_state.dm.pos_zero_rad[]` |
+| ch7~10 | 左腿：大腿角 / 虚拟小腿角 / 虚拟腿摆角 / 腿长 | `leg_l.output.*` |
+| ch11~14 | 右腿：同上 | `leg_r.output.*` |
+| ch15~16 | 腿长目标（左/右 m） | `lqr_state.leg_len_tgt[]` |
+| ch17~19 | 俯仰角 (rad) / 俯仰角速度 (rad/s) / 前进速度 (m/s) | `lqr_state.x[THB / DTHB / DS]` |
+| ch20~23 | LQR 输出 (N·m)：左轮 / 右轮 / 左髋 / 右髋 | `lqr_state.u[WL / WR / BL / BR]` |
+| ch24~25 | 轮转速 (rad/s) | `motor_state.dji.vel_rad_s[]` |
+| ch26~27 | 轮实测电流 (A) | `dji_motor_feedback[].current_raw / 819.2` |
+| ch28~31 | 髋力矩反馈 (N·m)：前左/后左/前右/后右 | `dm_motor_feedback[].trq_nm` |
+
+**输入 / 输出 / 调用链**
+- 输入：上面表里各来源（都在 `commTask` 之前由 `Dm_Parse/Dji_Parse/Motor_State_Update/Leg_State_Update` 刷好；LQR 的 `lqr_state` 由 `actuationTask` 的 LQR 分支刷新）
+- 输出：`Vofa_Send(dbg, 32u)` → `VOFA_PORT`（当前 1 = USART1 @1152000）→ JustFloat
+- 调用链：`comm_task_body()` → `Robot_Control_Send_Vofa()`；末尾两段 `Can_Bus_Tx_Pop` 清环保持不变
+- `SYSID_ENABLE=0` 后：`task_actuation.c` 的 sysid 分支、`task_comm.c` 的 10 通道轮帧分支整块编译掉；`Sysid/*.c` 编成空单元
+
+**核对**：默认（`SYSID_ENABLE=0`）与 `-DSYSID_ENABLE=1` 均 **105 文件 0 fail / 0 warn**。
+
+**待台架**：小机器上先只看 ch7~14（手搬腿 → 大腿角/小腿角/摆角/腿长是否跟手、左右是否一致），确认后再进 LQR。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

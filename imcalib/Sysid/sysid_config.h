@@ -4,7 +4,7 @@
 /* 测试总开关: 0=正常控制 1=系统辨识数据采集 */
 /* 采完数据跑正常控制时改回 0 */
 #ifndef SYSID_ENABLE
-#define SYSID_ENABLE    1
+#define SYSID_ENABLE    0
 #endif
 
 /* 测试计划: 1=仅腿 2=仅轮 3=全部 */

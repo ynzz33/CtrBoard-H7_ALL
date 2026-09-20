@@ -13,7 +13,7 @@
 #define MACHINE_WHEEL_NUM         2u
 
 /* 上电默认机器: 换机器改这一行 */
-#define MACHINE_DEFAULT           MACHINE_ID_CHUANLIANTUI
+#define MACHINE_DEFAULT           MACHINE_ID_LOCAL
 
 /* 一路电机的极性 */
 typedef struct {
