@@ -8,8 +8,8 @@
 
 ```
 uart_idle.c/h    ← 底层框架 (ISR + 初始化)
-dbus.c/h         ← 设备层 (遥控器: 判断+拷贝+解析)
-debug_rx.c/h     ← 设备层 (调试串口: 判断+拷贝+解析)
+dr16.c/h         ← 设备层 (遥控器: 判断+拷贝+解析)
+hi229.c/h        ← 设备层 (IMU: 判断+扫描+解析)
 ```
 
 ---
@@ -17,12 +17,12 @@ debug_rx.c/h     ← 设备层 (调试串口: 判断+拷贝+解析)
 ## 2. 数据流
 
 ```
-USART1 RX (PA10) → DMA1_Stream3 → dbus_rx.dma_buf (Circular)
-UART7  RX (PE7)  → DMA1_Stream2 → debug_rx.dma_buf (Circular)
+UART9 RX → DMA → dbus_rx.dma_buf (Circular)
+UART7 RX → DMA → hi229_rx.dma_buf (Circular)
     ↓ IDLE 中断 (一帧结束)
 UART_Idle_Isr
     ↓ 清错误 → 快照 → 置 flag
-dbus_rx.flag = 1 / debug_rx.flag = 1
+dbus_rx.flag = 1 / hi229_rx.flag = 1
     ↓ 任务层调用 XXX_Process()
 判断 flag → 拷贝 → 解析
 ```
@@ -53,18 +53,18 @@ UART_Idle_Isr(&huart1, &dbus_rx);
 
 ---
 
-## 4. 设备层 API (dbus.c/h)
+## 4. 设备层 API（dr16.c/h）
 
 ```c
 /* 任务里只需要调这个 */
-DBUS_Process();
+DR16_Process();
 
 /* 内部实现 */
-void DBUS_Process(void) {
+void DR16_Process(void) {
     if (!dbus_rx.flag) return;   ← 判断是否收到一帧
     dbus_rx.flag = 0;
     memcpy(buf, dbus_rx.isr_buf, len);  ← 拷贝
-    DBUS_Parse(buf, len);                ← 解析
+    DR16_Parse(buf);                     ← 解析
 }
 ```
 
@@ -90,7 +90,7 @@ HAL 默认的 `HAL_UART_Receive_DMA()` 会开启 DMA 的半传输(HT)和全传�
 
 ## 8. CubeMX 配置要求
 
-| 配置项 | USART1 (遥控) | UART7 (调试) |
+| 配置项 | UART9 (DR16) | UART7 (HI229) |
 |--------|--------------|-------------|
 | Mode | 异步 | 异步 |
 | DMA RX | Circular | Circular |

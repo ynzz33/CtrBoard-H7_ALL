@@ -1,5 +1,9 @@
 # 控制律复刻说明书（MuJoCo 仿真端）
 
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
 > 目的：让 MuJoCo 端一字不差地复现下位机的虚拟关节 PD 位置跟踪控制律。
 > 适用固件：`imcalib/Sysid/`（`SYSID_ENABLE=1`, `SYSID_MODE=SYSID_MODE_POSE`）
 > 最后更新：2026-09-22
@@ -365,7 +369,7 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 
 来源：`sysid_log.c:120-121`，值来自 `sysid_pose_prev[]`（`sysid_mode.c:823-824`）。
 
-> **注意**：列 33/34 仅在 `SYSID_MODE=SYSID_MODE_POSE` 时有定义。`md/vofa-channel-map.md` 和 `md/sysid-delivery.md` 描述的是力矩模式（`SYSID_MODE_TORQUE`）的 33 列布局，不包含这两列。训练端应以本节为准。
+> **注意**：列 33/34 仅在 `SYSID_MODE=SYSID_MODE_POSE` 时有定义。`md/sysid/vofa-channel-map.md` 和 `md/sysid/sysid-delivery.md` 描述的是力矩模式（`SYSID_MODE_TORQUE`）的 33 列布局，不包含这两列。训练端应以本节为准。
 
 ---
 
@@ -407,8 +411,8 @@ pos_ref = act × 0.5 = (target - dof_pos) × 2.0 × 0.5 = target - dof_pos
 
 | 文档 | 内容 |
 |------|------|
-| `md/vofa-channel-map.md` | 力矩模式（33 列）的逐列对照表 |
-| `md/sysid-delivery.md` | 交付总说明：坐标系定义、单位、用例清单、SOP |
+| `md/sysid/vofa-channel-map.md` | 力矩模式（33 列）的逐列对照表 |
+| `md/sysid/sysid-delivery.md` | 交付总说明：坐标系定义、单位、用例清单、SOP |
 
 > 以上两份文档描述的是力矩模式（`SYSID_MODE_TORQUE`）的帧布局。位置扫描模式多了列 33/34（目标角），其余列含义相同。
 
@@ -454,4 +458,4 @@ DM 电机的减速传动机构存在：
 | PID MaxOutput | 1000.0 | `rl_torque.c:98` |
 | PID IntegralLimit | 0.0 | `rl_torque.c:98` |
 
-**极性与零点**：属台架标定项，见 `md/sysid-delivery.md` §3.2。训练端直接使用帧中记录的值即可，不要再取反或叠加偏置。
+**极性与零点**：属台架标定项，见 `md/sysid/sysid-delivery.md` §3.2。训练端直接使用帧中记录的值即可，不要再取反或叠加偏置。

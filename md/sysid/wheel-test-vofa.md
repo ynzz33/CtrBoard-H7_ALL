@@ -1,5 +1,7 @@
 # 轮关节测试数据说明（给训练端）
 
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
 > 对应固件：`imcalib/Sysid/`（`SYSID_ENABLE=1`、`SYSID_PLAN=2`、`SYSID_MODE=SYSID_MODE_TORQUE`）
 > 采集方式：VOFA+ 的 **JustFloat** 帧，测试模式下 **10 通道 / 1 kHz**
 > 最后更新：2026-09-19
@@ -35,7 +37,7 @@
 | 频率 | **1 kHz**（commTask 每个周期发一帧） |
 | 帧长 | 44 字节 |
 | 串口 | 与固件 `VOFA_PORT` 一致（`1`=USART1 / `8`=UART8），波特率与 CubeMX 设置一致 |
-| 有效范围 | **只在"测试模式"下是这个 10 通道帧**；正常控制模式是另一套 32 通道 / 200 Hz 帧 |
+| 有效范围 | **只在"测试模式"下是这个 10 通道帧**；正常控制模式是另一套 32 通道 / 500 Hz 帧 |
 
 > VOFA+ 里新建 **JustFloat** 数据源、通道数设 **10**，波特率与固件一致。
 
@@ -94,6 +96,6 @@
 
 ## 6. 相关文档
 
-- `md/sysid-delivery.md` — 腿/轮测试总说明、坐标系定义、台架 SOP
-- `md/vofa-channel-map.md` — 正常模式 32 通道帧的逐列说明
-- `md/controller-spec-for-mujoco.md` — 控制律复刻说明（速度环 PID 参数、映射、周期）
+- `md/sysid/sysid-delivery.md` — 腿/轮测试总说明、坐标系定义、台架 SOP
+- `md/sysid/vofa-channel-map.md` — 正常模式 32 通道帧的逐列说明
+- `md/sysid/controller-spec-for-mujoco.md` — 控制律复刻说明（速度环 PID 参数、映射、周期）

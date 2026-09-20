@@ -2,7 +2,7 @@
 
 > 参考开源：`Leg2_v1`（上交轮腿 LQR，机械构造与本机一致）
 > 增益来源：`lqr_gain_table.h`（参考上车表）+ `leg_matlab_script`（自研脚本，待重跑对齐）
-> 最后更新：2026-09-17
+> 最后更新：2026-09-20
 
 ---
 
@@ -10,21 +10,23 @@
 
 | # | 决策 | 说明 |
 |:--:|---|---|
-| 1 | **频率暂不改**，先按 500 Hz 实现 | 整套 LQR 在台架验证通过后，再统一切到 1 kHz，见 §五 |
+| 1 | **控制频率 1 kHz** ✅ | TIM6 与全部控制时间步已统一为 `CTRL_DT=0.001f`，见 §五 |
 | 2 | **切换开关用左拨杆 s1** | 上位 = 手动遥操/RL，中位 = LQR，下位 = 失能 |
 | 3 | **机械参数照抄 Leg2_v1** | 机械构造一致，数值见 §二 |
 | 4 | **不移植 `Leg_Tougue`** | `leg_solver` 的 `force_map` 就是同一个映射，见 §三 |
 | 5 | **不借用 PID 库做增益求和** | 参考把 40 个 P 项塞进 40 个 PID 只为复用限幅/遥测，直接数组求和等价 |
 | 6 | **DJI 力矩常数** ✅ 已修正 | 总减速比因子已放进换算（`per_raw` 按 `machine->dji_gear_ratio` 缩放），见 `dji.c` 的 `Dji_Torque_To_Current`；Kt 绝对值仍待台架实测 |
 | 7 | **极性以外置测试为准** | RL 手动遥操阶段已验证 pitch/腿摆角/轮子方向；虚拟腿 Tp 方向待台架补测 |
-| 8 | **腿长限制在 K 表有效域内** | 实测腿长约 0.1~0.2 m，K 表拟合域 0.13~0.23 m → 软件把目标限到 **0.13~0.21 m** |
+| 8 | **腿长限制取机器表 ∩ K 表域** | K 表拟合域 0.13~0.23 m；小机器机器表 0.10~0.20 m → 实际 **0.13~0.20 m** |
 
-### 1.1 机械参数（取自 `WBR_modeling.mlx`，与本机一致）
+### 1.1 机械参数来源
+
+`leg_matlab_script` 是大机器参数脚本；小机器重算增益必须使用 `Leg2_v1/轮腿上交建模MATLAB/WBR_modeling.mlx`。下表是建模快照，参数以对应机器表和建模文件为准。
 
 | 参数 | 值 | 含义 |
 |---|---:|---|
 | g | 9.81 m/s² | 重力 |
-| R_w | 0.04 m | 驱动轮半径 |
+| R_w | 大机器 0.04 m；小机器 0.03 m | 驱动轮半径，运行时取 `machine->wheel_r` |
 | R_l | 0.3459 m | 两驱动轮中心距 / 2 |
 | l_c | 0.0501 m | 机体质心到腿部关节中心点距离 |
 | m_w | 0.13463 kg | 单驱动轮质量 |
@@ -49,9 +51,9 @@
 | `imcalib/Algorithm/lqr_balance.c/h` | 10 维状态估计 + 增益求值 + 状态反馈求和 + 遥控目标 |
 | `imcalib/Algorithm/leg_balance.c/h` | 腿长/防劈叉/横滚 PID + 力向量合成 + 力域映射 + 限幅 |
 | `imcalib/Algorithm/torque_output.h` | 公共输出结构（从 `rl_torque.h` 搬出，两边共用） |
-| `imcalib/user-lib/lowpass.c/h` | 一阶低通 |
+| `imcalib/user-lib/simple-function.c/h` | 一阶低通 + 斜坡函数 |
 
-### 2.2 控制链路（全部在 `actuationTask` @500 Hz）
+### 2.2 控制链路（全部在 `actuationTask` @1 kHz）
 
 ```
 imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写者模型不变）
@@ -72,7 +74,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 | 1 | ds | 轮速运动学 + 低通：`ω_轮·R_w + L·dθ·cosθ + dL·sinθ` |
 | 2 | φ | IMU 偏航角（**不参与控制**，与参考一致） |
 | 3 | dφ | IMU 偏航角速度 + 低通 |
-| 4/5 | θ_ll / dθ_ll | `leg_l.virtual_leg_angle + pitch` / `+ omg_pitch` |
+| 4/5 | θ_ll / dθ_ll | `−leg_l.virtual_leg_angle + pitch` / `−d_virtual_leg_angle + omg_pitch` |
 | 6/7 | θ_lr / dθ_lr | 同上，右腿 |
 | 8/9 | θ_b / dθ_b | IMU 俯仰角 / 俯仰角速度 + 低通 |
 
@@ -82,18 +84,25 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 | 常量 | 值 | 位置 |
 |---|---|---|
-| 腿长工作区间 | 0.13 ~ 0.21 m | `lqr_balance.h` |
+| 腿长工作区间 | `machine` 区间 ∩ 0.13~0.23 m；小机器 0.13~0.20 m | `lqr_balance.h/c` |
 | 遥控量程 | 速度 ±1.2 m/s，偏航 ±3.0 rad/s，升降 0.3 m/s | `lqr_balance.h` |
-| 输出限幅 | 轮 ±1.5 N·m，髋 ±2.0 N·m（**首上电保守值，验证后放开**） | `lqr_balance.h` |
+| 输出限幅 | `lqr_debug.trq_max_wheel` / `trq_max_hip`；小机器默认 1.8 / 5.0 N·m | `lqr_balance.h/c` |
+| 轮半径 | `machine->wheel_r`；大机器 0.04 m 待实测，小机器 0.03 m | `machine_config.c` |
 | 站立目标 | 位移 −0.12 m，腿摆角 −0.05 rad | `lqr_balance.c` |
 | 增益重算阈值 | 0.5 mm | `lqr_balance.c` |
 | 低通系数 | α = 0.3 | `lqr_balance.c` |
 | 足端前馈 | +8 N | `leg_balance.h` |
-| 辅助 PID | 腿长 1000/**25000**，防劈叉 30/**250**，横滚 500/**50** | `leg_balance.h` |
+| 辅助 PID | 腿长 1000/0，防劈叉 30/0，横滚 500/0；D 项暂关 | `leg_balance.h` |
 
-**关于 KD 减半**：参考值（50000/500/100）是 1 kHz 下整定的；D 项实现为 `kd·Δe ≈ kd·dt·de/dt`，等效阻尼 = kd·dt。500 Hz 下要保持同样的物理阻尼，kd 必须减半。**切到 1 kHz 后要把这三个数改回 50000/500/100。**
+辅助 PID 的 D 项已按作者决定全部关闭，后续只能依据台架数据逐项恢复，不随频率自动套用参考值。
 
-### 2.5 遥控映射（LQR 模式）
+### 2.5 `lqr_debug` 调试器用法
+
+`lqr_debug` 只供调试器 Watch 修改，不占 VOFA 通道。`wheel_enable`、`hip_enable`、`len_pid_enable` 分别门控轮、髋和腿长 PID 的最终输出；关闭时 PID 仍继续计算。`trq_max_wheel` / `trq_max_hip` 控制两级限幅。
+
+`vel_leg_comp_sign` 默认 `-1.0`，与原速度估计完全一致；台架只在 `-1/+1` 两值间比较 ch19 波动，确定后写死并删除该字段。
+
+### 2.6 遥控映射（LQR 模式）
 
 | 通道 | 功能 | 与手动模式的关系 |
 |---|---|---|
@@ -157,7 +166,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 ## 四、与 RL 的解耦
 
-- LQR 三个文件**不 include 任何 `rl_*.h`**；RL 侧也不 include LQR 的东西（除公共 `torque_output.h`）。
+- LQR 与 RL 控制逻辑彼此不直接调用；公共周期与共享状态由任务层统一提供。
 - 唯一交汇点是 `task_actuation.c` 的策略分支。
 - LQR 模式不检查 `action_state.base_action_locked`（那是遥操的锁存），改查 `imu_state.online && leg_l.valid && leg_r.valid`。
 - **不做自动降级**：LQR 条件不满足直接走零力矩分支，不偷偷切回别的策略。
@@ -165,57 +174,37 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 ---
 
-## 五、频率：当前 500 Hz，后续升 1 kHz
+## 五、频率：1 kHz（已完成）
 
-现在按 500 Hz 实现（KD 已按 §2.4 折算）。整套验证通过后再统一切 1 kHz，要改的地方：
+控制频率切换已完成：
 
 | # | 位置 | 现在 | 改成 |
 |:--:|---|---|---|
-| 1 | `CtrBoard-H7_ALL.ioc` → TIM6 Prescaler | 549 | **274** |
-| 2 | `Core/Src/tim.c` | `Prescaler = 549` | `274`（在 CubeMX 里改 .ioc 后重新生成） |
-| 3 | `imcalib/Algorithm/rl_torque.c` 两处 `0.002f` | 0.002 | **0.001** |
-| 4 | `imcalib/task/task_actuation.c` `OUTPUT_DT` | 0.002f | **0.001f** |
-| 5 | `leg_balance.h` 三个 KD | 25000 / 250 / 50 | **50000 / 500 / 100** |
-| 6 | `main.c` 中断注释 | 500Hz | 1kHz |
+| 1 | `CtrBoard-H7_ALL.ioc` → TIM6 Prescaler | 549 | **274** ✅ |
+| 2 | `Core/Src/tim.c` | `Prescaler = 549` | **274** ✅ |
+| 3 | 控制时间步 | 分散的 `0.002f` | **`CTRL_DT=0.001f`** ✅ |
+| 4 | `leg_balance.h` 三个 KD | 25000 / 250 / 50 | **0 / 0 / 0**（作者决定）✅ |
+| 5 | `main.c` / `mono_ns.c` 注释 | 500Hz | **1kHz** ✅ |
+| 6 | sysid 心跳 | 125 tick | **250 tick，仍为 250ms** ✅ |
 
-**不用改的**：`commTask osDelay(1)`、`imuTask osDelay(2)`、`policyTask osDelay(10)`、VOFA 分频 `<5` —— 都是 tick 计数，自动保持。
-
-**风险**：actuationTask 从 500 Hz 变 1 kHz，CAN 总线负载翻倍（估算单总线约 50%），上电前量一下 bus load；必要时把 DM 反馈频率留在 500 Hz。
+`commTask` 仍为 1 kHz；VOFA 正常帧改为 2 分频 500 Hz。小机器腿总线估算约 52%，轮总线约 39%；台架检查发送 FIFO 或 sysid drop 计数。
 
 ---
 
 ## 六、台架验证顺序（任何一步不过就停）
 
 ```
-① 架空/吊装, 左拨杆中位, 电机使能但零输出
-    → VOFA 看 x[10] 是否合理（站立时 pitch≈0、腿长≈实测、ds≈0）
-    → **确认腿长落在 0.13~0.21 m**（VOFA ch15/19）；不在范围内 LQR 不投入、保持零力矩，
-      这是刻意的保护——直接夹到域内会让腿长 PID 在使能瞬间产生几十牛的伸长力把车弹起来
-    → 确认 IMU 轴索引: 手抬机头, 看 IMU 欧拉角与俯仰角速度响应是否正确且同向（调试器看 `imu_state`）
-      （若 pitch 实际落在滚转槽, 改 lqr_balance.c 顶部 LQR_IMU_* 四个宏）
-    → 确认腿摆角零位与符号: 腿竖直时 VOFA ch16/20 应 ≈0; 扶住腿只抬头 Δ, ch16/20 应跟着 **+Δ** 走
-      （状态 = −解算腿角 + pitch, 抬头时解算腿角不变, 变化量就是 Δ）
-    → 确认"模型 +x = 实车前方": 手推车往前进方向动, 轮速应为正（调试器看 `motor_state.dji`）
+① 只看数据：调试器 `torque_output_enabled=0`，s1 中位。看 ch1 bit2/3 两腿有效、bit4~7 四台使能；ch10/14 腿长 ≥0.13。抬机头看 ch17/18 是否都响应且同向；不对只改 `LQR_IMU_*` 五个宏并同步核对翻倒检测。架空推腿看 ch19，`vel_leg_comp_sign` 切 ±1，取波动小的。
 
-② 手推倾斜, 只读 LQR 输出（不发力矩）
-    → 前倾时轮扭矩应为"往前追"; 符号反了立刻停
+② 手推倾斜看方向：前倾时 ch20/21 应为正。
 
-③ 只开轮子通道（先把 leg_balance.c 里 Tp 强制为 0, F 只留 +8N 前馈）
-    → ±0.5 N·m 低限幅闭环, 确认 pitch 环/速度环/位移环方向
+③ `hip_enable=0`、`len_pid_enable=0`，只开轮，`trq_max_wheel` 从 0.5 N·m 起。
 
-④ 打开 Tp（髋）
-    → 髋 ±1 N·m 起步, 手扶, 确认腿朝"扶正"方向出力
-    → 恒定小 u_BL 看足端摆向: **正 u_BL 应让足端朝模型 +x 侧摆**（调试器看 `leg_balance` 输出）
-    → 左右腿给同样的 u, 足端应摆向同一侧（这就是右腿对称处理正确与否的判据）
-    → 再确认 F 的伸长/收短方向: 正 F 应伸腿
+④ 开髋：给正 `u_BL`，足端应朝 +x 摆，左右腿同向。
 
-⑤ 打开腿长 PID + 横滚补偿
-    → 能否稳定在目标腿长; 左右腿是否打架（防劈叉）
+⑤ 开腿长 PID：稳在目标腿长，两腿不打架。
 
-⑥ 落地低速平衡 → 慢慢加限幅到目标值 → 加遥控（速度/转向/升降）
-
-⑦ 与手动遥操做 A/B（s1 上下拨）
-    → 切换无跳变、失能立即零力矩
+⑥ 落地低速平衡，逐步抬 `trq_max_hip`，再加遥控。
 ```
 
 ---
@@ -241,12 +230,14 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 | 力映射等价性 | ✅ 已数值核验 | 4413 姿态 × 7 组 (F,Tp)，等价误差 1.4e−13，见 §3.1 |
 | 右腿对称处理 | ✅ 已数值确认 | 不需要参考的 Tp 取反/输出换序，见 §3.2；台架第 ④ 步再做一次方向复核 |
 | 腿摆角符号 & Tp 取反 | ✅ 已修正 | 核验发现两边腿摆角反号，已改状态与 Tp 两处取反，见 §3.1 |
-| IMU 轴索引 | 🟡 待台架 | `ATTITUDE_PITCH = 0`；任务层 `task_imu.c` 把 HI229 的 `eul[0]`（滚转通道）写进下标 0，命名与实际是否一致待确认。四个宏集中在 `lqr_balance.c` 顶部，改两行即可 |
+| IMU 轴索引 | 🟡 待台架 | 调试器观察 `euler_rad[0..2]` 与 `gyro_rad_s[0..2]`；结论确定后只改 `lqr_balance.c` 顶部五个 `LQR_IMU_*` 宏，并同步核对 `task_comm.c` 的 `ATTITUDE_PITCH` 翻倒检测 |
 | 腿长实测范围 | 🟡 待台架 | 若实际站立腿长 < 0.13 m，需把 MATLAB 扫描区间下探并重算，或把工作区间整体上移 |
 | DJI 力矩常数 | ✅ 已修正 | 总减速比因子已放进换算（`per_raw` 按 `machine->dji_gear_ratio` 缩放），见 `dji.c` 的 `Dji_Torque_To_Current`；Kt 绝对值仍待台架实测 |
-| 输出限幅放开 | ⚪ 待验证后 | 轮 ±1.5 → ±5，髋 ±2 → ±5 |
+| 运行时开关与限幅 | 🟡 待台架 | `lqr_debug` 已接入；轮默认机器限幅，髋默认 5 N·m，按 §六逐项开放 |
+| 速度腿摆补偿符号 | 🟡 待台架 A/B | 默认 −1 保持现状；ch19 比较 ±1 后写死胜出值 |
+| 轮径与 K 表 | 🟡 待重跑 | 小机器轮径 0.03 m，现 K 表按 0.04 m 生成，轮通道尺度偏差约 25% |
 | 增益表换成自研 | ⚪ 待重跑 | 见 §七 |
-| 频率升 1 kHz | ⚪ 待整套验证后 | 见 §五 |
+| 频率升 1 kHz | ✅ 已完成 | 双配置 AC5 全量编译通过；实时负载待台架 |
 
 ---
 
@@ -256,9 +247,8 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 | 范围 | 结果 |
 |---|---|
-| 新增 4 个 .c（lqr_balance / leg_balance / lqr_gain_table / lowpass） | ✅ 零错误 |
-| 改动的 3 个文件（task_actuation / robot_control / task_comm） | ✅ 零错误 |
-| **全工程 99 个源文件**（含 Core、HAL、CubeAI、全部 imcalib） | ✅ 零错误 |
+| 默认配置 | ✅ 105 文件，0 错 0 警告 |
+| `-DSYSID_ENABLE=1` | ✅ 105 文件，0 错 0 警告 |
 
 编译命令直接取自 `build/CtrBoard-H7_ALL/compile_commands.json`（eIDE 生成的编译数据库），与 eIDE 实际构建完全一致。核验用的临时文件已删除。
 

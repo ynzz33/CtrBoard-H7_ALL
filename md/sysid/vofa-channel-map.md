@@ -1,5 +1,11 @@
 # 测试模式 VOFA 数据对照表（给训练端）
 
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
 > 对应固件：`imcalib/Sysid/`（`SYSID_ENABLE = 1`）
 > 最后更新：2026-09-18 ｜ 帧长 **33 × float32 + 4 字节帧尾 = 136 字节** ｜ 500 Hz
 
@@ -198,7 +204,7 @@ ns = 列_hi × 1048576 + 列_lo
 
 ## 8. 相关文档
 
-- `md/sysid-delivery.md` — 交接总说明：坐标系定义、单位、用例清单、台架 SOP
-- `md/chuanliantui-wheel-joint-sysid-handoff.md` — 训练端契约：CSV 列名、目录结构、用例
+- `sysid-delivery.md` — 交接总说明：坐标系定义、单位、用例清单、台架 SOP
+- `chuanliantui-wheel-joint-sysid-handoff.md` — 训练端契约：CSV 列名、目录结构、用例
 - `md/sysid-change-map.md` — 每次改动的输入/输出/调用链
 - `tools/sysid_export.py` — 导出脚本（`--selftest` 可自检）

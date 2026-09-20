@@ -66,7 +66,7 @@ int16_t value = DR16_Deadline(raw, 20);
 ```
 dbus_rx.flag == 1 ?
     ↓ yes
-帧长校验 (==18)
+帧长校验 (>=18，尾部多余字节忽略)
     ↓
 DR16_Parse: 解析 18 字节 → dr16_t
     ↓

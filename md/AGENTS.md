@@ -165,12 +165,15 @@ CtrBoard-H7_ALL/
     ├── IO_CHAINS.md         ← IMU/DM/DJI 输入输出链路速查
     ├── DBUS.md              ← 遥控器解析说明
     ├── UART_IDLE_DMA.md     ← 串口接收框架说明
-    ├── sysid-lower-machine-plan.md ← 系统辨识下位机计划 (设计 + 步骤 + 进度)
-    ├── chuanliantui-wheel-joint-sysid-handoff.md ← 训练端交付契约 (CSV/用例/目录)
-    ├── sysid-delivery.md    ← 给训练端的交付说明 (坐标系/单位/用例/SOP)
-    ├── vofa-channel-map.md  ← 33 列 VOFA 数据逐列对照 (给训练端)
     ├── sysid-change-map.md  ← 每处改动的输入/输出/调用链
-    └── VOFA_SEND.md         ← Vofa 发送说明
+    ├── VOFA_SEND.md         ← Vofa 发送说明
+    └── sysid/               ← 大机器测试专用文档 (SYSID_ENABLE=1)
+        ├── sysid-lower-machine-plan.md
+        ├── sysid-delivery.md
+        ├── vofa-channel-map.md
+        ├── controller-spec-for-mujoco.md
+        ├── chuanliantui-wheel-joint-sysid-handoff.md
+        └── wheel-test-vofa.md
 ```
 
 `tools/sysid_export.py` ← 上位机导出 (VOFA 文件 → 契约 CSV + manifest + 校验和)
@@ -199,25 +202,25 @@ CtrBoard-H7_ALL/
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 完成，已上机验证 |
 | 遥控映射 | task_policy.c | ✅ 手动遥操模式 |
 | LQR 增益表 | lqr_gain_table.c/h | ✅ 参考上车表已移植；🟡 自研表待重跑对齐 |
-| LQR 状态估计与控制律 | lqr_balance.c/h | ✅ 编译通过；🟡 **待台架** |
+| LQR 状态估计与控制律 | lqr_balance.c/h | ✅ 编译通过，含 `lqr_debug` 运行时通道/限幅 A/B；🟡 **待台架** |
 | 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；🟡 **待台架** |
 | 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆中位=LQR / 上位=手动 / 左中+右中=测试）；🟡 待台架 |
-| 一阶低通 | user-lib/lowpass.c/h | ✅ 编译通过 |
+| 简单函数库 | user-lib/simple-function.c/h | ✅ 一阶低通 + 斜坡函数，编译通过 |
 
 ---
 
 ## 关键约束
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
-- **控制频率**：actuationTask 500Hz（TIM6 Prescaler=549 / Period=999）。LQR 与手动遥操共用该节拍
-- **LQR 腿长工作区间**：0.13~0.21 m，由 `lqr_balance.h` 限定（K 表拟合域 0.13~0.23，下界防外推）
-- **LQR 辅助 PID 的 KD 与频率强耦合**：D 项实现为 `kd·Δe ≈ kd·dt·de/dt`，等效阻尼 = kd·dt。改控制频率必须同步改 KD（500Hz↔1kHz 相差一倍）
+- **控制频率**：actuationTask 1kHz（TIM6 Prescaler=274 / Period=999）。LQR 与手动遥操共用该节拍
+- **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集；小机器当前为 0.13~0.20 m
+- **LQR 辅助 PID**：当前腿长/防劈叉/横滚 D 项均关闭，待台架单独标定；投入时会清 PID 历史
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
-- **VOFA 调试**：32 通道 FireWater（上限 32），commTask 每 5 周期发送一次 (200Hz)
+- **VOFA 调试**：32 通道 FireWater（上限 32），commTask 每 2 周期发送一次（500Hz）；通道定义见 [VOFA_SEND.md](VOFA_SEND.md)
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）

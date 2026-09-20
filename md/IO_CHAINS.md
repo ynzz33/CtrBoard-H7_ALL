@@ -99,6 +99,8 @@ motor_state.dm:
         → CAN 8 字节打包 → control_id
 ```
 
+`err_raw` 同时参与使能状态：`0`=失能、`1`=使能、`0x8~0xE`=故障。`Robot_Enable_Update()` 在总使能期间调用 `Dm_Enable_Watchdog()`，对在线且 `err_raw=0` 的每台电机按独立 100 ms 计时重发 `DM_CMD_ENABLE`；`Dm_Has_Fault()` 并入 `FAULT_MOTOR`。
+
 **电机映射:**
 
 | 索引 | 位置 | CAN | feedback_id | control_id |
@@ -119,6 +121,9 @@ motor_state.dm:
 | Dm_Read() | 中断存 raw_data |
 | Dm_Parse() | 解码 raw→物理量 |
 | Dm_Is_Online() | 10ms 超时检测 |
+| Dm_Is_Enabled() | `err_raw==1` 使能检测 |
+| Dm_Has_Fault() | `err_raw` 在 `0x8~0xE` 的故障检测 |
+| Dm_Enable_Watchdog() | 在线失能电机每 100ms 重发使能 |
 | Dm_All_Enable() | 全部使能 |
 | Dm_All_Disable() | 全部失能 |
 | Dm_Send_Zero() | 零力矩 |
@@ -423,7 +428,9 @@ task_comm.c:
   virtual_leg_length, virtual_leg_angle, virtual_shank_angle → VOFA 调试
 ```
 
-**配置参数 (robot_control.c):**
+**配置参数（`machine_config.c`）：**
+
+`lu`、`lg`、`dm_zero`、`offset_phi0` 和机器腿长区间均已进入机器表；`robot_control.c` 初始化时只读取当前 `machine`。
 
 | 参数 | 左腿 | 右腿 | 说明 |
 |------|:----:|:----:|------|
@@ -447,20 +454,7 @@ task_comm.c:
 | vshank_jac[2] | 虚拟小腿雅可比 | RL 力矩分解 |
 | force_map[2][2] | 力矩映射矩阵 | 力矩输出 |
 
-**VOFA 通道 (32ch, 上限 32):**
-
-| ch | 内容 |
-|:--:|------|
-| 0 | 在线掩码（bit0=IMU, bit1=遥控, bit2~5=DM腿, bit6~7=DJI轮） |
-| 1 | 解算有效掩码（1=左腿, 2=右腿, 3=两腿） |
-| 2 | 控制策略（0=手动/RL, 1=LQR, 2=测试） |
-| 3-8 | 虚拟关节当前值：左大腿/左小腿/左轮/右大腿/右小腿/右轮 |
-| 9-14 | 虚拟关节目标值：同上 |
-| 15-20 | 虚拟关节PID输出：同上 |
-| 21-24 | 腿电机下发力矩：左前/左后/右前/右后 |
-| 25-26 | 轮子下发力矩：左轮/右轮 |
-| 27-28 | 腿长：左/右 |
-| 29-31 | 小腿雅可比：左[0]/左[1]/右[0] |
+**VOFA 通道：**正常控制的 32 路布局与 500 Hz 发送参数统一见 [VOFA_SEND.md](VOFA_SEND.md)。
 
 ---
 
@@ -557,7 +551,7 @@ rl_observation_state_t:
 
 ---
 
-## 8. LQR 平衡链路（task_actuation 内，@500Hz）
+## 8. LQR 平衡链路（task_actuation 内，@1kHz）
 
 只在左拨杆中位时激活。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
 
@@ -579,7 +573,7 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
               Leg_Balance_Compute()
               腿长PID + 防劈叉PID + 横滚PID → 足端力 F
               Leg_Force_Map_Forward(&leg, F, Tp) → 前/后髋力矩
-              限幅 → torque_output_t（左右轮都直接传，极性在 dji.c 按 output_sign 处理）
+              lqr_debug 通道门 + 限幅 → torque_output_t
                        │
                        ▼
         Dm_Send_Torque() + Dji_Send_Wheel_Torque()
@@ -588,6 +582,7 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
 **状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ（偏航角）不参与控制，只控角速度。
 **腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。
 （本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
-**速度**：`ω_轮·R_w + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）。
-**腿长限制**：0.13~0.21 m（K 表拟合域 0.13~0.23）。
+**速度**：`ω_轮·machine->wheel_r + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）；腿摆速度补偿符号由 `lqr_debug.vel_leg_comp_sign` 暂作台架 A/B，默认 −1 保持现状。
+**腿长限制**：机器表工作区间与 K 表拟合域 0.13~0.23 m 的交集；小机器为 0.13~0.20 m。
+**调试门**：`lqr_debug` 可分别关闭轮、髋、腿长 PID 的最终输出并调整限幅；关闭通道时 PID 仍持续计算。
 **符号责任**：反馈极性按 `feedback_sign` 在驱动解码时统一到机体坐标；输出极性按 `output_sign` 在驱动下发时统一处理（`dm.c` / `dji.c`），调用方不要取反。详见 [LQR_PLAN.md](LQR_PLAN.md)。

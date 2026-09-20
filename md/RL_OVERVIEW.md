@@ -24,7 +24,7 @@
 2. **板端**（STM32H723 + CubeAI）实时推理，输出 6 维动作
 3. **执行层**把动作经 PD + 雅可比映射为 6 个电机力矩
 
-整个链路在 500Hz 控制环里跑，RL 推理锁频 100Hz（每 5 个周期推理一次，其余复用上次动作）。
+整个链路在 1kHz 控制环里跑，RL 推理锁频 100Hz（每 10 个周期推理一次，其余复用上次动作）。
 
 **数据流一句话**：
 ```
@@ -70,7 +70,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 
 | 任务 | 频率 | 节拍方式 | 职责 |
 |------|------|----------|------|
-| `actuationTask` | 500Hz | TIM6 信号量（硬实时） | 策略仲裁（LQR / 手动遥操）→ 力矩计算 → CAN 下发 |
+| `actuationTask` | 1kHz | TIM6 信号量（硬实时） | 策略仲裁（LQR / 手动遥操）→ 力矩计算 → CAN 下发 |
 | `policyTask` | 100Hz | osDelay | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 500Hz | osDelay(2ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
 | `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA |
@@ -84,7 +84,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 ```
 [ISR] FDCAN → dm/dji raw_pending
 [ISR] UART  → hi229_rx.flag / dbus_rx.flag
-[ISR] TIM6  → ctrl_tick_sem (500Hz 信号量)
+[ISR] TIM6  → ctrl_tick_sem (1kHz 信号量)
 
 imuTask     → imu_state {quat, eul, gyr, acc, online}
 commTask    → motor_state/leg_state; ctrl_fault; VOFA
@@ -114,7 +114,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-VOFA 当前 32 通道（上限 32）用于全链路诊断：`dbg[0]` 为在线掩码，`dbg[1]` 为解算有效掩码（1=左腿, 2=右腿, 3=两腿），`dbg[2]` 为控制策略，`dbg[3..20]` 为 6 个虚拟关节 PID（当前/目标/输出，含两个轮），`dbg[21..24]` 为四台腿电机下发力矩，`dbg[25..26]` 为轮子下发力矩，`dbg[27..28]` 为腿长，`dbg[29..31]` 为小腿雅可比。通道布局详见 `md/VOFA_SEND.md`。
+VOFA 正常控制帧为 32 通道、500Hz，通道布局统一见 [VOFA_SEND.md](VOFA_SEND.md)。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -224,14 +224,15 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 
 actuationTask 里新增了策略仲裁：**左拨杆中位 = LQR 平衡，上位 = 手动遥操/RL，下位 = 失能**。
 
-LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只在 `task_actuation.c` 的分支处交汇，两条链路互不 include。完整设计、参数来源、台架验证顺序与遗留项见 **[LQR_PLAN.md](LQR_PLAN.md)**。
+LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只在 `task_actuation.c` 的策略分支交汇，彼此不直接调用。完整设计、参数来源、台架验证顺序与遗留项见 **[LQR_PLAN.md](LQR_PLAN.md)**。
 
 要点速记：
 - LQR 是**第一套真正能站的自动控制器**（RL 推理尚未启用）
 - 遥控在 LQR 模式下换语义：右摇杆 X=转向，右摇杆 Y=前后速度，拨轮=升降
 - LQR 模式不检查 `base_action_locked`，改查 `imu_state.online && leg_l.valid && leg_r.valid`
 - LQR 不满足条件时直接零力矩，**不自动降级**到别的策略
-- LQR 的腿长/横滚/防劈叉 PID 的 KD 是按 500Hz 折算过的，改频率要同步改
+- `lqr_debug` 可在调试器 Watch 中独立开关轮、髋、腿长 PID 并调整轮/髋限幅；不占 VOFA 通道
+- LQR 腿长/横滚/防劈叉 PID 的 D 项当前关闭，待台架单独标定
 
 ---
 
@@ -244,7 +245,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只
 | FDCAN 总线 | can_bus.c/h | ✅ 路由注册 + 批量接收 + bus-off 恢复 + RX 看门狗 |
 | DM 电机 | dm.c/h | ✅ MIT 协议 + 解码 + 在线检测 + 多圈计数 |
 | 机器配置表 | machine_config.c/h | ✅ 新增，两份表 + 运行时切换（M3508+J8009P / M2006+J4310） |
-| 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT CYCCNT + 500Hz 周期扩展 |
+| 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT CYCCNT + 1kHz 周期扩展 |
 | DJI 轮电机 | dji.c/h | ✅ 电流控制 + 解码 + 在线检测 + 减速比修正 |
 | UART 底层 | uart_idle.c/h | ✅ IDLE+DMA Circular |
 | DR16 遥控 | dr16.c/h | ✅ 解析 + 实测正常 |
@@ -283,7 +284,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 链路完全解耦，只
 | 大型自起 | LargeRecover FSM | 无 | 只有翻倒标志，无自动恢复 |
 | 小陀螺动作延迟 | Spin 模式延迟 1 周期 | 无 | Spin 策略效果可能不同 |
 | ToF 跳跃触发 | ToF 测距触发跳跃 | 无 | Jump 策略手动触发 |
-| D-Cache | 开启 + Clean 处理 | 关闭 | 需注意 CubeAI 是否自动开启 |
+| D-Cache | 开启 + Clean 处理 | 已开启；VOFA DMA 发送前 Clean | 继续保持 DMA 缓冲一致性 |
 | FPU Error | 关闭 | 未确认 | 需在 CubeMX 中关闭 |
 
 ---
@@ -343,12 +344,12 @@ Leg_Solve 当前已完成以下验证：
 
 ## 七、关键约束速查
 
-- **时钟**：HSE 24MHz → PLL → SYSCLK 240MHz
+- **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**（本项目未使用，用 HI229）：驱动输出已是 rad/s 和 g
 - **Mahony**：无 acc_trust 门控，无输出限幅
 - **串口**：IDLE+DMA Circular，不使用 Resync
-- **推理频率**：100Hz（每 5 个 500Hz 周期推理一次）
+- **推理频率**：100Hz（每 10 个 1kHz 周期推理一次）
 - **观测维度**：25 + 125(历史) = 150
 - **动作维度**：6（左大腿, 左虚拟小腿, 左轮, 右大腿, 右虚拟小腿, 右轮）
 - **物理通道**：DM×4（左前/左后/右前/右后髋） + DJI×2（左轮/右轮）

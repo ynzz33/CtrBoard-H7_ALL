@@ -1,6 +1,12 @@
 # 下位机 sysid 实施计划（轮 + 闭链腿）
 
-> **上游文档**：`md/chuanliantui-wheel-joint-sysid-handoff.md`（算法侧交接单，定义要采什么）
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> 大机器测试专用，`SYSID_ENABLE=1` 时生效。
+
+> **上游文档**：`chuanliantui-wheel-joint-sysid-handoff.md`（算法侧交接单，定义要采什么）
 > **本文用途**：把交接单翻译成下位机可执行、可验收的实施计划（改哪些文件、按什么顺序、怎么验证）。
 > **状态**：按 §15 分步实施中。
 > **进度**：机器配置表（两份表 + 运行时 `Machine_Select`）、单调 ns 时钟、测试模式入口（左拨杆中 + 右拨杆中）已完成；测试代码独立到 `imcalib/Sysid/`（`SYSID_ENABLE` 总开关）。按作者意见已**移除 DM 开机自检**（满量程改用达妙上位机人工核对）。armcc 全量 102 文件 0 fail / 0 warn（`SYSID_ENABLE=1`）；步 3「CAN 收发时间戳」起待做。
@@ -739,7 +745,7 @@ tau_rf0_Nm,tau_rf00_Nm,leg_length_right_m,leg_pitch_right_rad
 | 8 | 试验 A 最小闭环 | ✅ 代码就绪，🟡 待台架 | `baseline_sign` + raw 电流直发；轮命令极性按 `dji_sign.out` 换算（变更 40） |
 | 9 | 全部用例 | ✅ 代码就绪，🟡 待台架 | 腿 33 run / 轮 46 run，`SYSID_PLAN` 选择 |
 | 10 | 安全与无效标记 | ✅ 部分 | 钳位、离线、腿长越界、温度、中止标记已有；`err_raw` 故障码判据**未接**；环形缓冲满不计数（靠 `seq` 跳号检测） |
-| 11 | 交付脚本与文档 | ✅ | `tools/sysid_export.py`（含 `--selftest`）+ `md/sysid-delivery.md` |
+| 11 | 交付脚本与文档 | ✅ | `tools/sysid_export.py`（含 `--selftest`）+ `md/sysid/sysid-delivery.md` |
 
 **本轮明确不做**（作者决定）：气弹簧补偿——留给后续优化；本轮交付给训练端的数据不含该补偿项，采集时气弹簧仍物理存在，属已知未建模外力。
 

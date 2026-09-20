@@ -2,7 +2,7 @@
 
 > 用途：把每次改动的 **输入 / 输出 / 调用链 / 核对结论** 记下来，方便回退与查错。
 > 维护规则：一次改动 = 一节；先写链路，再写"已核对"与"待台架"。
-> 配套：设计见 `md/sysid-lower-machine-plan.md`；I/O 总览见 `md/IO_CHAINS.md`。
+> 配套：设计见 `md/sysid/sysid-lower-machine-plan.md`；I/O 总览见 `md/IO_CHAINS.md`。
 > 最后更新：2026-09-18
 
 ---
@@ -804,7 +804,7 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 
 ## 变更 32 · 系统辨识前置：CAN 接收打 ns 时间戳（计划缺口 A）
 
-**背景**：按 `md/sysid-lower-machine-plan.md` 执行"6 关节建模"，缺口 A 是全部数据采集的前置（`rx_ns` 决定每一行的时刻精度）。
+**背景**：按 `md/sysid/sysid-lower-machine-plan.md` 执行"6 关节建模"，缺口 A 是全部数据采集的前置（`rx_ns` 决定每一行的时刻精度）。
 
 **改动**（4 个文件，无控制行为变化、不涉及任何物理量）
 | 文件:行 | 内容 |
@@ -1111,7 +1111,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_mode.c` | ① 轮分支上线前按 `machine->dji_sign[target].out` 换算，帧内仍记逻辑 raw；② `sysid_safe()` **删掉腿长区间门与温度门**（只留 `torque_output_enabled`、DM 离线、解算无效三个硬故障门），对齐作者既定决策"位置/速度/温度只记录、不设阈值"；`SYSID_TEMP_LIMIT_C` 保留但标注"当前未启用" |
 | `imcalib/Sysid/sysid_log.h` | 注释补"行类型补充约定"：kind=3 列 5/6 = 轮命令 raw；kind=5 列 5~8 = run_index/test_id/总段数/0；kind=5 的列 3/4 仅作参考 |
 | `tools/sysid_export.py` | `_write_wheel_csv_cmd()` 增 `side` 参数，按侧填 `cmd_test_wheel_raw`（左取列 5、右取列 6），两处调用同步 |
-| `md/sysid-delivery.md` | 新增 §1.3.1「轮电流行（kind=3）列 5/6 约定」；§1.3 补标记行 `t_cmd_ns` 说明；按 §0.1 删去未经台架确认的极性断言（腿摆角正方向、"X 轴 = 前进方向"、轮 +0.5A 转向预期），改为"作者台架标定项"；§5.2/5.3 改成与现状一致（自动跑批、单轮时长、`SYSID_ENABLE` 默认 1、`torque_output_enabled` 前提）；§5.5 修正导出命令（`py` + `--out`）并补产物清单与列名说明 |
+| `md/sysid/sysid-delivery.md` | 新增 §1.3.1「轮电流行（kind=3）列 5/6 约定」；§1.3 补标记行 `t_cmd_ns` 说明；按 §0.1 删去未经台架确认的极性断言（腿摆角正方向、"X 轴 = 前进方向"、轮 +0.5A 转向预期），改为"作者台架标定项"；§5.2/5.3 改成与现状一致（自动跑批、单轮时长、`SYSID_ENABLE` 默认 1、`torque_output_enabled` 前提）；§5.5 修正导出命令（`py` + `--out`）并补产物清单与列名说明 |
 | `.gitignore` | 新增 `/data`（sysid 采集与导出产物不入库） |
 
 **输入 / 输出 / 调用链**
@@ -1148,7 +1148,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_mode.c` | ①`sysid_safe()` → `sysid_fault()`，返回状态码（`SYSID_ST_*`）；②新增心跳行推送 `sysid_push_heartbeat()`，每 250 ms 一行、**任何状态都推**；③新增 `reinit_cnt`（重入重置累计，`Init` 里累加不清零）；④心跳行复用列 9~12 放诊断位 |
 | `imcalib/Sysid/sysid_log.c` | ①新增 `volatile uint32_t sysid_log_drop_cnt / sysid_log_busy_cnt`；②`Sysid_Log_Push()` 失败时累加 drop；③发送泵**先判串口空闲再取数据**（原来先 `ring_r++` 再判断，UART 忙时那一帧被静默丢掉），忙则累加 busy 并保留数据 |
 | `imcalib/Sysid/sysid_log.h` | 加 `SYSID_EVENT_HEARTBEAT 0`；注释补心跳行列定义；`extern` 两个诊断计数 |
-| `md/sysid-delivery.md` | 新增 §1.3.2 心跳行与状态码表 |
+| `md/sysid/sysid-delivery.md` | 新增 §1.3.2 心跳行与状态码表 |
 
 **输入 / 输出 / 调用链**
 
@@ -1183,7 +1183,7 @@ commTask (1kHz) → comm_task_body()
 | `sysid_runs[]` 的 `torque_step` 幅值（24 个 run） | ±1 / ±2 / ±3 Nm | **±2 / ±4 / ±6 Nm** |
 | `torque_chirp` 幅值（4 个 run） | 1.5 Nm | **4.0 Nm** |
 | `holdout_torque_chirp` 幅值（4 个 run） | 2.0 Nm | **5.0 Nm** |
-| `md/sysid-delivery.md` | §4.1 用例表幅值、§5.3 限幅值同步 | — |
+| `md/sysid/sysid-delivery.md` | §4.1 用例表幅值、§5.3 限幅值同步 | — |
 
 **输入 / 输出 / 调用链**
 
@@ -1215,7 +1215,7 @@ commTask (1kHz) → comm_task_body()
 | 文件顶部 | 新增 `SYSID_PRELOAD_L_N` / `SYSID_PRELOAD_R_N`（沿腿力 N，负=收腿，0=不加）。初值 -80（≈11Nm/髋）；作者台架试出"太大"，改为 **-22（≈3Nm/髋）** |
 | 文件顶部 | `SYSID_TRQ_LIMIT_NM`：3.0 → 8.0 → **20.0**（= 电机满限幅，给预压+激励留头寸） |
 | 腿分支 | 非 baseline 的腿 run：`tau_cmd[F/B_LFT] += 预压_L × leg_jac[0][0/1]`，右侧同理，然后整组限幅 |
-| `md/sysid-delivery.md` | 新增 §4.3 预压说明（换算、调法、削平检查） |
+| `md/sysid/sysid-delivery.md` | 新增 §4.3 预压说明（换算、调法、削平检查） |
 
 **输入 / 输出 / 调用链**
 
@@ -1258,7 +1258,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_mode.c` | ①`SYSID_PRELOAD_L_N/R_N`：-22 → -43 → 作者再调为 **-34**（≈4.7 Nm/髋）；②新增静态 `sysid_pre[4]` 保存本周期预压分量，与激励分开计算后再相加限幅；③帧填充时把预压分量写入 `snap.preload[]`，并统计被限幅的电机数 `snap.clamp_cnt` |
 | `imcalib/Sysid/sysid_log.h` | `sysid_snap_t` 加 `preload[4]` / `clamp_cnt`；注释补"kind=1 行复用列 23~27" |
 | `imcalib/Sysid/sysid_log.c` | `assemble_frame()`：kind=1 行把 23~27 写成预压分量与削平计数（kind=3/5 行 23~28 含义不变） |
-| `md/sysid-delivery.md` | 新增 §1.3.3 腿行列 23~27 复用说明 |
+| `md/sysid/sysid-delivery.md` | 新增 §1.3.3 腿行列 23~27 复用说明 |
 
 **输入 / 输出 / 调用链**
 
@@ -1292,7 +1292,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_mode.c` | ①新增 `#include "dr16.h"`；②新增宏 `SYSID_PRELOAD_TUNE`（1=滚轮实时调，0=用固定宏）与 `SYSID_PRELOAD_TUNE_N`（滚轮到底 = 150 N）；③`Sysid_Mode_Run()` 顶部每个周期读一次滚轮并算出 `pre_n`（`-[0..150] N`，双向）；④腿分支用 `pre_n` 统一驱动左右腿；⑤快照填 `preload_n` |
 | `imcalib/Sysid/sysid_log.h` | `sysid_snap_t` 加 `float preload_n;`；注释补列 28 |
 | `imcalib/Sysid/sysid_log.c` | `assemble_frame()`：kind=1 行的列 28 写 `preload_n` |
-| `md/sysid-delivery.md` | §1.3.3 加列 28；§4.3 加"实时调节模式"用法 |
+| `md/sysid/sysid-delivery.md` | §1.3.3 加列 28；§4.3 加"实时调节模式"用法 |
 
 **输入 / 输出 / 调用链**
 
@@ -1360,7 +1360,7 @@ commTask (1kHz) → comm_task_body()
 | 文件 | 变化 |
 | --- | --- |
 | `imcalib/Sysid/sysid_mode.c` | 新增宏 `SYSID_EXCITE_BOTH`（默认 **1**）；腿分支激励赋值后加一行 `tau_cmd[target ^ 2] = tau_cmd[target]`；文件顶部加注释 |
-| `md/sysid-delivery.md` | §4.1 `torque_step` 力矩说明标注"两条腿的对应电机同步" |
+| `md/sysid/sysid-delivery.md` | §4.1 `torque_step` 力矩说明标注"两条腿的对应电机同步" |
 
 **输入 / 输出 / 调用链**
 
@@ -1405,7 +1405,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_log.c` | `assemble_frame()` 尾部重排（kind=1 用 23~30，kind=3/5 保留轮数据） |
 | `imcalib/Sysid/sysid_mode.c` | `sysid_fill_fb()` 增加：四个 DM 反馈 `rx_ns` 取最新；四个解算导数；快照填值改为不再写 `preload[i]` |
 | `tools/sysid_export.py` | `FRAME_FLOATS` 31→33（二进制解析按帧尾定位，长度必须同步） |
-| `md/sysid-delivery.md` | §1.1/§1.2/§1.3.3 同步到 33 列 |
+| `md/sysid/sysid-delivery.md` | §1.1/§1.2/§1.3.3 同步到 33 列 |
 
 **输入 / 输出 / 调用链**
 
@@ -1435,8 +1435,8 @@ commTask (1kHz) → comm_task_body()
 | 文件 | 变化 |
 | --- | --- |
 | `imcalib/Sysid/sysid_mode.c` | `SYSID_PRELOAD_L_N/R_N`：-54（7.5 Nm）→ **-58（8 Nm，作者最终值）** |
-| `md/vofa-channel-map.md` | **新增**：33 列逐列对照（列号/名称/单位/来源），按行类型的差异、标记/心跳行、时间戳还原、CSV 字段来源对照、快速自查表、"看起来不对"的常见解释 |
-| `md/sysid-delivery.md` | §1.2 的长表改为"快速索引 + 指向新文档"，避免两处维护 |
+| `md/sysid/vofa-channel-map.md` | **新增**：33 列逐列对照（列号/名称/单位/来源），按行类型的差异、标记/心跳行、时间戳还原、CSV 字段来源对照、快速自查表、"看起来不对"的常见解释 |
+| `md/sysid/sysid-delivery.md` | §1.2 的长表改为"快速索引 + 指向新文档"，避免两处维护 |
 | `md/AGENTS.md` | 文件树补 `vofa-channel-map.md` |
 
 **输入 / 输出 / 调用链**
@@ -1466,8 +1466,8 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_log.h` | 新增 `SYSID_TX_DIV`（默认 **4** = 250 Hz）与 `SYSID_TX_STALL_MS`（默认 50 ms）；extern `sysid_log_stall_cnt` |
 | `imcalib/Sysid/sysid_log.c` | ①分频改用 `SYSID_TX_DIV`；②发送前加**卡死看门狗**：连续忙 ≥50 ms 就 `HAL_UART_AbortTransmit()` 强制复位状态机并计数；③新增 `sysid_log_stall_cnt` |
 | `imcalib/Sysid/sysid_mode.c` | 心跳行新增列 13 = 串口卡死自恢复次数 |
-| `md/vofa-channel-map.md` | 心跳行列 13 含义；§1.1 发送频率说明 |
-| `md/sysid-delivery.md` | §1.1 发送频率 500 → 250 Hz |
+| `md/sysid/vofa-channel-map.md` | 心跳行列 13 含义；§1.1 发送频率说明 |
+| `md/sysid/sysid-delivery.md` | §1.1 发送频率 500 → 250 Hz |
 
 **输入 / 输出 / 调用链**
 
@@ -1501,7 +1501,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Sysid/sysid_log.h` | 帧 33 → **35 列**（144 B）；新增列 33/34 = `thigh_tgt` / `shank_tgt`；结构体加 `pose_tgt[2]` |
 | `imcalib/Sysid/sysid_log.c` | `assemble_frame()` 写列 33/34 |
 | `tools/sysid_export.py` | `FRAME_FLOATS` 33 → 35 |
-| `md/controller-spec-for-mujoco.md` | **新增**（子代理写）：控制律复刻说明书——PD 精确离散形式（D 不除 dt）、增益/周期/限幅/环绕、虚拟关节→电机映射、MIT 帧 kp=kd=0 证据、轨迹格式、气弹簧与摩擦两个坑 |
+| `md/sysid/controller-spec-for-mujoco.md` | **新增**（子代理写）：控制律复刻说明书——PD 精确离散形式（D 不除 dt）、增益/周期/限幅/环绕、虚拟关节→电机映射、MIT 帧 kp=kd=0 证据、轨迹格式、气弹簧与摩擦两个坑 |
 
 **位置扫描的控制链**
 
@@ -1603,7 +1603,7 @@ commTask (1kHz) → comm_task_body()
 **现在的 VOFA 输出只有两种（各自一条路径，不再有布局开关）**
 
 - **正常模式**：32 路 FireWater 调试帧（测试相关通道），改通道就改 `task_comm.c` 的 `Robot_Control_Send_Vofa()`
-- **测试模式**：35 列 JustFloat sysid 帧（列定义见 `md/vofa-channel-map.md`），改列就改 `Sysid/sysid_log.h` + `sysid_log.c` + `tools/sysid_export.py` 的 `FRAME_FLOATS`
+- **测试模式**：35 列 JustFloat sysid 帧（列定义见 `md/sysid/vofa-channel-map.md`），改列就改 `Sysid/sysid_log.h` + `sysid_log.c` + `tools/sysid_export.py` 的 `FRAME_FLOATS`
 
 **核对**
 
@@ -1866,6 +1866,38 @@ commTask (1kHz) → comm_task_body()
 - 小机器 K 表当前按 **0.04 m** 轮径生成，而机器表采用 **0.03 m**，轮通道尺度偏差约 25%；待用 `Leg2_v1` 的 `WBR_modeling.mlx` 以小机器参数重跑 K 表。
 - 大机器 `wheel_r=0.04 m` 仍是占位值，必须实测后才能标定完成。
 - `trq_max_hip=5.0 N·m`、各通道开关与 0.13~0.20 m 投入域均待按小机器台架顺序验证；IMU 轴本批未动。
+
+---
+
+## 变更 63 · 小机器 LQR 批次 4：主文档同步与 sysid 文档归档
+
+| 文件 | 改动 |
+| --- | --- |
+| `md/AGENTS.md` | 文件树新增 `md/sysid/`；关键约束同步 1 kHz、机器表∩K 表域、VOFA 500 Hz；模块表改为 `simple-function` 并补 `lqr_debug` |
+| `md/RL_OVERVIEW.md` | 控制频率改 1 kHz、100 Hz 推理改每 10 周期；删除旧 VOFA 通道复制表并指向 `VOFA_SEND.md`；时钟修为 550 MHz；D-Cache 状态改为已开启且 VOFA DMA 前 Clean |
+| `md/LQR_PLAN.md` | 常量表同步运行时限幅、腿长域和机器轮径；频率清单标完成；新增 `lqr_debug` 用法；替换为小机器台架顺序；遗留项与双配置编译结果同步 |
+| `md/IO_CHAINS.md` | DM `err_raw` 使能看门狗/故障链；机器配置表来源；VOFA 改为单一文档链接；LQR 链同步 1 kHz、轮径、腿长交集与调试门 |
+| `md/VOFA_SEND.md`、`imcalib/user-lib/Vofa_send.h` | 按当前代码重写 32 路表，删除乱码；默认 `VOFA_PORT=1`、1152000、500 Hz 与 D-Cache Clean 同步；sysid 只保留目录指针 |
+| `md/DBUS.md`、`md/UART_IDLE_DMA.md` | 通读保留；修正 DR16 接受 `len>=18`、UART9=DR16、UART7=HI229 的现行拓扑 |
+| `md/sysid/` | 六份大机器测试文档移入该目录，文件头统一标注“大机器测试专用，`SYSID_ENABLE=1` 时生效”，交叉路径同步 |
+| `md/hip-test-vofa.md` | 删除；旧 32 通道测试布局已被变更 59 替代，需要时从提交 `87c6628` 恢复 |
+
+**输入 / 输出 / 调用链**
+- 代码与配置作为输入 → `AGENTS / RL_OVERVIEW / LQR_PLAN / IO_CHAINS / VOFA_SEND` 分别提供规则、架构、控制器、I/O 与观测通道的单一入口。
+- 正常 VOFA：`task_comm.c` 当前 32 路 → `VOFA_SEND.md`；不再在多个总览文档复制易过时的通道表。
+- 大机器 sysid：`SYSID_ENABLE=1` → `imcalib/Sysid/` → `md/sysid/`；正常小机器 LQR 文档与大机器测试材料分目录。
+- 文档移动后，仓库内旧 `md/<sysid文件>` 路径统一改为 `md/sysid/<文件>`；Markdown 相对链接检查无死链。
+
+**核对**
+- `CLAUDE.md` 与记忆文件未改；`md/sysid-change-map.md` 保留在 `md/` 根目录且继续作为全工程账本。
+- `MACHINE_DEFAULT=MACHINE_ID_LOCAL`、物理极性、零点、量程、镜像与 IMU 轴均未因文档整理改动。
+- `DBUS.md`、`UART_IDLE_DMA.md` 已对照当前 `dr16.c`、`hi229.c` 与中断入口核对。
+- `hip-test-vofa.md` 已删除，可由 Git 恢复；其余六份文档为移动并保留内容。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均为 **105 文件，0 fail / 0 warn**。
+
+**待台架**
+- `LQR_PLAN.md` 的小机器顺序仍须逐项实测；IMU 轴、腿摆速度补偿符号、输出限幅和大机器轮径均未在文档中冒充完成。
+- 大机器 sysid 文档虽已归档并标开关范围，但 1 kHz 改频后的采样/发送丢帧行为需在再次启用前重新核对。
 
 ---
 
