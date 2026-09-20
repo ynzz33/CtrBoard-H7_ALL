@@ -1791,6 +1791,41 @@ commTask (1kHz) → comm_task_body()
 
 ---
 
+## 变更 61 · 小机器 LQR 批次 2：控制频率 500 Hz → 1 kHz
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/inc/robot_control.h` | 新增统一控制周期 `CTRL_DT=0.001f` |
+| `imcalib/task/task_actuation.c`、`imcalib/Algorithm/rl_torque.c`、`imcalib/Sysid/sysid_mode.c` | 删除分散的 `0.002f` / `OUTPUT_DT`，统一引用 `CTRL_DT` |
+| `CtrBoard-H7_ALL.ioc`、`Core/Src/tim.c` | TIM6 Prescaler 549 → 274，Period 保持 999，对应 275 MHz / 275 / 1000 = 1 kHz |
+| `Core/Src/main.c`、`imcalib/user-lib/mono_ns.c` | TIM6 与单调时钟注释同步为 1 kHz |
+| `imcalib/Algorithm/leg_balance.h` | 按作者确认，腿长/防劈叉/横滚三个辅助 PID 的 KD 分别由 25000/250/50 改为 0，先使用纯 P，待台架单独标定 D |
+| `imcalib/Sysid/sysid_mode.c`、`sysid_log.c/h` | sysid 单周期同步为 1 kHz；心跳改 250 tick 保持 250 ms；`SYSID_TX_DIV=4` 保持 1 kHz commTask → 250 Hz 发送 |
+
+**输入 / 输出 / 调用链**
+- 时钟：TIM6 275 MHz → `(Prescaler+1)=275` → `(Period+1)=1000` → 1 kHz 中断 → `ctrl_tick_sem_handle` → `actuationTask`。
+- 时间步：`CTRL_DT` → LQR 目标/状态/腿部力控、RL 虚拟关节 PID、sysid 激励时序，所有控制计算使用同一个 1 ms 周期。
+- 辅助 PID：腿长、防劈叉、横滚误差 → `pid_calc()`；本批 `kd=0`，D 输出恒为 0，KP 与前馈不变。
+- sysid：`Sysid_Mode_Run()` 1 kHz 采样；心跳 `1000×250 tick=250 ms`；发送泵仍由 `commTask 1 kHz / SYSID_TX_DIV 4 = 250 Hz`。
+
+**总线负载估算与核对**
+- 小机器腿总线每 1 ms 约 2 发 2 收，经典 CAN 1 Mbps 估算负载约 **52%**。
+- 小机器轮总线每 1 ms 约 1 发 2 收，经典 CAN 1 Mbps 估算负载约 **39%**。
+- `SYSID_ENABLE=1` 时台架观察 `Can_Bus_Tx_Drop_Count()`；正常固件可临时观察 `HAL_FDCAN_GetTxFifoFreeLevel()`，确认发送 FIFO 不持续归零。
+- `SYSID_TX_DIV` 针对通信发送泵，不跟随控制频率翻倍；本批核对后保留 4。
+
+**核对**
+- TIM6 `.ioc` 与生成代码数值一致；控制相关硬编码 `0.002f` 已从指定链路清除。
+- 未改机器选择、腿长、轮径、极性、零点、量程、镜像和 IMU 轴。
+- Keil AC5 全量编译：默认配置与 `-DSYSID_ENABLE=1` 均为 **105 文件，0 fail / 0 warn**。
+
+**待台架**
+- 示波器或任务计数确认 TIM6/actuationTask 实际为 1 kHz，并检查是否出现信号量积压。
+- 观察三路 FDCAN 发送 FIFO、sysid drop 计数和电机在线状态，确认 1 kHz 下无掉帧。
+- 三个辅助 PID 当前无 D 阻尼；落地前按既定分通道顺序低限幅验证，D 项后续只能依据台架数据单独恢复。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

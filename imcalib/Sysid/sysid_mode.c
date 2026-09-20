@@ -20,7 +20,7 @@
 #endif
 #define SYSID_RAW_PER_A         819.2f  /* C620 raw/A */
 #define SYSID_TEMP_LIMIT_C      80u     /* 温度门限, 当前未启用 */
-#define SYSID_DT                0.002f  /* 500Hz */
+#define SYSID_DT                CTRL_DT
 #define SYSID_REENTRY_MS        10u     /* 重入判定 */
 
 /* 预压: 沿腿的常值力 N (负=收腿), 把腿压到行程中段; 0=不加 */
@@ -477,8 +477,8 @@ static uint8_t sysid_fault(void)
     return SYSID_ST_OK;
 }
 
-/* 心跳周期 (500Hz × 125 = 250ms) */
-#define SYSID_HB_TICKS  125u
+/* 心跳周期 (1kHz × 250 = 250ms) */
+#define SYSID_HB_TICKS  250u
 
 /* 推心跳行 (kind=5, 事件 0): 250ms 一行, 停机时也推, 保证流不断 */
 static void sysid_push_heartbeat(uint64_t cmd_ns, uint64_t rx_ns)
@@ -560,7 +560,7 @@ void Sysid_Mode_Init(void)
 #endif
 }
 
-/* ========= 单周期体 (500Hz) ========= */
+/* ========= 单周期体 (1kHz) ========= */
 void Sysid_Mode_Run(void)
 {
     const sysid_run_t *run;

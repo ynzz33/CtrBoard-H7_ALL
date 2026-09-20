@@ -1,5 +1,6 @@
 #include "rl_torque.h"
 #include "machine_config.h"
+#include "robot_control.h"
 
 #include <math.h>
 #include <string.h>
@@ -205,14 +206,14 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                                 RL_TQ_WHEEL_VEL_MAX);
             state->pos_target[i] = vel_ref[i];
             tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i],
-                0.002f);
+                CTRL_DT);
         }
         else
         {
             float target = pos_ref[i] + param->dof_pos[i];
             state->pos_target[i] = target;
             tau_v[i] = pid_calc(&state->controller[i], q[i], target,
-                0.002f);
+                CTRL_DT);
         }
     }
     memcpy(state->virtual_torque, tau_v, sizeof(state->virtual_torque));

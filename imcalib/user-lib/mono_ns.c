@@ -16,7 +16,7 @@ void Mono_Ns_Init(void)
     cyc_last = DWT->CYCCNT;
 }
 
-/* 周期扩展: 500Hz 调, 至少 7.8s 一次 */
+/* 周期扩展: 1kHz 调, 至少 7.8s 一次 */
 void Mono_Ns_Tick(void)
 {
     uint32_t primask = __get_PRIMASK();

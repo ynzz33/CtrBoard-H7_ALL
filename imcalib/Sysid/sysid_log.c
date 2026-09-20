@@ -18,7 +18,7 @@ static volatile uint32_t ring_r;
 /* 全局序列号 */
 static uint16_t global_seq;
 
-/* 发送泵2分频 (1kHz → 500Hz) */
+/* 发送泵分频 */
 static uint8_t send_div;
 
 /* 发送缓冲 (独立于 32ch 的 Vofa_Send 静态缓冲) */

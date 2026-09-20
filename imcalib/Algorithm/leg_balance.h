@@ -13,17 +13,13 @@
 /* 足端支持力恒定前馈 (N) — 参考值, 台架对账后标定 */
 #define LEG_BALANCE_F_FEEDFORWARD  8.0f
 
-/*
- * 辅助 PID 参数
- * 参考实现 @1kHz: 腿长 1000/50000, 防劈叉 30/500, 横滚 500/100
- * 本工程 @500Hz: 等效阻尼 = kd·dt, 为保持同样的物理阻尼, kd 减半
- */
+/* 辅助 PID 参数，D 项先关闭，待台架单独标定 */
 #define LEG_BALANCE_LEN_KP         1000.0f
-#define LEG_BALANCE_LEN_KD         25000.0f
+#define LEG_BALANCE_LEN_KD         0.0f
 #define LEG_BALANCE_SYM_KP         30.0f
-#define LEG_BALANCE_SYM_KD         250.0f
+#define LEG_BALANCE_SYM_KD         0.0f
 #define LEG_BALANCE_ROLL_KP        500.0f
-#define LEG_BALANCE_ROLL_KD        50.0f
+#define LEG_BALANCE_ROLL_KD        0.0f
 
 typedef struct {
     pid_t leg_len[2];   /* 腿长 */

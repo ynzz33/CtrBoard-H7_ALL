@@ -245,7 +245,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM6)
   {
     Mono_Ns_Tick();   /* 周期扩展 */
-    osSemaphoreRelease(ctrl_tick_sem_handle);   /* 500Hz 唤醒输出任务 */
+    osSemaphoreRelease(ctrl_tick_sem_handle);   /* 1kHz 唤醒输出任务 */
   }
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM23)

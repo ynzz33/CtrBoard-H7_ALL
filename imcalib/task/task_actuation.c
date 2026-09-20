@@ -8,9 +8,6 @@
 #include "../Sysid/sysid_mode.h"
 #endif
 
-/* 控制周期 (500Hz) */
-#define OUTPUT_DT 0.002f
-
 static uint8_t lqr_running;
 
 /* 输出初始化 */
@@ -44,13 +41,13 @@ static void output_task_lqr(const dr16_t *remote)
     wheel_vel[0] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
     wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
 
-    (void)LQR_Target_Update(&lqr_state, remote, OUTPUT_DT);
+    (void)LQR_Target_Update(&lqr_state, remote, CTRL_DT);
 
-    if (LQR_State_Update(&lqr_state, &imu_state, &leg_l, &leg_r, wheel_vel, OUTPUT_DT))
+    if (LQR_State_Update(&lqr_state, &imu_state, &leg_l, &leg_r, wheel_vel, CTRL_DT))
     {
         LQR_Control_Update(&lqr_state);
         if (Leg_Balance_Compute(&leg_balance, &lqr_state, &leg_l, &leg_r,
-                                OUTPUT_DT, &torque))
+                                CTRL_DT, &torque))
         {
             output_send(&torque);
             return;

@@ -13,6 +13,8 @@
 #include "lqr_balance.h"
 #include "leg_balance.h"
 
+#define CTRL_DT 0.001f
+
 /* 控制策略 */
 typedef enum {
     CTRL_STRATEGY_MANUAL = 0,   /* 手动遥操 / RL */
