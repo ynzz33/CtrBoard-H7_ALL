@@ -7,12 +7,20 @@
 
 /* 一阶低通系数 */
 #define LQR_LPF_ALPHA       0.3f
+/* 速度卡尔曼: 同 Leg2_v1 Body.h (P0 / Q / R / P 上限) */
+#define LQR_KF_P0           0.1f
+#define LQR_KF_Q            0.005f
+#define LQR_KF_R            0.01f
+#define LQR_KF_P_MAX        0.5f
+#define LQR_GRAVITY         9.81f
 /* 腿长变化超此阈值才重算增益 (m) */
 #define LQR_K_RECALC_THRESH 0.0005f
 
 /* 站立目标 */
-#define LQR_POS_TARGET      (-0.12f)
-#define LQR_LEG_ANG_TARGET  (-0.05f)
+#define LQR_POS_TARGET      (-0.0f)
+#define LQR_LEG_ANG_TARGET  (-0.00f)
+#define LQR_LEG_LEN_INIT    0.18f    /* 投入腿长目标 */
+
 
 /*
  * IMU 轴索引 — 台架第一步必须确认
@@ -26,6 +34,14 @@
 #define LQR_IMU_GYRO_YAW     2u
 
 lqr_debug_t lqr_debug;
+
+/* 角度环绕 [-π, π] */
+static float LQR_Wrap_Pi(float angle)
+{
+    while (angle > LEG_PI)  { angle -= LEG_2PI; }
+    while (angle < -LEG_PI) { angle += LEG_2PI; }
+    return angle;
+}
 
 /* 摇杆归一化: 死区 + 限幅 → [-1,1] */
 static float LQR_RC_Axis(int16_t raw, uint16_t deadband)
@@ -61,6 +77,9 @@ void LQR_Init(lqr_state_t *st)
 {
     memset(st, 0, sizeof(*st));
     lqr_debug.vel_leg_comp_sign = -1.0f;
+    lqr_debug.vel_src = 1u;
+    lqr_debug.yaw_hold = 1u;
+    lqr_debug.acc_fwd_sign = 1.0f;
     lqr_debug.wheel_enable = 1u;
     lqr_debug.hip_enable = 1u;
     lqr_debug.len_pid_enable = 1u;
@@ -72,6 +91,48 @@ void LQR_Init(lqr_state_t *st)
     Lowpass_Init(&st->lpf_vel_alt, LQR_LPF_ALPHA);
     Lowpass_Init(&st->lpf_omg_pitch, LQR_LPF_ALPHA);
     Lowpass_Init(&st->lpf_omg_yaw, LQR_LPF_ALPHA);
+    Kalman_Accel_Init(&st->kf_vel, 0.0f, LQR_KF_P0, LQR_KF_Q, LQR_KF_R,
+                      LQR_KF_P_MAX);
+}
+
+/* 前向加速度: 四元数把机体加速度转到世界系, 去重力, 投影到车头水平方向 */
+static float LQR_Accel_Forward(const imu_state_t *imu)
+{
+    float q0;
+    float q1;
+    float q2;
+    float q3;
+    float r00;
+    float r01;
+    float r02;
+    float r10;
+    float r11;
+    float r12;
+    float wx;
+    float wy;
+    float norm;
+
+    q0 = imu->quat[0];
+    q1 = imu->quat[1];
+    q2 = imu->quat[2];
+    q3 = imu->quat[3];
+    r00 = 1.0f - 2.0f * (q2 * q2 + q3 * q3);
+    r01 = 2.0f * (q1 * q2 - q0 * q3);
+    r02 = 2.0f * (q1 * q3 + q0 * q2);
+    r10 = 2.0f * (q1 * q2 + q0 * q3);
+    r11 = 1.0f - 2.0f * (q1 * q1 + q3 * q3);
+    r12 = 2.0f * (q2 * q3 - q0 * q1);
+
+    /* 世界系水平分量 (重力只在 z, 水平不用减) */
+    wx = r00 * imu->acc_g[0] + r01 * imu->acc_g[1] + r02 * imu->acc_g[2];
+    wy = r10 * imu->acc_g[0] + r11 * imu->acc_g[1] + r12 * imu->acc_g[2];
+    /* 车头方向 = 机体 x 轴在水平面的投影 */
+    norm = sqrtf(r00 * r00 + r10 * r10);
+    if (norm < 1.0e-3f)
+    {
+        return 0.0f;
+    }
+    return (wx * r00 + wy * r10) / norm * LQR_GRAVITY;
 }
 
 /* 使能边沿: 腿长目标锁到当前实测, 位移积分清零 (滤波器常跑不复位)
@@ -95,11 +156,11 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
             return 0u;
         }
     }
-
-    st->leg_len_tgt[0] = leg_l->output.virtual_leg_length;
-    st->leg_len_tgt[1] = leg_r->output.virtual_leg_length;
+    st->leg_len_tgt[0] = LQR_LEG_LEN_INIT;
+    st->leg_len_tgt[1] = LQR_LEG_LEN_INIT;
     st->leg_ang_tgt[0] = 0.0f;
     st->leg_ang_tgt[1] = 0.0f;
+    st->yaw_tgt = st->x[LQR_X_PHI];    /* 朝向锁当前 */
     /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
     st->pos = 0.0f;
     st->x[LQR_X_S] = 0.0f;
@@ -133,8 +194,13 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
 
     st->target[LQR_X_S]     = LQR_POS_TARGET;
     st->target[LQR_X_DS]    = axis_vel * LQR_RC_VEL_MAX;
-    st->target[LQR_X_PHI]   = 0.0f;
-    st->target[LQR_X_DPHI]  = axis_yaw * LQR_RC_YAW_MAX;
+    /* 偏航: 摇杆有输入时目标跟随当前角 (不回正), 回中后锁住; 转向通道取负 (同 Leg2, 作者台架定) */
+    if (axis_yaw != 0.0f)
+    {
+        st->yaw_tgt = st->x[LQR_X_PHI];
+    }
+    st->target[LQR_X_PHI]   = st->yaw_tgt;
+    st->target[LQR_X_DPHI]  = -axis_yaw * LQR_RC_YAW_MAX;
     st->target[LQR_X_THL]   = LQR_LEG_ANG_TARGET;
     st->target[LQR_X_DTHL]  = 0.0f;
     st->target[LQR_X_THR]   = LQR_LEG_ANG_TARGET;
@@ -217,7 +283,12 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
            + leg_r->output.virtual_leg_length * st->x[LQR_X_DTHR]
              * cosf(st->x[LQR_X_THR])
            + leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
-    st->x[LQR_X_DS] = Lowpass_Update(&st->lpf_vel, (vel[0] + vel[1]) * 0.5f);
+    /* 速度估计两条并行: 低通 / 卡尔曼 (加速度预测 + 运动学观测), vel_src 选一条进 x[1] */
+    st->ds_raw = (vel[0] + vel[1]) * 0.5f;
+    st->ds_lpf = Lowpass_Update(&st->lpf_vel, st->ds_raw);
+    st->a_fwd  = lqr_debug.acc_fwd_sign * LQR_Accel_Forward(imu);
+    st->ds_kf  = Kalman_Accel_Update(&st->kf_vel, st->a_fwd, st->ds_raw, dt);
+    st->x[LQR_X_DS] = lqr_debug.vel_src ? st->ds_kf : st->ds_lpf;
 
     /* 对照: 补偿符号取反再算一遍, 只供台架 A/B 看哪条平 */
     whl[0] = wheel_vel[0] - lqr_debug.vel_leg_comp_sign
@@ -279,7 +350,12 @@ void LQR_Control_Update(lqr_state_t *st)
         {
             if (j == LQR_X_PHI)
             {
-                continue;   /* 偏航角不参与, 只控角速度 */
+                if (!lqr_debug.yaw_hold)
+                {
+                    continue;   /* 关: 只控角速度 (Leg2 原样) */
+                }
+                sum += st->K[i][j] * LQR_Wrap_Pi(st->target[j] - st->x[j]);
+                continue;
             }
             sum += st->K[i][j] * (st->target[j] - st->x[j]);
         }

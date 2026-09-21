@@ -170,25 +170,28 @@ static void Robot_Enable_Update(void)
 }
 
 /*
- * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"腿摆角零位 + 速度估计 + 手动腿测/LQR 出力"帧 (2026-09-21 第三版)
+ * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"腿摆角零位 + 速度估计 + 手动腿测/LQR 出力"帧 (2026-09-21 第四版)
  * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
  * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能 / bit8 LQR·手动腿测已投入
  * ch2  策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测
- * ch3~6   四髋位置 (零点后 rad): 前左 / 后左 / 前右 / 后右
+ * ch3~4   偏航角 x[2] / 偏航角目标 yaw_tgt (rad)                 ← 偏航角环误差
+ * ch5~6   轮速反馈 (rad/s, 轮端, 已扣减速比与极性): 左 / 右      ← 查哪只轮不动
  * ch7~8   解算摆角 (rad, 机体系, 前摆为正): 左 / 右      ← 腿竖直时读零位
  * ch9~10  腿长 (m): 左 / 右
- * ch11~12 摆角速度 (rad/s): 左 / 右                      ← 轮速补偿用的量
- * ch13    摆角目标 (rad, 手动腿测, 左右同值)
+ * ch11    左腿摆角速度 (rad/s)                           ← 轮速补偿用的量
+ * ch12    卡尔曼速度 ds_kf (m/s)                          ← 与 ch26 对比
+ * ch13    前向加速度 a_fwd (m/s², 去重力, 车头方向)       ← 静止应≈0, 推车起步为正
  * ch14~15 腿长目标 (m): 左 / 右
  * ch16~19 髋力矩命令 (N·m): 前左 / 后左 / 前右 / 后右
  * ch20~21 足端力 F (N): 左 / 右
  * ch22~23 虚拟髋扭矩 Tp (N·m): 左 / 右
  * ch24~25 LQR 轮输出原值 u (N·m, 未门控未限幅, 只在 LQR 投入时更新): 左 / 右   ← 轮不出力也能看方向
- * ch26    速度估计 x[1] (m/s, 当前补偿符号)
- * ch27    速度估计对照 ds_alt (m/s, 补偿符号取反)         ← 摆腿时哪条平选哪条
+ * ch26    速度估计 x[1] (m/s, LQR 实际吃到的: vel_src=1 卡尔曼 / 0 低通)
+ * ch27    偏航角速度 x[3] (rad/s, LQR 吃到的)              ← 扶住不动时应≈0 (零偏)
  * ch28~29 俯仰角 (rad) / 俯仰角速度 (rad/s), LQR 吃到的
- * ch30~31 轮力矩命令 (N·m): 左 / 右
- * ch26~29 由每拍必算的状态估计更新 (需 IMU 在线 + 两腿有效); ch13~23、30~31 未投入时为 0
+ * ch30    横滚角 (rad, LQR 吃到的)                        ← 车身摆平时应≈0
+ * ch31    横滚补偿力 roll.pos_out (N, 左腿 +/右腿 −)      ← 查腿长左右差
+ * ch12~13、26~30 由每拍必算的状态估计更新 (需 IMU 在线 + 两腿有效); ch14~23、31 未投入时为 0
  */
 static void Robot_Control_Send_Vofa(void)
 {
@@ -222,22 +225,22 @@ static void Robot_Control_Send_Vofa(void)
     /* ch2 策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测 */
     dbg[2] = (float)ctrl_strategy;
 
-    /* ch3~6 四髋位置 (零点后 rad) */
-    dbg[3] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_LFT];
-    dbg[4] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_LFT];
-    dbg[5] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_RGT];
-    dbg[6] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_RGT];
+    /* ch3~4 偏航角 / 偏航角目标; ch5~6 轮速反馈 左/右 */
+    dbg[3] = lqr_state.x[LQR_X_PHI];
+    dbg[4] = lqr_state.yaw_tgt;
+    dbg[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[6] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
 
-    /* ch7~12 腿解算: 摆角 左/右, 腿长 左/右, 摆角速度 左/右 */
+    /* ch7~11 腿解算: 摆角 左/右, 腿长 左/右, 左摆角速度; ch12~13 卡尔曼速度 / 前向加速度 */
     dbg[7]  = leg_l.output.virtual_leg_angle;
     dbg[8]  = leg_r.output.virtual_leg_angle;
     dbg[9]  = leg_l.output.virtual_leg_length;
     dbg[10] = leg_r.output.virtual_leg_length;
     dbg[11] = leg_l.output.d_virtual_leg_angle;
-    dbg[12] = leg_r.output.d_virtual_leg_angle;
+    dbg[12] = lqr_state.ds_kf;
+    dbg[13] = lqr_state.a_fwd;
 
-    /* ch13~15 目标: 摆角 / 腿长 左 / 腿长 右 */
-    dbg[13] = lqr_state.leg_ang_tgt[0];
+    /* ch14~15 腿长目标 左 / 右 */
     dbg[14] = lqr_state.leg_len_tgt[0];
     dbg[15] = lqr_state.leg_len_tgt[1];
 
@@ -259,15 +262,15 @@ static void Robot_Control_Send_Vofa(void)
 
     /* ch26~27 速度估计: 当前符号 / 符号取反对照 */
     dbg[26] = lqr_state.x[LQR_X_DS];
-    dbg[27] = lqr_state.ds_alt;
+    dbg[27] = lqr_state.x[LQR_X_DPHI];
 
     /* ch28~29 俯仰角 / 俯仰角速度 */
     dbg[28] = lqr_state.x[LQR_X_THB];
     dbg[29] = lqr_state.x[LQR_X_DTHB];
 
-    /* ch30~31 轮力矩命令 (N·m): 左/右 */
-    dbg[30] = leg_balance.cmd.dji[DJI_MOTOR_WHEEL_LFT];
-    dbg[31] = leg_balance.cmd.dji[DJI_MOTOR_WHEEL_RGT];
+    /* ch30~31 横滚角 / 横滚补偿力 */
+    dbg[30] = lqr_state.roll;
+    dbg[31] = leg_balance.roll.pos_out;     /* 横滚补偿力 */
     Vofa_Send(dbg, 32u);
 }
 

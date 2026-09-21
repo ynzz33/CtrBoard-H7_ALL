@@ -2383,6 +2383,56 @@ else if (!enable_request && motor_enabled) { 失能 }   /* else 分支只在 mot
 
 ---
 
+## 变更 81 · 速度估计改成 Leg2 的卡尔曼 + 加速度前馈；腿长目标改共用默认值；VOFA 第四版（作者：先将速度估计改成 Leg2 那种形式）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/kalman.c/h`（新增） | 照抄 Leg2_v1 `Code/Tool/kalman.c`：`v += a·dt; p += Q; p ≤ P_MAX; k = p/(p+R); v += k(z−v); p = (1−k)p`。差别：`dt` 每拍传入、P 上限做成字段。已登记进 `MDK-ARM/CtrBoard-H7_ALL.uvprojx` user-lib 组 |
+| `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `vel_src`（0 低通 / 1 卡尔曼）、`acc_fwd_sign`；`lqr_state_t` 加 `ds_raw` / `ds_lpf` / `ds_kf` / `a_fwd` / `kf_vel` |
+| `imcalib/Algorithm/lqr_balance.c` | 新增 `LQR_Accel_Forward()`：四元数把 `acc_g` 转到世界系，取水平分量投影到机体 x 轴的水平方向 ×9.81；`LQR_State_Update()` 两条速度并行算，`x[1] = vel_src ? ds_kf : ds_lpf`；`LQR_Init()` 初始化卡尔曼（P0 0.1 / Q 0.005 / R 0.01 / P_MAX 0.5，同 Leg2 `Body.h`），`vel_src=1`、`acc_fwd_sign=+1` |
+| `imcalib/Algorithm/lqr_balance.c` | 作者同批：`LQR_Enable_Latch()` 两腿腿长目标改锁到 `LQR_LEG_LEN_INIT`（共用一个值，不再各锁各的实测——之前投入时两腿目标不一致，拨轮同步升降永远拉不平）；位移目标 / 腿摆角目标暂改 0 供测试，Leg2 原值 −0.12 / −0.05 待零点定后恢复 |
+| `imcalib/task/task_comm.c` | VOFA 第四版：ch3~6 改原始解码角 `dm.pos_rad[]`（标零点用）；ch12 = `ds_kf`、ch13 = `a_fwd`（原右摆角速度 / 摆角目标）；ch30/31 = 横滚角 / 横滚补偿力（原轮力矩命令）。通道注释同步 |
+| `imcalib/Algorithm/leg_balance.h` | 作者同批：腿长 KP 1000 → 1500（调参，非 Leg2 值） |
+| `md/LQR_PLAN.md` / `md/AGENTS.md` | §2.8 卡尔曼说明与验收；文件树、模块表登记 kalman |
+
+**数据流**
+
+```
+imu_state.quat / acc_g ──► LQR_Accel_Forward() ──► a_fwd (×acc_fwd_sign)
+                                                        │
+wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──► ds_lpf ──┐
+                                 └─► Kalman(a_fwd, ds_raw) ──► ds_kf ──┼─► vel_src ──► x[1] ──► 位移积分 / K 表
+```
+
+**一处如实说明**：Leg2 这组参数下卡尔曼稳态增益 k = 0.5，本质是"α=0.5 的低通 + 每拍 a·dt 的前馈"，加速度项贡献很小；相对旧路径的主要变化是去掉 α=0.3 的滞后。它解决不了两轮不对称（绕圈）那类问题。
+
+**未动物理量**：`dm_sign` / `dji_sign` / `dm_zero` / `leg_off_phi0` / `.imu` 全未改。`acc_fwd_sign` 是新加的运行时 A/B 字段，默认 +1，由作者台架定后写死。
+
+**核对**：Keil AC5 `lqr_balance.c` / `task_comm.c` / `leg_balance.c` / `task_actuation.c` 默认与 `-DSYSID_ENABLE=1` 各 0 err 0 warn；`kalman.c` 用 `simple-function.c` 同参数编译 0 err 0 warn。未链接、未上机。
+
+**待台架**：LQR_PLAN §2.8 三步（静止零漂 → 推车看加速度符号 → 投入对比）。
+
+---
+
+## 变更 82 · 开偏航角环 + 转向通道取负 + VOFA 露出偏航/轮速（作者：先把 yaw 的角度环开起来试一下；yaw 遥控输入是错误的，也要改过来）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `yaw_hold`（默认 1）；`lqr_state_t` 加 `yaw_tgt` |
+| `imcalib/Algorithm/lqr_balance.c` | 新增 `LQR_Wrap_Pi()`；`LQR_Enable_Latch()` 投入时 `yaw_tgt = x[2]`；`LQR_Target_Update()` 转向摇杆非零时 `yaw_tgt` 跟随当前角、`target[2] = yaw_tgt`、**`target[3] = -axis_yaw × 5.0`**；`LQR_Control_Update()` 偏航角项由"一律跳过"改成 `yaw_hold ? K·wrap(target−x) : 跳过` |
+| `imcalib/task/task_comm.c` | VOFA：ch3/ch4 = 偏航角 / 偏航角目标（原左髋原始角）；ch5/ch6 = 轮速反馈 左/右（原右髋原始角）；ch27 = 偏航角速度 x[3]（原 `ds_alt`，字段保留供调试器） |
+| `md/LQR_PLAN.md` | §2.3 / §2.5 / §2.6 / §八 / §十 同步 |
+
+**为什么**：偏航角速度环只有阻尼（腿长 0.15 时每 rad/s 仅 ±0.25 N·m 差动），两轮摩擦或受载有一点不对称就会稳定慢转，阻尼环不会把朝向拉回来。K 表偏航角一列本来就有增益，开它相当于加回正。Leg2 同表但注释掉了这一环。
+
+**符号变更单列（§0.1）**：转向通道 `axis_yaw` 取负，依据是作者台架"右推左转"（2026-09-21）+ Leg2 `app_rc.c` 同样取负。只改遥控目标的符号，不改任何反馈极性；偏航角/角速度反馈的极性未动。
+
+**核对**：AC5 `lqr_balance.c` / `task_comm.c` / `leg_balance.c` / `task_actuation.c` 默认与 `-DSYSID_ENABLE=1` 各 0 err 0 warn（输出到临时目录）。未链接、未上机。
+
+**待台架**：投入站立看 ch3 与 ch4 之差是否收敛、绕圈是否消失；右摇杆推右车应右转。要退回 Leg2 原样：调试器 `yaw_hold = 0`。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

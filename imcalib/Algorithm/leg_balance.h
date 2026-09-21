@@ -14,7 +14,7 @@
 #define LEG_BALANCE_F_FEEDFORWARD  8.0f
 
 /* 辅助 PID 参数: 同 Leg2_v1 balance.h (同为 1kHz, kd 直接照抄) */
-#define LEG_BALANCE_LEN_KP         1000.0f
+#define LEG_BALANCE_LEN_KP         1500.0f
 #define LEG_BALANCE_LEN_KD         50000.0f
 #define LEG_BALANCE_SYM_KP         30.0f
 #define LEG_BALANCE_SYM_KD         500.0f

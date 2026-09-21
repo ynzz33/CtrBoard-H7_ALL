@@ -1288,6 +1288,11 @@
               <FilePath>../imcalib/user-lib/simple-function.c</FilePath>
             </File>
             <File>
+              <FileName>kalman.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/kalman.c</FilePath>
+            </File>
+            <File>
               <FileName>machine_config.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/user-lib/machine_config.c</FilePath>

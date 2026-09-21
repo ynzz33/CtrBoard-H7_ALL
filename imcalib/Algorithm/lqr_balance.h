@@ -7,6 +7,7 @@
 #include "imu_state.h"
 #include "leg_solver.h"
 #include "simple-function.h"
+#include "kalman.h"
 
 /* 状态序 — 与 MATLAB 模型一致 */
 enum {
@@ -45,6 +46,9 @@ enum {
 
 typedef struct {
     float   vel_leg_comp_sign; /* 速度补偿 */
+    uint8_t vel_src;           /* 0 低通 1 卡尔曼 */
+    uint8_t yaw_hold;          /* 偏航角环 */
+    float   acc_fwd_sign;      /* 前向加速度符号 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
     uint8_t len_pid_enable;    /* 腿长PID */
@@ -62,14 +66,20 @@ typedef struct {
     float whl[2];                   /* 轮对地角速度 (调试) */
     uint8_t valid;                  /* 状态估计有效 */
     float ds_alt;                   /* 补偿符号取反的速度估计 (台架对照, 定后删) */
+    float ds_raw;                   /* 运动学速度 (未滤波) */
+    float ds_lpf;                   /* 低通速度 */
+    float ds_kf;                    /* 卡尔曼速度 */
+    float a_fwd;                    /* 前向加速度 m/s² */
     float leg_len_tgt[2];           /* 腿长目标 */
     float leg_ang_tgt[2];           /* 腿摆角目标 (手动腿测) */
     float pos;                      /* 位移积分 */
+    float yaw_tgt;                  /* 偏航角目标 */
     float roll;                     /* 机体横滚角 */
     lowpass1d_t lpf_vel;            /* 速度低通 */
     lowpass1d_t lpf_vel_alt;        /* 对照速度低通 */
     lowpass1d_t lpf_omg_pitch;      /* 俯仰角速度低通 */
     lowpass1d_t lpf_omg_yaw;        /* 偏航角速度低通 */
+    kalman_accel_t kf_vel;          /* 速度卡尔曼 */
 } lqr_state_t;
 
 extern lqr_debug_t lqr_debug;

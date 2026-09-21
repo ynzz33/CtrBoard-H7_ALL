@@ -94,7 +94,7 @@
 
 ## §6 验证与诚实
 
-- 本项目是 **Keil MDK / eIDE** 工程。**AI 环境其实可以编译**：Keil AC5 在 `D:\keil\keil_core\ARM\armcc_5\bin\armcc.exe`，完整编译参数（include 路径、宏、CPU）直接取自 `build/CtrBoard-H7_ALL/compile_commands.json`（eIDE 生成的编译数据库），逐个源文件跑一遍即可。改完**先编译再下结论**，不要习惯性写"未编译"。
+- 本项目是 **Keil MDK / eIDE** 工程。**AI 环境其实可以编译**：Keil AC5 在 `D:\keil\keil_core\ARM\armcc_5\bin\armcc.exe`，完整编译参数（include 路径、宏、CPU）直接取自 `build/CtrBoard-H7_ALL/compile_commands.json`（eIDE 生成的编译数据库），逐个源文件跑一遍即可。改完**先编译再下结论**，不要习惯性写"未编译"。**核验编译必须把 `-o` 改到临时目录**（或编完删掉 `build/CtrBoard-H7_ALL/.obj/` 下对应 `.o/.d`）：数据库里的 `-o` 指向 eIDE 的增量构建目录，带 `-DSYSID_ENABLE=1` 编出来的 `task_actuation.o` 留在那里会让作者下一次增量链接报 `Undefined symbol Sysid_Mode_Run`（2026-09-21 踩过）。
 - **但链接、下载、上机做不了** → 物理符号、增益、轴向一律标 **"待台架 / 待实测"**。
 - **能做的核验要做**：纯数学/几何推导、数值仿真（Python）有价值，做了就说"已数值核验"；但物理符号、增益、轴向只能上台架定。
 - **调参观测靠 Vofa+**：显示值不对 → **先查打包/下标，再怀疑算法**。
@@ -150,6 +150,7 @@ CtrBoard-H7_ALL/
 │       ├── machine_config.c/h     ← 两份电机配置表 + 运行时选择
 │       ├── mono_ns.c/h            ← 单调 ns 时钟 (DWT)
 │       ├── simple-function.c/h   ← 简单函数库 (一阶低通 Lowpass_* / 斜坡 Ramp_*)
+│       ├── kalman.c/h            ← 带加速度输入的一维卡尔曼 (速度估计, 同 Leg2_v1)
 │       └── Vofa_send.c/h          ← Vofa+ 调试发送
 │   └── Sysid/                     ← 测试专用 (SYSID_ENABLE 总开关)
 │       ├── sysid_config.h         ← 测试总开关
@@ -203,6 +204,7 @@ CtrBoard-H7_ALL/
 | 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；含手动腿测 `Leg_Balance_Manual()`（腿长 PID + 摆角 PD）；🟡 **待台架** |
 | 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆中位=手动腿测 / 左中+右中=LQR / 上位=手动 / 左上+右中=测试）；🟡 待台架 |
 | 简单函数库 | user-lib/simple-function.c/h | ✅ 一阶低通 + 斜坡函数，编译通过 |
+| 速度卡尔曼 | user-lib/kalman.c/h | ✅ 照抄 Leg2_v1，编译通过；🟡 加速度符号待台架 |
 
 ---
 
