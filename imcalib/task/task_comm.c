@@ -67,13 +67,14 @@ static void Leg_State_Update(void)
     (void)xTaskResumeAll();
 }
 
-/* 更新遥控使能 (指令由 policyTask 统一处理) */
+/* 更新遥控: 指令解算 + 使能 */
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
 
     DR16_Process();
     remote = DR16_Snapshot();
+    Rc_Command_Update(&rc_command, &remote);
     robot_state.rc_enable = (uint8_t)(remote.online && remote.s1 != DR16_SW_DOWN);
     input_command.mode = remote.online ? remote.s1 : 0u;
 }
@@ -173,7 +174,7 @@ static void Robot_Enable_Update(void)
  * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"电机角零位 + 腿长解算对照 + 手动腿测/LQR 出力"帧 (2026-09-21 第五版)
  * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
  * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能 / bit8 LQR·手动腿测已投入
- * ch2  策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测
+ * ch2  策略号: 0 RL / 1 LQR / 2 测试 / 3 手动腿测 / 4 失能
  * ch3~6   四髋角 (rad, 零点后 pos_zero_rad): 前左 / 后左 / 前右 / 后右   ← 标零点用
  * ch7~8   解算摆角 (rad, 机体系, 前摆为正): 左 / 右      ← 腿竖直时读零位
  * ch9~10  腿长 (m): 左 / 右
@@ -220,14 +221,13 @@ static void Robot_Control_Send_Vofa(void)
     state_bits |= output_task_lqr_engaged() ? 0x100u : 0x00u;
     dbg[1] = (float)state_bits;
 
-    /* ch2 策略号: 0 手动 / 1 LQR / 2 测试 / 3 手动腿测 */
+    /* ch2 策略号: 0 RL / 1 LQR / 2 测试 / 3 手动腿测 / 4 失能 */
     dbg[2] = (float)ctrl_strategy;
 
-    /* ch3~6 四髋角 (零点后) */
-    dbg[3] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_LFT];
-    dbg[4] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_LFT];
-    dbg[5] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_F_RGT];
-    dbg[6] = motor_state.dm.pos_zero_rad[DM_MOTOR_LEG_B_RGT];
+    dbg[3] = lqr_state.x[LQR_X_PHI];
+    dbg[4] = lqr_state.x[LQR_X_DPHI];
+    dbg[5] = lqr_state.pos;
+    dbg[6] = lqr_state.yaw_tgt;
 
     /* ch7~11 腿解算: 摆角，腿长，大腿角，虚拟小腿角 */
     dbg[7]  = leg_l.output.virtual_leg_angle;
@@ -241,13 +241,13 @@ static void Robot_Control_Send_Vofa(void)
 
     /* ch14~15 腿长目标 左 / 右 */
     // dbg[14] = lqr_state.leg_len_tgt[0];
-    dbg[15] = lqr_state.leg_len_tgt[1];
+    dbg[15] = motor_state.dji.vel_rad_s[0]+motor_state.dji.vel_rad_s[1];
 
     /* ch16~19 髋力矩命令 (N·m): 前左/后左/前右/后右 */
-    dbg[16] = leg_balance.cmd.dm[DM_MOTOR_LEG_F_LFT];
-    dbg[17] = leg_balance.cmd.dm[DM_MOTOR_LEG_B_LFT];
-    dbg[18] = leg_balance.cmd.dm[DM_MOTOR_LEG_F_RGT];
-    dbg[19] = leg_balance.cmd.dm[DM_MOTOR_LEG_B_RGT];
+    dbg[16] = motor_state.dji.vel_rad_s[0];
+    dbg[17] = motor_state.dji.vel_rad_s[1];
+    dbg[18] = motor_state.dji.current_raw[0];
+    dbg[19] = motor_state.dji.current_raw[1];
 
     /* ch20~23 力向量: F 左/右 (N), Tp 左/右 (N·m) */
     dbg[20] = leg_balance.F[0];

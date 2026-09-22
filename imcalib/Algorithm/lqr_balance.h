@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "dr16.h"
+#include "rc_command.h"
 #include "imu_state.h"
 #include "leg_solver.h"
 #include "simple-function.h"
@@ -38,7 +38,6 @@ enum {
 #define LQR_K_LEN_MAX       0.23f
 
 /* 遥控量程 */
-#define LQR_RC_DEADBAND     20
 #define LQR_RC_VEL_MAX      1.2f    /* m/s */
 #define LQR_RC_YAW_MAX      5.0f    /* rad/s */
 #define LQR_RC_LEN_RATE     0.3f    /* m/s */
@@ -49,6 +48,8 @@ typedef struct {
     uint8_t vel_src;           /* 0 低通 1 卡尔曼 */
     uint8_t yaw_hold;          /* 偏航角环 */
     uint8_t yaw_rate_hold;     /* 偏航角速度环 */
+    uint8_t pos_hold;          /* 位移环 (0 = 位移列不进控制) */
+    float   vel_ramp;          /* 速度目标斜坡 m/s^2 (0 = 不斜坡, 阶跃) */
     float   acc_fwd_sign;      /* 前向加速度符号 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
@@ -75,6 +76,7 @@ typedef struct {
     float leg_ang_tgt[2];           /* 腿摆角目标 (手动腿测) */
     float pos;                      /* 位移积分 */
     float yaw_tgt;                  /* 偏航角目标 */
+    float vel_tgt;                  /* 速度目标 (斜坡后) */
     float roll;                     /* 机体横滚角 */
     lowpass1d_t lpf_vel;            /* 速度低通 */
     lowpass1d_t lpf_vel_alt;        /* 对照速度低通 */
@@ -88,7 +90,7 @@ extern lqr_debug_t lqr_debug;
 void    LQR_Init(lqr_state_t *st);
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
                          const leg_state_t *leg_r, uint8_t manual);
-uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
+uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt,
                           uint8_t manual);
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,

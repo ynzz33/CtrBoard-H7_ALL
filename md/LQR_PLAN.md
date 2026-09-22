@@ -57,14 +57,14 @@
 | `imcalib/user-lib/simple-function.c/h` | 一阶低通 + 斜坡函数 |
 | `imcalib/user-lib/kalman.c/h` | 带加速度输入的一维卡尔曼（照抄 Leg2_v1 `kalman.c`，速度估计用） |
 
-### 2.2 控制链路（全部在 `actuationTask` @1 kHz）
+### 2.2 控制链路（全部在 `actuationTask` @1 kHz；2026-09-22 变更 93 起为 估计 → 求解 → 分发 三层，`output_dispatch()` 是全文件唯一的 `Dm_Send / Dji_Send` 调用点）
 
 ```
 imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写者模型不变）
         │
   ⓪ LQR_State_Update()      每拍必算、不看挡位（同 RL 观测）：x[10] = 姿态 + 腿摆角世界系 + 轮速运动学速度 + 位移积分，有效性写 valid
   ── 以下只在左中 + 右中且投入后 ──
-  ① LQR_Target_Update()     遥控 → target[10]，腿长目标按速率积分
+  ① LQR_Target_Update()     rc_command → target[10]，腿长目标按速率积分
   ③ LQR_Control_Update()    valid 才算：腿长变化 >0.5mm 求值 40 个增益 → u[i] = Σ K[i][j]·(target[j] − x[j])
   ④ Leg_Balance_Compute()   腿长/防劈叉/横滚 PID → F；Leg_Force_Map_Forward(F, Tp) → 前后髋
                             → torque_output_t（输出极性在驱动边界处理）
@@ -77,7 +77,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 | 索引 | 符号 | 来源 |
 |:---:|---|---|
-| 0 | s | `∫ ds·dt`，速度指令非 0 时清零 |
+| 0 | s | `∫ ds·dt`，速度目标非 0 时清零（变更 94：速度目标经 `vel_ramp` 斜坡，松杆减速段仍视为有指令不积分，目标到 0 才开始积）；`lqr_debug.pos_hold=0` 时该列不进控制 |
 | 1 | ds | 轮速运动学 `ω_轮·R_w + L·dθ·cosθ + dL·sinθ` → 卡尔曼（加速度预测）或低通，`lqr_debug.vel_src` 选，见 §2.8 |
 | 2 | φ | IMU 偏航角；`lqr_debug.yaw_hold=1` 时参与：目标 = 投入时锁的朝向，误差绕 ±π（变更 82）；**默认 0 不参与**（变更 83） |
 | 3 | dφ | IMU 偏航角速度 + 低通；`lqr_debug.yaw_rate_hold=1` 时参与（Leg2 原样）；**默认 0 不参与**（变更 83） |
@@ -112,6 +112,8 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 `vel_leg_comp_sign` 默认 `-1.0`，与原速度估计完全一致；台架只在 `-1/+1` 两值间比较 `lqr_state.x[1]` 波动，确定后写死并删除该字段。
 
 `vel_src`（默认 1 = 卡尔曼，0 = 旧低通）选哪条速度进 `x[1]` 与位移积分，两条每拍都在算；`acc_fwd_sign`（默认 +1）是前向加速度符号，按 §2.8 台架定。
+
+`pos_hold`（默认 1）开位移列；置 0 只控速度不控位移，用来判断绕圈 / 松杆回位是否来自位移环（变更 94）。`vel_ramp`（默认 5 m/s²，同 Leg2 `RAMP_VEL_RATE`）是速度目标斜坡，置 0 回到阶跃；斜坡期间位移积分不动，避免松杆后把减速滑行距离记成"多走了"再拉回来。
 
 `yaw_hold` 开偏航角环、`yaw_rate_hold` 开偏航角速度环，**两者默认都是 0**（变更 83，作者：先把偏航两列都去掉看和现在有什么区别）。三种状态：都 0 = 偏航完全不控，转向摇杆无效，朝向只靠两轮对称性；`yaw_rate_hold=1` = Leg2 原样只有角速度阻尼；再 `yaw_hold=1` = 变更 82 的角度环（目标 `yaw_tgt` 投入时锁当前朝向；摇杆有输入时跟随当前角、回中后锁住；误差绕 ±π）。K 表偏航角一列在腿长 0.15 时左右轮 ∓0.26 N·m/rad。
 
@@ -150,13 +152,13 @@ x[1]   = vel_src ? ds_kf : ds_lpf(α=0.3)
 目的：在不碰 K 表、IMU 不参与控制的前提下，先验证"腿长 / 虚拟腿摆角 → 力域映射 → 四髋力矩"这条链的极性与雅可比。与 RL 手动遥操同思路：摇杆直接给目标，PID 出虚拟力，雅可比转成电机力矩。
 
 ```
-DR16 快照 ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg_len_tgt（区间取机器表 0.10~0.20，不与 K 表域求交；从区间外投入时只许往区间里拨）
+rc_command ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg_len_tgt（区间取机器表 0.10~0.20，不与 K 表域求交；从区间外投入时只许往区间里拨）
                                             左摇杆 Y (ch3) 直接 → leg_ang_tgt = 杆量 × ±0.5 rad（前推为正 = 前摆）
         ──► (状态估计 LQR_State_Update 已在 output_task_body 每拍算好, 手动腿测不用它, 只供观测)
         ──► Leg_Balance_Manual()            F  = 腿长 PID(1000/50000) + 8 N 前馈（无横滚项）
                                             Tp = 摆角 PD(20/30) 夹到 ±4 N·m，**不取反**（PD 直接作用在解算摆角坐标上，与 §3.1 的 LQR 取反无关；Leg2 自救环的角度与 Tp 同时反号，正增益直接照抄）
                                             Leg_Force_Map_Forward(F, Tp) → 前/后髋 → trq_max_hip 限幅；轮 = 0
-        ──► output_send()                   torque_output_enabled=0 时只发零力矩，但 `leg_balance.cmd.dm[]` 仍是计算出的四髋命令
+        ──► output_dispatch()               唯一下发点 (变更 93)；valid=0 或 torque_output_enabled=0 时只发零力矩，但 `leg_balance.cmd.dm[]` 仍是计算出的四髋命令
 ```
 
 - 投入条件：使能 + 两腿解算有效，**腿长不限**（小机器零力矩架空时腿垂到机械限位 ≈0.20 m，正好压在区间上沿，浮点略超就会被"区间内才投入"拒掉；趴地则缩到 0.10 以下。`LQR_Enable_Latch(manual=1)` 现在不查区间；LQR 仍要求 0.13~0.20）。投入时腿长目标锁到当前实测、摆角目标清零、PID 历史清零；目标在区间外时拨轮只能往区间里拨，进区间后不再出去。右拨杆在手动腿测与 LQR 之间切换时会重新锁存。VOFA ch1 bit8 = 已投入（`output_task_lqr_engaged()`）；未投入时 `leg_balance.F/Tp/cmd` 清零。

@@ -6,6 +6,7 @@
 #include "imu_state.h"
 #include "dm.h"
 #include "dji.h"
+#include "rc_command.h"
 #include "leg_solver.h"
 #include "rl_observation.h"
 #include "rl_policy.h"
@@ -21,6 +22,7 @@ typedef enum {
     CTRL_STRATEGY_LQR,          /* LQR 平衡 */
     CTRL_STRATEGY_SYSID,        /* 测试模式 */
     CTRL_STRATEGY_LQR_MANUAL,   /* 手动腿测 (腿长+摆角) */
+    CTRL_STRATEGY_DISABLE,      /* 左下 / 离线 */
 } ctrl_strategy_t;
 
 typedef struct {
@@ -97,6 +99,7 @@ extern leg_state_t leg_l;
 extern leg_state_t leg_r;
 extern action_state_t action_state;
 extern input_command_t input_command;
+extern rc_command_t rc_command;
 extern leg_map_t leg_map_l;
 extern leg_map_t leg_map_r;
 extern robot_state_t robot_state;

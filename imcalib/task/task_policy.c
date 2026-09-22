@@ -1,7 +1,6 @@
 #include "robot_control.h"
 #include "rl_observation.h"
 #include "rl_policy.h"
-#include "dr16.h"
 
 #include <string.h>
 
@@ -64,40 +63,6 @@ static uint8_t RL_Control_Update_Observation(void)
     return rl_control.observation.history_ready;
 }
 
-/* 摇杆归一化 (死区+限幅→[-1,1]) */
-static float RC_Axis(int16_t raw)
-{
-    int16_t value;
-
-    value = DR16_Deadline(raw, 20u);
-    if (value > DR16_CH_LIMIT)
-    {
-        value = DR16_CH_LIMIT;
-    }
-    else if (value < -DR16_CH_LIMIT)
-    {
-        value = -DR16_CH_LIMIT;
-    }
-    return (float)value / (float)DR16_CH_LIMIT;
-}
-
-/* 轮子摇杆 (宽死区+限幅→[-1,1]) */
-static float RC_Axis_Wheel(int16_t raw)
-{
-    int16_t value;
-
-    value = DR16_Deadline(raw, 100u);
-    if (value > DR16_CH_LIMIT)
-    {
-        value = DR16_CH_LIMIT;
-    }
-    else if (value < -DR16_CH_LIMIT)
-    {
-        value = -DR16_CH_LIMIT;
-    }
-    return (float)value / (float)DR16_CH_LIMIT;
-}
-
 /*
  * 使能边沿立刻锁存当前角度作为 base_action
  * 不再等待200ms，因为锁存前不输出力矩，腿不会偏移
@@ -133,29 +98,30 @@ static void Manual_Lock_On_Enable(void)
 
 /*
  * 统一遥控处理: 更新 input_command + 手动偏移叠加
- * DR16_Process() 已在 commTask 调用, 此处只读快照
+ * 指令由 commTask 的 Rc_Command_Update() 解算, 此处只读
  */
 static void Remote_Command_Apply(float action[RL_ACTION_SIZE])
 {
-    dr16_t remote;
+    float stick_thigh;
+    float stick_shank;
+    float stick_wheel;
 
-    remote = DR16_Snapshot();
-    if (!remote.online)
+    if (!rc_command.online)
     {
         return;
     }
 
     /* RL obs 指令 */
-    input_command.vx_cmd     = RC_Axis(remote.ch3) * REMOTE_COMMAND_SCALE;
-    input_command.yaw_cmd    = RC_Axis(remote.ch0) * REMOTE_COMMAND_SCALE;
-    input_command.height_cmd = RC_Axis(remote.wheel) * REMOTE_COMMAND_SCALE;
+    input_command.vx_cmd     = rc_command.vel * REMOTE_COMMAND_SCALE;
+    input_command.yaw_cmd    = rc_command.yaw * REMOTE_COMMAND_SCALE;
+    input_command.height_cmd = rc_command.len * REMOTE_COMMAND_SCALE;
 
     /* 手动偏移叠加 */
     if (base_locked)
     {
-        float stick_thigh = RC_Axis(remote.ch3) * MANUAL_ACTION_SCALE;
-        float stick_shank = RC_Axis(remote.wheel) * MANUAL_ACTION_SCALE;
-        float stick_wheel = RC_Axis_Wheel(remote.ch1) * MANUAL_ACTION_SCALE;
+        stick_thigh = rc_command.ang * MANUAL_ACTION_SCALE;
+        stick_shank = rc_command.len * MANUAL_ACTION_SCALE;
+        stick_wheel = rc_command.vel * MANUAL_ACTION_SCALE;
         action[0] = base_action[0] + stick_thigh;
         action[1] = base_action[1] + stick_shank;
         action[2] = stick_wheel;

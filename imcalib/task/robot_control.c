@@ -9,6 +9,7 @@ leg_state_t leg_l;
 leg_state_t leg_r;
 action_state_t action_state;
 input_command_t input_command;
+rc_command_t rc_command;
 leg_map_t leg_map_l;
 leg_map_t leg_map_r;
 robot_state_t robot_state;

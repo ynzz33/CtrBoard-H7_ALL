@@ -241,13 +241,16 @@ dr16.c: DR16_Process()
     │  DR16_Snapshot()
     ▼
 task_comm.c: Remote_Control_Update()
-    DR16_Process() → DR16_Snapshot()
+    DR16_Process() → DR16_Snapshot() → Rc_Command_Update() → rc_command (全局, 唯一解算点)
     │
+    ├─ ch1 → rc_command.vel  (死区 10, 归一化 [-1,1])
+    ├─ ch0 → rc_command.yaw  (死区 20)
+    ├─ wheel → rc_command.len (死区 20)
+    ├─ ch3 → rc_command.ang  (死区 20)
+    ├─ s1 / s2 / online → rc_command
     ├─ s1 != DOWN → rc_enable = 1
-    ├─ ch3 → vx_cmd     (归一化 × REMOTE_COMMAND_SCALE)
-    ├─ ch0 → yaw_cmd    (归一化 × REMOTE_COMMAND_SCALE)
-    ├─ wheel → height_cmd (归一化 × REMOTE_COMMAND_SCALE)
     └─ s1 → mode
+    (policyTask: Remote_Command_Apply() 读 rc_command → vx_cmd/yaw_cmd/height_cmd × REMOTE_COMMAND_SCALE)
     │
     │  消费端
     ▼
@@ -568,11 +571,11 @@ rl_observation_state_t:
 
 ## 8. LQR 平衡链路（task_actuation 内，@1kHz）
 
-只在左拨杆中位 + 右拨杆中位时激活；左拨杆中位而右拨杆不在中位 = **手动腿测**（同一套腿长 PID + 力域映射，Tp 来自摆角 PD，轮零、IMU 仅观测，见 [LQR_PLAN.md](LQR_PLAN.md) §2.7）。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
+左拨杆中位 = 选 LQR，右拨杆中位 = 投入出力（其他位零力矩）；**手动腿测**当前无遥控入口（同一套腿长 PID + 力域映射，Tp 来自摆角 PD，轮零、IMU 仅观测，见 [LQR_PLAN.md](LQR_PLAN.md) §2.7）。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
 
 ```
 imu_state (pitch/roll/yaw/gyro)    leg_l / leg_r (Leg_Solve 输出)
-motor_state.dji.vel_rad_s          DR16_Snapshot()
+motor_state.dji.vel_rad_s          rc_command (commTask 已解算)
         │                                  │
         ▼                                  │
   LQR_State_Update()   每拍必算, 不看挡位   │

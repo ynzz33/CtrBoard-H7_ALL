@@ -1323,6 +1323,11 @@
               <FilePath>../imcalib/user-lib/pid.c</FilePath>
             </File>
             <File>
+              <FileName>rc_command.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/user-lib/rc_command.c</FilePath>
+            </File>
+            <File>
               <FileName>uart_idle.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/user-lib/uart_idle.c</FilePath>

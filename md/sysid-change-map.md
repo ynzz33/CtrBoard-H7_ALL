@@ -2531,6 +2531,178 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 86 · MATLAB 管线精简：28 → 19 个文件（作者：有些重复冗余，三点都做）
+
+| 项 | 改动 |
+| --- | --- |
+| 合并 | `config/machine_default.m` + `model_default.m` → `config/pipeline_config.m`（多带 `fit_order`）；`config/machine_pending.m` 并入 `machine_load.m`（`m.pending`）；`model/sjtu5/leg_row_sjtu5.m` 并入 `sjtu5_param_vec.m` 局部函数 |
+| 删除 | `check/check_c_vs_board.m` + `check/compare_c_tables.py`（与 `check_vs_ref` 同证"和现表一样"，还依赖 Python；阶段 0 证据留在变更 85 与 `output/report_local-sjtu5-20260922-0945.txt`）；`ref/AB_WBR_gen.m`（与 `cache/AB_sjtu5_gen.m` 逐字相同，已证差 0）；`model/newton15/README.md` |
+| `check/check_vs_ref.m` | 去掉 A/B 对照段，只留 K 对照；只在复现模式跑，平时跳过，结果行显示 `-` |
+| `run_all.m` | 读 `pipeline_config`；报告固定 `output/report_latest.txt` 每次覆盖，拷上板时手动另存 `report_<表号>.txt`；结果行改四项 |
+| `emit/emit_gain_table.m` | 待实测清单改读 `m.pending` |
+| `ref/README.md`、`LQR_MATLAB_PLAN.md` §四/§5.4/§5.5/§十/§十二、`md/AGENTS.md` | 同步 |
+
+**核对**：重跑 `run_all`（复现模式）四项全过，K 对照仍为网格 3.5e-11 / 非网格 1.3e-11，AC5 0 err 0 warn；板上代码未动。
+
+---
+
+## 变更 87 · MATLAB 管线再精简：19 → 2 个代码文件，只留闭环检查（作者：选机器 / Q/R / 网格拟合 / 写 C 统一进 run_all；板上对比、复现对照、AC5 编译都删；按名字取表没必要）
+
+| 项 | 改动 |
+| --- | --- |
+| `tools/matlab/run_all.m` | 一个文件按节排：§1 选择（机器 / 模型 / 拟合阶次）、§2 Q/R + tag、§3 两张机器表 `machine_table()`、`scan_grid` / `fit_K` / `eval_K_poly` / `check_closed_loop` / `emit_gain_table` 全为局部函数；表号改为 `机器-模型-qr_tag-时间`；闭环未通过时 C 照写但控制台与文件头标"不要上板" |
+| `tools/matlab/model_AB.m` | 模型接口 + `sjtu5_param_vec` / 取行 + `build_sjtu5` 符号推导，全为局部函数；缓存路径改为同级 `cache/` |
+| 删除 | `config/`（`pipeline_config`、`machine_load`、`machine_local`、`machine_chuanliantui`、`lqr_weights`）、`model/`、`design/`、`emit/`、`check/`（含板上机器表比对、AC5 编译、Leg2 原表对照）、`ref/`（`LQR_K_WBR.m`、README） |
+| `tools/matlab/LQR_MATLAB_PLAN.md` | §四目录、§5.1/5.2/5.4/5.5、§六阶段 1/2 文件名、§七、§八、§十、§十二 同步 |
+
+**为什么**：作者嫌文件多；阶段 0 已证复现，Leg2 原表对照与板上字段比对"对比过一次就够"；AC5 单文件编译整项目编译时同样会查。闭环谱半径保留，是唯一能在烧板前判定"这组 Q/R 站不站得住"的检查。
+
+**代价（已写进计划 §四 / §八）**：板上 `machine_config.c` 改了轮径 / 杆长 / 区间 / 限幅，`run_all.m` §3 要手动跟着改，没有脚本再替你查。
+
+**核对**：删缓存后重跑 `run_all`（复现组 Q/R）：符号推导 13.3 s、扫描 121/121、闭环谱半径 0.998929、拟合残差 0.0256；生成 C 的系数集与板上 `lqr_gain_table.c` 逐项相同（仅打印位数不同，如 `0.717670977F` vs `0.717671F`，同一 float）。板上代码未动。
+
+---
+
+## 变更 88 · MATLAB 管线按"多久改一次"拆成四个文件（作者：机械参数不常改单独放；网格拟合等验证过的中间计算也单独放）
+
+| 文件 | 改动 |
+| --- | --- |
+| `tools/matlab/run_all.m` | 只剩 §1 选择、§2 Q/R + tag、一行调 `build_gain_table`（35 行）|
+| `tools/matlab/machine_table.m`（新） | 两张机器表从 `run_all` 搬出，内容不变 |
+| `tools/matlab/build_gain_table.m`（新） | `scan_grid` / `fit_K` / `eval_K_poly` / `check_closed_loop` / `print_K_nominal` / `emit_gain_table` / `fmt_float` 从 `run_all` 搬出，加入口函数负责目录、表号、diary、打印、缓存、结论 |
+| `tools/matlab/model_AB.m` | 未动 |
+| `tools/matlab/LQR_MATLAB_PLAN.md` | §四目录、§5.1/5.4、§八、§十、§十二 同步 |
+
+**为什么**：作者定"常改的（Q/R）、不常改的（机械参数）、验证过不该改的（中间计算）分开"，日常只看 `run_all.m`。报告仍走 diary：命令行窗口照常显示，`report_latest.txt` 只是副本。
+
+**核对**：重跑 `run_all`（复现组 Q/R）：扫描 121/121、闭环谱半径 0.998929、拟合残差 0.0256；生成 C 的 40 行 `K_sym[]` 与变更 87 那次逐字节相同。板上代码未动。
+
+---
+
+## 变更 89 · 管线自动部署 + 去掉 Q/R 标签（作者：拷贝这一步直接在 MATLAB 端做；Q/R 值直接写进表头就行）
+
+| 文件 | 改动 |
+| --- | --- |
+| `tools/matlab/run_all.m` | §1 加 `CFG.deploy = true`；§2 删 `qr_tag` |
+| `tools/matlab/build_gain_table.m` | 去掉 `qr_tag` 参数与文件头 "Q/R 组" 行（Q、R 两行本来就在）；表号改为 机器-模型-时间；闭环通过且 `CFG.deploy` 时 `copyfile` 覆盖 `imcalib/Algorithm/lqr_gain_table.c`，未通过不动板上文件 |
+| `imcalib/Algorithm/lqr_gain_table.c` | 首次由管线自动覆盖（表号 local-sjtu5-20260922-1258，Q/R 为现表那组）。与被覆盖的 Coder 版逐系数按 float 比对 120 个值全同，只是打印位数与文件头不同；**板上数值零变化** |
+| `LQR_MATLAB_PLAN.md` §四 / §5.5 / §十二 | 同步 |
+
+**核对**：重跑 `run_all` 闭环通过，自动覆盖成功；`.h` 未动。整项目编译由作者在 eIDE 做。
+
+---
+
+## 变更 90 · 遥控指令统一解算到 `rc_command`，策略仲裁拆成短函数（作者：输入指令统一在外面做，内部直接读；前进统一 ch1，死区 10）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/rc_command.c/h` | **新增**。`rc_command_t`：`vel`(ch1 右摇杆Y) / `yaw`(ch0 右摇杆X) / `len`(拨轮) / `ang`(ch3 左摇杆Y) 四轴去死区归一化 [-1,1] + `s1` / `s2` / `online`；`Rc_Command_Update(cmd, dr16快照)`，离线全零。死区常量 `RC_DEADBAND_VEL=10`、其余 20。Keil 已登记进 `imcalib/user-lib` 组，eIDE 靠 `srcDirs` 自动扫到 |
+| `imcalib/task/robot_control.c/h` | 全局 `rc_command_t rc_command`；`robot_control.h` include `rc_command.h` |
+| `imcalib/task/task_comm.c` | `Remote_Control_Update()` 在 `DR16_Snapshot()` 后调 `Rc_Command_Update(&rc_command, &remote)`，全机唯一的摇杆解算点 |
+| `imcalib/Algorithm/lqr_balance.c/h` | `LQR_Target_Update()` 第二参数 `const dr16_t *` → `const rc_command_t *`；删 `LQR_RC_Axis()` 与 `LQR_RC_DEADBAND`；`axis_vel/yaw/len` 直接取 `cmd->vel/yaw/len`；头文件不再 include `dr16.h`。换算常数、偏航锁存、腿长积分与夹取、转向取负一律不动 |
+| `imcalib/task/task_policy.c` | 删 `RC_Axis()` / `RC_Axis_Wheel()` / `DR16_Snapshot()`；`Remote_Command_Apply()` 只读 `rc_command`：`vx_cmd ← vel`、`yaw_cmd ← yaw`、`height_cmd ← len`；手动偏移 `thigh ← ang`、`shank ← len`、`wheel ← vel` |
+| `imcalib/task/task_actuation.c` | 结构整理，行为不变：新增 `output_zero()`（原五处重复的零力矩四行）、`strategy_from_remote(cmd, prev)`（拨杆 → 策略，含"左中+右非中 = 保持上一策略"）、`lqr_engage_update(manual)`（原 136~156 行投入锁存）、`output_task_rl()`（原 RL 分支）；`output_task_body()` 改为 状态估计 → 定策略 → `switch` 三选一。`output_task_lqr/_manual()` 不再收 `dr16_t`，直接传 `&rc_command`；文件不再 include `dr16.h` |
+
+**行为变化（作者拍板）**：
+- RL 观测的前进指令 `vx_cmd` 由 ch3（左摇杆 Y）改为 ch1（右摇杆 Y），与 LQR、RL 手动轮偏移统一。推理尚未接进任务，当前无实际影响。
+- ch1 死区 20（LQR）/ 100（RL 手动轮偏移）统一为 **10**；ch0 / 拨轮 / ch3 仍为 20。
+
+**输入 / 输出 / 调用链**：`commTask` 1 ms：`DR16_Process()` → `DR16_Snapshot()` → `Rc_Command_Update()` → `rc_command`（全局）。消费端：`actuationTask` 1 kHz `output_task_body()` → `strategy_from_remote(&rc_command)` 定挡位 → LQR / 手动腿测 `LQR_Target_Update(&rc_command)`；`policyTask` 10 ms `Remote_Command_Apply()` 读 `rc_command` 写 `input_command` 与手动偏移。`Sysid_Mode_Run()` 的预压拨轮仍自己读 `DR16_Snapshot()`，未动。
+
+**核对**：armcc 编 `rc_command.c` / `task_comm.c` / `task_actuation.c` / `task_policy.c` / `robot_control.c` / `lqr_balance.c` / `leg_balance.c` / `sysid_mode.c`，默认与 `-DSYSID_ENABLE=1` 各一遍，0 fail / 0 warn，`-o` 指向临时目录。`grep` 无 `LQR_RC_DEADBAND` / `LQR_RC_Axis` / `RC_Axis` 残留。整项目链接与台架由作者做；仲裁语义与摇杆映射 **待台架** 复核。
+
+---
+
+## 变更 91 · 仲裁改为"左拨杆选模式、右拨杆中位投入"，嵌套 switch，测试模式退出仲裁（作者：左下全停、左中 LQR、左上 RL；右中代表开始用对应模式解算输出；测试代码 #if 0）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/task/inc/robot_control.h` | 枚举末尾加 `CTRL_STRATEGY_DISABLE`（=4），原 0~3 编号不变 |
+| `imcalib/task/task_actuation.c` | `strategy_from_remote(cmd)` 只看 s1：中 = LQR、上 = RL(`CTRL_STRATEGY_MANUAL`)、下 / 离线 = DISABLE，去掉"保持上一策略"；`output_task_body()` 外层 `switch (strategy)`，LQR / RL 两路内层 `switch (rc_command.s2)`：右中 → 投入锁存 + 出力，其他位 → 零力矩；新增 `output_task_lqr_idle()`（清投入标志 + `Leg_Balance_Reset` + 零力矩），DISABLE 也走它。sysid 的 include / `CTRL_STRATEGY_SYSID` 分支改成 `#if 0`，仲裁不再有测试入口 |
+| `imcalib/task/task_comm.c` | VOFA ch2 注释加 `4 失能`，`0 手动` 改标 `0 RL` |
+
+**拨杆语义**：
+
+| 左 s1 | 右 s2 | 结果 |
+| --- | --- | --- |
+| 下 / 离线 | 任意 | DISABLE：零力矩（电机失能由 comm 的 `rc_enable` 决定） |
+| 中 | 中 | LQR 投入：`lqr_engage_update` 锁存 → `output_task_lqr()` |
+| 中 | 上 / 下 | LQR 已选未投入：零力矩，状态估计照算 |
+| 上 | 中 | RL 投入：`output_task_rl()` |
+| 上 | 上 / 下 | RL 已选未投入：零力矩 |
+
+**输入 / 输出 / 调用链**：`rc_command.s1` → `strategy_from_remote()` → `ctrl_strategy`（VOFA ch2）；`rc_command.s2` 只在 `output_task_body()` 内层 switch 判投入。手动腿测 `CTRL_STRATEGY_LQR_MANUAL` 仍无遥控入口。
+
+**核对**：armcc 编 `task_actuation.c` / `task_comm.c` / `robot_control.c` / `task_policy.c` / `sysid_mode.c`，默认与 `-DSYSID_ENABLE=1` 各一遍，0 fail / 0 warn。拨杆语义 **待台架**。
+
+---
+
+## 变更 92 · LQR 投入不再查实测腿长（作者：先把腿长界限放开，后面再做倒地自起状态机；后续参考 Leg2）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.c` | `LQR_Enable_Latch()` 删掉 "实测腿长必须在 K 表域 0.13~0.23 内才投入" 的检查，同 Leg2（Leg2 只夹目标、不查实测）；签名不变，三个参数 `(void)` |
+| `imcalib/task/task_actuation.c` | 使能沿注释同步 |
+
+**现象**：左中 + 右中不站起。VOFA ch0=255（全在线）、ch1=253（使能 / 两腿有效 / 四髋使能，bit8 未投入）、ch2=1（LQR 已选）→ 卡在 `LQR_Enable_Latch()`：趴地腿长 < 0.13 每拍被拒。原流程靠手动腿测先撑腿到 0.15，现仲裁无手动腿测入口。
+
+**未动**：`LQR_Len_Range()` / `LQR_K_LEN_MIN/MAX` 仍用于 `LQR_Target_Update()` 拨轮目标夹取；`LQR_LEG_LEN_INIT = 0.18` 投入目标。
+
+**风险**：投入瞬间腿长目标 0.18 与趴地实测差 ~0.05 m，腿长 PID（KP 1000）首拍出几十牛伸长力，K 表在 0.13 以下为多项式外推。Leg2 同样做法。**待台架**。
+
+**核对**：armcc `lqr_balance.c` / `task_actuation.c` 默认与 `-DSYSID_ENABLE=1` 各一遍。
+
+---
+
+## 变更 93 · 输出任务改三层：解算只算、分发唯一（作者：得到解算结果后统一分发给电机，不要每个解算各自一个分发函数）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/torque_output.h` | `torque_output_t` 加 `valid` 字段（0 = 本拍无有效命令）；加 `Torque_Output_Clear()` |
+| `imcalib/task/task_actuation.c` | 重写为三层：① `LQR_State_Update()` 每拍估计（不变）；② `solve_lqr / solve_lqr_manual / solve_rl` 只写 `torque`、置 `valid`，不碰驱动；③ `output_dispatch()` 唯一下发点：`valid=0` 或 `torque_output_enabled=0` → `Dm_Send_Zero + Dji_All_Stop`，否则 `Dm_Send_Torque + Dji_Send_Wheel_Torque`。删掉 `output_send / output_zero / output_task_lqr / output_task_lqr_manual / output_task_rl / output_task_lqr_idle` 六个函数，`switch` 里 7 处发送点归一为函数末尾一行 |
+| `md/LQR_PLAN.md` §2.2 / §2.7 | 同步 |
+
+**为什么**：原来每个策略分支各自 `output_send()` / `output_zero()` / `return`，改输出行为（总开关、限幅、斜坡、极性）要改多处。现在改输出只动 `output_dispatch()`，改控制律只动 `solve_*()`。
+
+**行为零变化**：每种情况下发的数值与之前逐位相同——
+- LQR 投入且解算成功 → 原样下发（同 `output_send`）
+- LQR 未投入 / 解算失败 / IMU 无效 → 零力矩（同 `output_task_lqr_idle` / `output_zero`），`lqr_idle()` 仍清 `leg_balance` 观测值
+- RL 前提不齐 → 零力矩；齐 → 原样下发
+- 失能 → 零力矩
+- 总输出关 → 零力矩，计算照常
+- sysid 分支仍 `#if 0`，接入时改走 dispatch（`sysid_mode.c` 内部 10 处 `Dm_Send_*` 本次未动）
+
+**核对**
+- AC5 编译 `task_actuation.c / leg_balance.c / rl_torque.c / task_policy.c / task_comm.c / sysid_mode.c / robot_control.c` 默认与 `-DSYSID_ENABLE=1` 各 0 err 0 warn（`-o` 到临时目录）。
+- `grep` 旧函数名：代码与文档无残留。
+- `leg_balance.cmd` / `rl_torque.last_torque` 是整结构体拷贝，会多带一个 `valid` 字节，VOFA ch16~19 只读 `dm[]`，不受影响。
+- 未改极性、零点、量程、限幅、门控逻辑。未链接、未上机。
+
+**台架**：投入 LQR 看 ch16~19 / ch24~25 与改前同一状态下数值一致；拨杆切换、失能、总输出关三种情况电机应即时零力矩。
+
+---
+
+## 变更 94 · 位移列开关 + 速度目标斜坡（作者：松摇杆后车直接回到最初位置；偏航列关掉仍绕圈，怀疑位移环在推）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `pos_hold`（默认 1）、`vel_ramp`（默认 5 m/s²）；`lqr_state_t` 加 `vel_tgt` |
+| `imcalib/Algorithm/lqr_balance.c` | `LQR_Target_Update()`：速度目标不再阶跃，按 `vel_ramp·dt` 每拍逼近摇杆值，小于一步时收口到精确 0；`target[DS] = vel_tgt`。`LQR_Enable_Latch()` 投入时 `vel_tgt=0`。`LQR_Control_Update()` 求和循环 `j == LQR_X_S && !pos_hold` 跳过 |
+| `md/LQR_PLAN.md` §2.3 / §2.5 | 同步 |
+
+**为什么**
+- 原逻辑"有速度指令不积分、松杆立刻开始积"：松杆瞬间车还有速度，减速滑行的整段路程被记进 `pos`，控制器再把车拉回去，看起来像回到起点。斜坡后减速段目标非 0、不积分，目标到 0 时车已基本停稳。Leg2 同样有 5 m/s² 斜坡。
+- `pos_hold` 与 `yaw_hold` 同一思路：运行时关掉位移列，看绕圈是否消失，用来把绕圈归因到位移环还是别处。
+
+**核对**：AC5 `lqr_balance.c / leg_balance.c / task_actuation.c / task_comm.c` 默认与 `-DSYSID_ENABLE=1` 各 0 err 0 warn。未改极性、零点、量程。未链接、未上机。
+
+**台架**
+1. `pos_hold=0` 投入站立：绕圈消失 → 位移环在推（两轮摩擦不对称把同向推力变成差动）；仍绕 → 不是位移环。
+2. `pos_hold=1`：推杆走 1 m 松开，看 ch5（`pos`）松杆后涨到多少、车停在哪；应停在松杆点附近几厘米内。回到起点 → 报现象。
+3. 要退回旧行为：`vel_ramp=0`。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

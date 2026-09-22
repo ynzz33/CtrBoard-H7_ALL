@@ -3,16 +3,16 @@
  *
  * WBR LQR 最优反馈增益 K(lL, lR) —— 由 tools/matlab/run_all.m 生成, 勿手改。
  *
- * 表号   : local-sjtu5-20260922-0945
- * 生成   : 2026-09-22 09:45   git b13de7f
+ * 表号   : local-sjtu5-20260922-1911
+ * 生成   : 2026-09-22 19:11   git f4395d1
  * 机器   : local (MACHINE_ID_LOCAL)
  * 模型   : sjtu5
- * Q/R 组 : mlx-2026-07-27
  * Q      : diag([16000   1200   1000    870   2500    365   2500    365  10500   2000])
  * R      : diag([5480  5480   650   650])
  * 网格   : lL, lR = 0.13:0.01:0.23 (11x11), Ts = 0.001, c2d ZOH + dlqr, 腿数据取行 nearest
  * 拟合   : poly22: K = p00 + p10*lL + p01*lR + p20*lL^2 + p11*lL*lR + p02*lR^2
  * 残差   : max|K_fit - K_dlqr| = 0.0256 (相对 0.0155)
+ * 闭环   : 通过
  * 待实测 : leg.data_newton15(待实测 (阶段 2 前作者定))
  *
  * 状态序 x = [s ds phi dphi th_ll dth_ll th_lr dth_lr th_b dth_b]

@@ -18,8 +18,8 @@
 
 /* 站立目标 */
 #define LQR_POS_TARGET      (-0.0f)
-#define LQR_LEG_ANG_TARGET  (-0.00f)
-#define LQR_LEG_LEN_INIT    0.18f    /* 投入腿长目标 */
+#define LQR_LEG_ANG_TARGET  (-0.0f)
+#define LQR_LEG_LEN_INIT    0.14f    /* 投入腿长目标 */
 
 
 /*
@@ -43,23 +43,6 @@ static float LQR_Wrap_Pi(float angle)
     return angle;
 }
 
-/* 摇杆归一化: 死区 + 限幅 → [-1,1] */
-static float LQR_RC_Axis(int16_t raw, uint16_t deadband)
-{
-    int16_t value;
-
-    value = DR16_Deadline(raw, deadband);
-    if (value > DR16_CH_LIMIT)
-    {
-        value = DR16_CH_LIMIT;
-    }
-    else if (value < -DR16_CH_LIMIT)
-    {
-        value = -DR16_CH_LIMIT;
-    }
-    return (float)value / (float)DR16_CH_LIMIT;
-}
-
 /* 腿长目标区间: 手动腿测取机器区间, LQR 再与 K 表域求交 */
 static void LQR_Len_Range(uint8_t manual, float *len_min, float *len_max)
 {
@@ -77,9 +60,11 @@ void LQR_Init(lqr_state_t *st)
 {
     memset(st, 0, sizeof(*st));
     lqr_debug.vel_leg_comp_sign = -1.0f;
-    lqr_debug.vel_src = 1u;
-    lqr_debug.yaw_hold = 0u;
-    lqr_debug.yaw_rate_hold = 0u;
+    lqr_debug.vel_src = 0u;
+    lqr_debug.yaw_hold = 1u;
+    lqr_debug.yaw_rate_hold = 1u;
+    lqr_debug.pos_hold = 0u;
+    lqr_debug.vel_ramp = 5.0f;      /* 同 Leg2 RAMP_VEL_RATE */
     lqr_debug.acc_fwd_sign = 1.0f;
     lqr_debug.wheel_enable = 1u;
     lqr_debug.hip_enable = 1u;
@@ -136,45 +121,30 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
     return (wx * r00 + wy * r10) / norm * LQR_GRAVITY;
 }
 
-/* 使能边沿: 腿长目标锁到当前实测, 位移积分清零 (滤波器常跑不复位)
- * LQR 要求实测腿长在 K 表域内才投入, 否则返回 0 保持零力矩——
- * 直接夹到域内会让腿长 PID 瞬间产生几十牛的伸长力, 在使能瞬间把车弹起来
- * 手动腿测任意腿长都投入 (目标锁当前值, 拨轮再拨回区间), 架空/趴地也能先看命令 */
+/* 使能边沿: 腿长目标锁默认值, 位移积分清零 (滤波器常跑不复位)
+ * 同 Leg2: 不查实测腿长, 趴地也投入, 靠腿长 PID 撑起 (倒地自起状态机后做) */
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
                          const leg_state_t *leg_r, uint8_t manual)
 {
-    float len_min;
-    float len_max;
-
-    if (!manual)
-    {
-        LQR_Len_Range(0u, &len_min, &len_max);
-        if (leg_l->output.virtual_leg_length < len_min
-            || leg_l->output.virtual_leg_length > len_max
-            || leg_r->output.virtual_leg_length < len_min
-            || leg_r->output.virtual_leg_length > len_max)
-        {
-            return 0u;
-        }
-    }
+    (void)leg_l;
+    (void)leg_r;
+    (void)manual;
     st->leg_len_tgt[0] = LQR_LEG_LEN_INIT;
     st->leg_len_tgt[1] = LQR_LEG_LEN_INIT;
     st->leg_ang_tgt[0] = 0.0f;
     st->leg_ang_tgt[1] = 0.0f;
     st->yaw_tgt = st->x[LQR_X_PHI];    /* 朝向锁当前 */
+    st->vel_tgt = 0.0f;
     /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
     st->pos = 0.0f;
     st->x[LQR_X_S] = 0.0f;
     return 1u;
 }
 
-/* 遥控 → 目标: 右摇杆Y 前后速度, 右摇杆X 转向, 拨轮 升降; 手动腿测: 左摇杆Y 摆角 */
-uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
+/* 指令 → 目标: 前进速度, 转向, 腿长按速率积分; 手动腿测: 摆角 (指令由 rc_command 统一解算) */
+uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt,
                           uint8_t manual)
 {
-    float axis_vel;
-    float axis_yaw;
-    float axis_len;
     float axis_ang;
     float len_min;
     float len_max;
@@ -182,26 +152,37 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
     float hi;
     uint8_t i;
 
-    if (rc == NULL || !rc->online)
+    if (cmd == NULL || !cmd->online)
     {
         return 0u;
     }
 
-    axis_vel = LQR_RC_Axis(rc->ch1, LQR_RC_DEADBAND);
-    axis_yaw = LQR_RC_Axis(rc->ch0, LQR_RC_DEADBAND);
-    axis_len = LQR_RC_Axis(rc->wheel, LQR_RC_DEADBAND);
-    axis_ang = manual ? LQR_RC_Axis(rc->ch3, LQR_RC_DEADBAND) : 0.0f;
+    axis_ang = manual ? cmd->ang : 0.0f;
     LQR_Len_Range(manual, &len_min, &len_max);
 
     st->target[LQR_X_S]     = LQR_POS_TARGET;
-    st->target[LQR_X_DS]    = axis_vel * LQR_RC_VEL_MAX;
+    /* 速度目标斜坡 (同 Leg2): 松杆时目标按 vel_ramp 降到 0, 减速段仍算"有指令"不积位移, 车停稳才开始积 */
+    {
+        float vel_cmd = cmd->vel * LQR_RC_VEL_MAX;
+        if (lqr_debug.vel_ramp > 0.0f)
+        {
+            float step = lqr_debug.vel_ramp * dt;
+            st->vel_tgt = clampf(vel_cmd, st->vel_tgt - step, st->vel_tgt + step);
+            if (fabsf(st->vel_tgt) < step) { st->vel_tgt = 0.0f; }   /* 收口到精确 0 */
+        }
+        else
+        {
+            st->vel_tgt = vel_cmd;
+        }
+    }
+    st->target[LQR_X_DS]    = st->vel_tgt;
     /* 偏航: 摇杆有输入时目标跟随当前角 (不回正), 回中后锁住; 转向通道取负 (同 Leg2, 作者台架定) */
-    if (axis_yaw != 0.0f)
+    if (cmd->yaw != 0.0f)
     {
         st->yaw_tgt = st->x[LQR_X_PHI];
     }
     st->target[LQR_X_PHI]   = st->yaw_tgt;
-    st->target[LQR_X_DPHI]  = -axis_yaw * LQR_RC_YAW_MAX;
+    st->target[LQR_X_DPHI]  = -cmd->yaw * LQR_RC_YAW_MAX;
     st->target[LQR_X_THL]   = LQR_LEG_ANG_TARGET;
     st->target[LQR_X_DTHL]  = 0.0f;
     st->target[LQR_X_THR]   = LQR_LEG_ANG_TARGET;
@@ -220,7 +201,7 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const dr16_t *rc, float dt,
             lo = fminf(lo, st->leg_len_tgt[i]);
             hi = fmaxf(hi, st->leg_len_tgt[i]);
         }
-        st->leg_len_tgt[i] += axis_len * LQR_RC_LEN_RATE * dt;
+        st->leg_len_tgt[i] += cmd->len * LQR_RC_LEN_RATE * dt;
         st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], lo, hi);
         st->leg_ang_tgt[i] = axis_ang * LQR_RC_ANG_MAX;
     }
@@ -361,6 +342,10 @@ void LQR_Control_Update(lqr_state_t *st)
             if (j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold)
             {
                 continue;       /* 关: 偏航角速度不参与 */
+            }
+            if (j == LQR_X_S && !lqr_debug.pos_hold)
+            {
+                continue;       /* 关: 位移不参与 (只控速度) */
             }
             sum += st->K[i][j] * (st->target[j] - st->x[j]);
         }

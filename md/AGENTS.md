@@ -64,9 +64,9 @@
 - `imcalib/task/robot_control.c` 负责共享状态定义、总初始化、动作清零和模型切换；各 `task_*.c` 只实现对应任务的单周期逻辑。
 - `commTask` 负责通信输入输出：DR16/DM/DJI 接收解析、状态刷新、在线/故障监测和 VOFA 调试发送；HI229 姿态链路归 `imuTask`。它不等同于纯故障监视任务，因此命名使用 `comm`/`communication`，不要继续使用含义过窄的 `monitor`。
 - `policyTask` 负责观测构建和 RL 策略推理；`actuationTask` 负责按实时节拍读取已准备状态并完成执行链路。
-- **策略仲裁只在 `task_actuation.c`**：左拨杆中位走手动腿测 / LQR（右拨杆中位 = LQR，其余 = 手动腿测；都用 `lqr_balance.c` + `leg_balance.c`），上位走手动遥操/RL（`rl_torque.c`），下位失能。两套链路互不 include（除公共 `torque_output.h`），禁止在 LQR 模块引用 `rl_*.h`，也禁止在 RL 模块引用 LQR 状态。
+- **策略仲裁只在 `task_actuation.c`**：左拨杆选模式（`strategy_from_remote()`：中 = LQR，上 = RL，下 / 离线 = 失能），右拨杆中位 = 投入出力，其他位 = 已选模式但零力矩（`output_task_body()` 嵌套 switch）。LQR / 手动腿测都用 `lqr_balance.c` + `leg_balance.c`（手动腿测 `CTRL_STRATEGY_LQR_MANUAL` 当前无遥控入口），RL 用 `rl_torque.c`。测试模式已 `#if 0`，不在仲裁里。两套链路互不 include（除公共 `torque_output.h`），禁止在 LQR 模块引用 `rl_*.h`，也禁止在 RL 模块引用 LQR 状态。
 - 五连杆几何和雅可比只能写在 `leg_solver.c/h`；姿态只能写在 `Attitude_Algorithm.c/h`；观测、策略、力矩映射分别归属对应 Algorithm 模块。任务文件只调用这些接口。
-- DR16 字节解析只能归属 `dr16.c/h`。遥控死区、通道映射和拨杆语义应放在独立的遥控应用函数/模块，不能让底层 DBUS 驱动直接操作电机。
+- DR16 字节解析只能归属 `dr16.c/h`。遥控死区、通道归一化归属 `user-lib/rc_command.c/h`（`commTask` 每拍填一次全局 `rc_command`，全机唯一解算点）；LQR / RL / 仲裁只读 `rc_command`，禁止再各自 `DR16_Snapshot()` 解摇杆。拨杆语义（挡位 → 策略）只在 `task_actuation.c`。不能让底层 DBUS 驱动直接操作电机。
 - DM 的使能、失能、MIT 量化和报文发送归属 `dm.c/h`；DJI 零电流和轮电流发送归属 `dji.c/h`。任务层只调用语义清晰的接口，例如 `Dm_All_Disable()`、`Dji_All_Stop()`。
 - 左拨杆下位的安全决策可以留在执行任务；具体 DM 失能和 DJI 零电流报文必须下沉到对应驱动模块。
 - 不为了文件可读性随意新增 FreeRTOS 任务。只有当频率、优先级、截止时间或数据所有权确实不同，才新增任务；纯职责拆分优先使用模块和短函数。
@@ -143,6 +143,7 @@ CtrBoard-H7_ALL/
 │   ├── user-lib/
 │       ├── uart_idle.c/h          ← UART IDLE+DMA 底层框架
 │       ├── dr16.c/h               ← DR16 遥控器
+│       ├── rc_command.c/h         ← 遥控指令: 死区 + 归一化 + 拨杆, 全机唯一解算点
 │       ├── hi229.c/h              ← HI229 IMU
 │       ├── can_bus.c/h            ← FDCAN 总线管理
 │       ├── dm.c/h                 ← 达妙电机 (MIT)
@@ -176,7 +177,7 @@ CtrBoard-H7_ALL/
 ```
 
 `tools/sysid_export.py` ← 上位机导出 (VOFA 文件 → 契约 CSV + manifest + 校验和)
-`tools/matlab/` ← LQR 增益表 MATLAB 管线 (机器表 / 模型 / 扫描 / 拟合 / 导出 C / 五项核对)，入口 `run_all.m`，计划与进度见 `tools/matlab/LQR_MATLAB_PLAN.md`
+`tools/matlab/` ← LQR 增益表 MATLAB 管线：`run_all.m`（选机器 + Q/R，日常只改这个）、`machine_table.m`（机械参数）、`build_gain_table.m`（网格 dlqr / 拟合 / 闭环检查 / 写 C）、`model_AB.m`（动力学模型），计划与进度见 `tools/matlab/LQR_MATLAB_PLAN.md`
 
 ---
 
@@ -200,11 +201,11 @@ CtrBoard-H7_ALL/
 | CubeAI 推理 | rl_policy.c/h | ✅ 完成；🟡 推理未在任务中调用 |
 | 力矩执行层 | rl_torque.c/h | ✅ 完成，DM/DJI 分离输出 + 轮子 PID |
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 完成，已上机验证 |
-| 遥控映射 | task_policy.c | ✅ 手动遥操模式 |
+| 遥控指令 | user-lib/rc_command.c/h | ✅ 四轴归一化 + 拨杆，commTask 填、其余只读；ch1 死区 10 |
 | LQR 增益表 | lqr_gain_table.c/h | ✅ 参考上车表已移植；🟡 自研表待重跑对齐 |
 | LQR 状态估计与控制律 | lqr_balance.c/h | ✅ 编译通过，含 `lqr_debug` 运行时通道/限幅 A/B；🟡 **待台架** |
 | 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；含手动腿测 `Leg_Balance_Manual()`（腿长 PID + 摆角 PD）；🟡 **待台架** |
-| 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆中位=手动腿测 / 左中+右中=LQR / 上位=手动 / 左上+右中=测试）；🟡 待台架 |
+| 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆 中=LQR / 上=RL / 下=失能；右拨杆中位=投入，其他=零力矩；测试模式 #if 0）；🟡 待台架 |
 | 简单函数库 | user-lib/simple-function.c/h | ✅ 一阶低通 + 斜坡函数，编译通过 |
 | 速度卡尔曼 | user-lib/kalman.c/h | ✅ 照抄 Leg2_v1，编译通过；🟡 加速度符号待台架 |
 
@@ -214,7 +215,7 @@ CtrBoard-H7_ALL/
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
 - **控制频率**：actuationTask 1kHz（TIM6 Prescaler=274 / Period=999）。LQR 与手动遥操共用该节拍
-- **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集；小机器当前为 0.13~0.21 m
+- **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集，只夹拨轮目标；投入不查实测腿长（同 Leg2，变更 92），趴地投入靠腿长 PID 撑起
 - **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，同为 1 kHz 直接照抄）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
@@ -224,7 +225,7 @@ CtrBoard-H7_ALL/
 - **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz；不再维护通道 Markdown，当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准；sysid 帧 37 列，以 `Sysid/sysid_log.c::assemble_frame()` 为准（`sysid_log.h` 顶部注释表尚未同步）
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
-- **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）
+- **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用；仲裁里的测试入口已 `#if 0`，开关打开也不会进测试模式）
 - **CMSIS-DSP**：CubeMX 的 X-CUBE-ALGOBUILD 只生成头文件 `Middlewares/ST/ARM/DSP/Inc/arm_math.h`（1.7.0），**不挂库、不加源**。本工程用源码方式：`imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（照抄 `Drivers/CMSIS/DSP/Source` 1.6.0）+ `arm_sin_table_f32.c`（只截 513 点 `sinTable_f32`），头文件走相对路径 `#include "../../Drivers/CMSIS/DSP/Include/arm_math.h"`；两套工程都不需要改包含目录，eIDE 靠 `srcDirs` 自动扫到，Keil 已登记进 `imcalib/user-lib` 组。**不要把 `arm_common_tables.c` 整个当源文件编**（armcc 不拆数据段，700 KB 表整段进 flash），**也不要挂 `Drivers/CMSIS/DSP/Lib/ARM` 下的 .lib**：目录里 19 个库只有 `arm_cortexM7lfdp_math.lib` 对应本机，多挂时 armlink 不报错、静默取第一个（软浮点）；eIDE 开着时手改 `eide.yml` 几秒内被覆盖。再要用别的 DSP 函数，照同样办法把对应源文件抄进 user-lib
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。
 

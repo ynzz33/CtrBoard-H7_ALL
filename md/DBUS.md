@@ -107,25 +107,26 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 ## 7. 遥控指令映射
 
-**RL 观测指令** (task_policy.c):
+摇杆只在一处解算：`commTask` → `Remote_Control_Update()` → `Rc_Command_Update()` (`user-lib/rc_command.c`) 填全局 `rc_command`，各链路只读。
 
-| 通道 | 输入 | 缩放 | 观测索引 |
-|------|------|------|:--------:|
-| ch3 | 前进/后退 | `RC_Axis(ch3) × REMOTE_COMMAND_SCALE` | obs[6] |
-| ch0 | yaw 旋转 | `RC_Axis(ch0) × REMOTE_COMMAND_SCALE` | obs[7] |
-| wheel | 高度 | `RC_Axis(wheel) × REMOTE_COMMAND_SCALE` | obs[8] |
+**`rc_command_t`** (死区 + 限幅 ±660 → [-1, 1]):
 
-**手动遥操** (task_policy.c):
+| 字段 | 通道 | 死区 | 含义 |
+|------|------|:----:|------|
+| `vel` | ch1 右摇杆 Y | 10 | 前进 |
+| `yaw` | ch0 右摇杆 X | 20 | 转向 |
+| `len` | wheel 拨轮 | 20 | 腿长 / 高度 |
+| `ang` | ch3 左摇杆 Y | 20 | 摆角 / 大腿 |
+| `s1` / `s2` / `online` | 拨杆 / 在线 | — | 仲裁用 |
 
-| 通道 | 输入 | 缩放 | 作用 |
-|------|------|------|------|
-| ch3 | 大腿偏移 | `RC_Axis(ch3) × 4.0` | 叠加到 base_action[0,3] |
-| wheel | 小腿偏移 | `RC_Axis(wheel) × 4.0` | 叠加到 base_action[1,4] |
-| ch1 | 轮子速度 | `RC_Axis_Wheel(ch1) × 4.0` | 直接赋值 (宽死区100) |
+**消费端**:
 
-**归一化函数**:
-- `RC_Axis()` — 死区 20，限幅 ±660 → [-1, 1]
-- `RC_Axis_Wheel()` — 死区 100，限幅 ±660 → [-1, 1]
+| 链路 | 位置 | 用法 |
+|------|------|------|
+| LQR / 手动腿测 | `lqr_balance.c::LQR_Target_Update()` | `vel × 1.2 m/s`、`−yaw × 5 rad/s`、`len × 0.3 m/s` 积分成腿长目标、手动时 `ang × 0.5 rad` 摆角 |
+| RL 观测 | `task_policy.c::Remote_Command_Apply()` | `vx_cmd ← vel`、`yaw_cmd ← yaw`、`height_cmd ← len`，各 × `REMOTE_COMMAND_SCALE` |
+| RL 手动偏移 | 同上 | `thigh ← ang × 4`、`shank ← len × 4`、`wheel ← vel × 4` |
+| 挡位 | `task_actuation.c` | `s1`：中 = LQR、上 = RL、下 / 离线 = 失能 → `ctrl_strategy`；`s2` 中位 = 投入出力 |
 
 ---
 
