@@ -78,7 +78,8 @@ void LQR_Init(lqr_state_t *st)
     memset(st, 0, sizeof(*st));
     lqr_debug.vel_leg_comp_sign = -1.0f;
     lqr_debug.vel_src = 1u;
-    lqr_debug.yaw_hold = 1u;
+    lqr_debug.yaw_hold = 0u;
+    lqr_debug.yaw_rate_hold = 0u;
     lqr_debug.acc_fwd_sign = 1.0f;
     lqr_debug.wheel_enable = 1u;
     lqr_debug.hip_enable = 1u;
@@ -352,10 +353,14 @@ void LQR_Control_Update(lqr_state_t *st)
             {
                 if (!lqr_debug.yaw_hold)
                 {
-                    continue;   /* 关: 只控角速度 (Leg2 原样) */
+                    continue;   /* 关: 偏航角不参与 */
                 }
                 sum += st->K[i][j] * LQR_Wrap_Pi(st->target[j] - st->x[j]);
                 continue;
+            }
+            if (j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold)
+            {
+                continue;       /* 关: 偏航角速度不参与 */
             }
             sum += st->K[i][j] * (st->target[j] - st->x[j]);
         }

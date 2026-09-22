@@ -51,14 +51,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dm_bus         = {1, 1, 3, 3},
         .dji_bus        = 2,
         /* 电机零点: 前左/后左/前右/后右 (本机原值) */
-        .dm_zero        = {-0.03f, -0.04f, -0.038f, -0.023f},
+        .dm_zero        = {-0.056f, 0.296f, 0.024f, 0.316f},
         /* 腿几何 (本机原值) */
         .leg_lu         = 0.13087f,
         .leg_lg         = 0.15240f,
-        .leg_len_min    = 0.09f,
-        .leg_len_max    = 0.21f,
-        .leg_off_phi0   = {-0.165f, -0.165f},
-        /* IMU (作者 2026-09-21 台架): 轴不换, 俯仰←模块 Pitch 路; 原始 Roll/Yaw 角与角速度、加速度 X/Z 反 */
+        .leg_len_min    = 0.13f,
+        .leg_len_max    = 0.23f,
+        .leg_off_phi0   = {-0.0f, -0.0f},
+        /* IMU */
         .imu = {
             .eul_src   = {1, 0, 2},
             .eul_sign  = {-1,-1, +1},

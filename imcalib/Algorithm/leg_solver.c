@@ -2,6 +2,28 @@
 #include <math.h>
 #include <string.h>
 
+/* 三角函数: 默认 CMSIS-DSP 查表 (同 Leg2), LEG_TRIG_LIBM=1 退回 math.h */
+#ifndef LEG_TRIG_LIBM
+#define LEG_TRIG_LIBM   0
+#endif
+#if LEG_TRIG_LIBM
+#define LEG_COSF(x)     cosf(x)
+#define LEG_SINF(x)     sinf(x)
+#define Leg_Sqrtf(x)    sqrtf(x)
+#else
+#include "../../Drivers/CMSIS/DSP/Include/arm_math.h"   /* 相对路径: 不依赖包含路径 */
+#define LEG_COSF(x)     arm_cos_f32(x)
+#define LEG_SINF(x)     arm_sin_f32(x)
+/* 负数入参出 0 */
+static float Leg_Sqrtf(float v)
+{
+    float r;
+
+    (void)arm_sqrt_f32(v, &r);
+    return r;
+}
+#endif
+
 #define LEG_EPS         1.0e-6f
 #define LEG_MIN_LENGTH  1.0e-3f
 
@@ -56,10 +78,10 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     cache->vb     = cache->mirror * leg->input.d_hip_b;
 
     /* A = 前杆端点, B = 后杆端点 */
-    x_a = cache->lu * cosf(cache->qf);
-    y_a = cache->lu * sinf(cache->qf);
-    x_b = cache->lu * cosf(cache->qb);
-    y_b = cache->lu * sinf(cache->qb);
+    x_a = cache->lu * LEG_COSF(cache->qf);
+    y_a = cache->lu * LEG_SINF(cache->qf);
+    x_b = cache->lu * LEG_COSF(cache->qb);
+    y_b = cache->lu * LEG_SINF(cache->qb);
 
     /* 求 P 点: 以 A 为圆心 lg 为半径的圆, 与以 B 为圆心 lg 为半径的圆的交点 */
     dx     = x_b - x_a;
@@ -78,14 +100,14 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     }
 
     /* φ_a = 前杆绝对角, P = A + lg 方向 */
-    root         = sqrtf(disc);
+    root         = Leg_Sqrtf(disc);
     cache->phi_a = 2.0f * atan2f(lg_dy2 + root, lg_dx2 + ab_sq);
-    x_p          = x_a + cache->lg * cosf(cache->phi_a);
-    y_p          = y_a + cache->lg * sinf(cache->phi_a);
+    x_p          = x_a + cache->lg * LEG_COSF(cache->phi_a);
+    y_p          = y_a + cache->lg * LEG_SINF(cache->phi_a);
     cache->phi_b = atan2f(y_p - y_b, x_p - x_b);
 
     /* 虚拟腿长 = |OP| */
-    leg->output.virtual_leg_length = sqrtf(x_p * x_p + y_p * y_p);
+    leg->output.virtual_leg_length = Leg_Sqrtf(x_p * x_p + y_p * y_p);
     if (leg->output.virtual_leg_length < LEG_MIN_LENGTH)
     {
         return 0u;
@@ -120,24 +142,24 @@ static uint8_t Leg_Solve_Velocity(leg_state_t *leg, const leg_solver_cache_t *ca
     float jac_b;
     float d_vs;
 
-    sin_ab = sinf(cache->phi_a - cache->phi_b);
+    sin_ab = LEG_SINF(cache->phi_a - cache->phi_b);
     if (fabsf(sin_ab) < LEG_EPS)
     {
         return 0u;
     }
-    sin_fa = sinf(cache->qf - cache->phi_a);
-    sin_fb = sinf(cache->qf - cache->phi_b);
-    sin_bb = sinf(cache->qb - cache->phi_b);
-    sin_0a = sinf(cache->virtual_leg_angle_abs - cache->phi_a);
-    sin_0b = sinf(cache->virtual_leg_angle_abs - cache->phi_b);
-    cos_0a = cosf(cache->virtual_leg_angle_abs - cache->phi_a);
-    cos_0b = cosf(cache->virtual_leg_angle_abs - cache->phi_b);
+    sin_fa = LEG_SINF(cache->qf - cache->phi_a);
+    sin_fb = LEG_SINF(cache->qf - cache->phi_b);
+    sin_bb = LEG_SINF(cache->qb - cache->phi_b);
+    sin_0a = LEG_SINF(cache->virtual_leg_angle_abs - cache->phi_a);
+    sin_0b = LEG_SINF(cache->virtual_leg_angle_abs - cache->phi_b);
+    cos_0a = LEG_COSF(cache->virtual_leg_angle_abs - cache->phi_a);
+    cos_0b = LEG_COSF(cache->virtual_leg_angle_abs - cache->phi_b);
 
     /* P点位置雅可比 */
-    leg->output.point_jac[0][0] =  cache->lu * sin_fa * sinf(cache->phi_b) / sin_ab;
-    leg->output.point_jac[0][1] = -cache->lu * sin_bb * sinf(cache->phi_a) / sin_ab;
-    leg->output.point_jac[1][0] = -cache->lu * sin_fa * cosf(cache->phi_b) / sin_ab;
-    leg->output.point_jac[1][1] =  cache->lu * sin_bb * cosf(cache->phi_a) / sin_ab;
+    leg->output.point_jac[0][0] =  cache->lu * sin_fa * LEG_SINF(cache->phi_b) / sin_ab;
+    leg->output.point_jac[0][1] = -cache->lu * sin_bb * LEG_SINF(cache->phi_a) / sin_ab;
+    leg->output.point_jac[1][0] = -cache->lu * sin_fa * LEG_COSF(cache->phi_b) / sin_ab;
+    leg->output.point_jac[1][1] =  cache->lu * sin_bb * LEG_COSF(cache->phi_a) / sin_ab;
 
     /* 虚拟腿长/摆角雅可比 */
     leg->output.leg_jac[0][0] = -cache->lu * sin_0b * sin_fa / sin_ab;
@@ -240,4 +262,40 @@ uint8_t Leg_Solve(leg_state_t *leg)
     Leg_Solve_Force_Map(leg);
     leg->output.valid = 1u;
     return 1u;
+}
+
+/* Leg2_v1 Leg_Position 原样移植 (杆长写死), 只出腿长, 供 VOFA 对照 */
+float Leg_Position_Leg2(float phi1, float phi4)
+{
+    float a;
+    float b_a;
+    float t2;
+    float t3;
+    float t4;
+    float t5;
+    float t6;
+    float t8;
+    float t12;
+    float t13;
+    float root;
+
+    t2   = LEG_COSF(phi1);
+    t3   = LEG_COSF(phi4);
+    t4   = LEG_SINF(phi1);
+    t5   = LEG_SINF(phi4);
+    t6   = t2 * 0.13087f;
+    t8   = t4 * 0.13087f;
+    t12  = t2 * 0.0398891754f;
+    t13  = t3 * 0.0398891754f;
+    t2   = t6 - t3 * 0.13087f;
+    t3   = t8 - t5 * 0.13087f;
+    a    = t12 - t13;
+    b_a  = t4 * 0.0398891754f - t5 * 0.0398891754f;
+    t3   = t2 * t2 + t3 * t3;
+    root = Leg_Sqrtf((a * a + b_a * b_a) - t3 * t3);
+    t2   = atan2f((t5 * 0.0398891754f - t4 * 0.0398891754f) + root,
+                  (t13 - t12) + t3) * 2.0f;
+    t3   = t8 + LEG_SINF(t2) * 0.1524f;
+    t2   = t6 + LEG_COSF(t2) * 0.1524f;
+    return Leg_Sqrtf(t3 * t3 + t2 * t2);
 }

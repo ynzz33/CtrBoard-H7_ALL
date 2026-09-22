@@ -2433,6 +2433,104 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 83 · 偏航角与偏航角速度两列默认不参与（作者：先关掉偏航角和角速度，看关闭后的区别）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `yaw_rate_hold` |
+| `imcalib/Algorithm/lqr_balance.c` | `LQR_Init()`：`yaw_hold` 默认 1 → **0**，`yaw_rate_hold` 默认 **0**；`LQR_Control_Update()`：`j == LQR_X_DPHI && !yaw_rate_hold` 时跳过该列 |
+| `md/LQR_PLAN.md` | 新增决策 10；§2.3 φ/dφ 行、§2.5 开关说明、§八、§十 同步；顺带改正过时值（站立目标 0/0、腿长 KP 1500、机器区间 0.09~0.21 → LQR 实际 0.13~0.21） |
+| `md/IO_CHAINS.md` | 遥控映射行注明两偏航列默认不参与 |
+
+**为什么**
+- 作者要对比"完全不控偏航"与现状的区别，判断绕圈是否来自偏航环。不注释代码而加开关，是为了台架上三种状态可直接切换：都 0 = 偏航完全不控（转向摇杆无效）；`yaw_rate_hold=1` = Leg2 原样只有角速度阻尼；再 `yaw_hold=1` = 变更 82 的角度环。
+- 同一批曾按作者要求把 LQR 区间改为只取机器表、投入腿长目标改 0.13，作者当天撤回，已还原为"机器表 ∩ K 表域"与 0.18，本条只保留偏航开关。
+
+**输入 / 输出 / 调用链**
+- `lqr_debug.yaw_hold` / `yaw_rate_hold` → `LQR_Control_Update()` 求和循环 → `u[]`；两列关闭时 `target[2]/[3]` 与 `x[2]/[3]` 仍在算，只是不进力矩。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、IMU 表、`MACHINE_DEFAULT`、机器表区间、K 表域宏。工作区里 `machine_config.c` 零点归零与 `task_comm.c` ch3~6 改四髋零点后角是作者自己在标零点，本条未动。
+- AC5 编译：`lqr_balance.c` / `leg_balance.c` / `task_actuation.c` / `task_comm.c` 默认与 `-DSYSID_ENABLE=1` 各 **0 err 0 warn**（`-o` 到临时目录）。未链接、未上机。
+
+**待台架**
+- 两偏航列都关时看绕圈是否仍在；在就不是偏航环的锅；不在就依次置 `yaw_rate_hold=1`、`yaw_hold=1` 看哪一步把绕圈带回来，对比 ch27 与偏航角。
+
+---
+
+## 变更 84 · Leg2 `Leg_Position` 并排跑上 VOFA + 三角函数改 CMSIS-DSP + 两套工程挂 DSP 库（作者：并排跑一起做，看是否是解算问题；把目前的也换成 DSP 库）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_solver.c` | 顶部加 `LEG_TRIG_LIBM` 开关（默认 0）：`cosf/sinf/sqrtf` 全部换成 `LEG_COSF/LEG_SINF/Leg_Sqrtf` 宏，0 = `arm_cos_f32/arm_sin_f32/arm_sqrt_f32`（查表，同 Leg2），1 = math.h；文末新增 `Leg_Position_Leg2(phi1, phi4)`，逐行照抄 Leg2 `Code/Matlab/Leg_Position.c:87-107`，杆长常数写死，只返回腿长 |
+| `imcalib/Algorithm/leg_solver.c`（补） | 作者 eIDE 编译报 `cannot open source input file "arm_math.h"`（eIDE 包含目录没有 `Middlewares/ST/ARM/DSP/Inc`）→ include 改为相对路径，最终指向 `"../../Drivers/CMSIS/DSP/Include/arm_math.h"`（1.6.0，与三个源文件同一版本），同 `task_actuation.c` 的 `../Sysid/` 写法，两套工程都不依赖包含目录 |
+| `imcalib/Algorithm/leg_solver.h` | 声明 `Leg_Position_Leg2()` |
+| `imcalib/task/task_comm.c` | VOFA 第五版：ch12/13 由 `ds_kf` / `a_fwd` 改为 Leg2 解算的左/右腿长（左 `(pos_zero[前左] + π, pos_zero[后左])`，右 `(−pos_zero[后右] + π, −pos_zero[前右])`，负号撤销驱动层右侧取反、再按 Leg2 前后互换）；ch3~6 注释改成作者已改的四髋零点后角；头注释同步 |
+| `imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（新增） | 照抄 `Drivers/CMSIS/DSP/Source/FastMathFunctions` 1.6.0，只把两行 include 改成相对路径 `../../Drivers/CMSIS/DSP/Include/...`（diff 确认其余逐字相同） |
+| `imcalib/user-lib/arm_sin_table_f32.c`（新增） | 从 `arm_common_tables.c` 第 56926~57021 行截出 `sinTable_f32[513]`，逐行一致；不编整个 `arm_common_tables.c`（armcc 不拆数据段，700 KB 表会整段进 flash） |
+| `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | 三个新源登记进 `imcalib/user-lib` 组（`kalman.c` 之后）；本条先前加的 `Lib` 组 .lib 条目已撤掉 |
+| `.eide/eide.yml` | **AI 未能改动**：手改三次（加库、加包含目录、删多余库）都在几秒到几分钟内被正在运行的 eIDE 扩展用内存里的模型覆盖回去。改成源码方式后 eIDE 不需要任何配置改动（`srcDirs` 自动扫 `imcalib/user-lib`，include 是相对路径）。作者在面板里加的 `Drivers/CMSIS/DSP/Lib/ARM` 下 19 个 .lib 现在无害（对象先于库解析，`arm_sin/cos_f32` 由本工程 .o 提供，试链接确认 0 个库成员被拉入），但建议在面板里删掉，别留着 |
+| `md/LQR_PLAN.md` / `md/AGENTS.md` / `md/IO_CHAINS.md` | §2.9 新增对照说明；§2.8 验收改为调试器看 `ds_kf`/`a_fwd`；§八/§十 各加一行；AGENTS 模块表与关键约束加 CMSIS-DSP 接法；IO_CHAINS §6 一句 |
+
+**为什么**
+- 作者把零点、摆角偏置照抄 Leg2 后腿长仍是 0.10~0.20，怀疑解算。数值上两边几何已逐点一致（3e−9 m），但要在台架上把"解算"这个嫌疑彻底关掉，最直接的是 Leg2 原函数并排跑、两条线叠着看；不替换控制链是因为值相同时替换没有信息量，而 Leg2 那套 `Leg_Tougue` 的 Tp 符号与右腿输出序和本机不同，整套换进控制链会出力错向。
+- 三角函数改 DSP 是作者要求"目前的也换成 DSP 库"；顺带消掉 libm 与查表之间 ≤ 4e−6 m 的差异，两条线可以精确重合。
+- 先走了预编译库路线（`arm_cortexM7lfdp_math.lib`），但 eIDE 那侧 AI 改不动配置、作者又把整目录 19 个库都挂了上去（armlink 静默取第一个软浮点库），作者说"这些你做就好"→ 改成源码方式：三个源文件进 `user-lib`，两套工程零配置。
+- CubeMX 勾了 ALGOBUILD 的 DSP Library，但它只生成 1.7.0 头文件，Keil/eIDE 两套构建之前都没链任何 DSP 对象（compile_commands 里无 DSP 源，.lnp 里无 .lib）。挂 `Drivers/CMSIS/DSP/Lib/ARM` 下 1.6.0 的预编译库而不是照 Leg2 编源文件：库按对象/数据分段（`.rodata.sinTable_f32` 独立），只拉 2 KB；armcc 编 `arm_common_tables.c` 会把 700 KB 表整段拉进 flash。
+
+**输入 / 输出 / 调用链**
+- `motor_state.dm.pos_zero_rad[]` → `Leg_Position_Leg2()`（task_comm，每拍）→ `dbg[12]/[13]` → VOFA。不进 `leg_l/leg_r`、不进任何控制。
+- `Leg_Solve()` 内部 `LEG_COSF/LEG_SINF/Leg_Sqrtf` → `arm_cos_f32/arm_sin_f32/arm_sqrt_f32`（`arm_cortexM7lfdp_math.lib`；sqrt 是头文件内联 VSQRT，负数入参出 0，与原 `disc` 钳位逻辑不冲突）。
+
+**核对**
+- 未改极性、零点、MIT 量程、镜像、`+LEG_PI`、IMU 表、机器表、控制律；`Leg_Solve` 的几何/雅可比/力映射公式一行未动，只换三角函数实现。作者工作区里 `dm_zero`/`leg_off_phi0` 归零与 ch3~6 改四髋角是作者自己在标零点，本条只同步注释。
+- AC5 编译：`leg_solver.c` / `task_comm.c` 默认、`-DSYSID_ENABLE=1`、`-DLEG_TRIG_LIBM=1` 三配置各 **0 err 0 warn**（`-o` 到临时目录）；`fromelf -s` 确认 DSP 版 `leg_solver.o` 只引用 `arm_sin_f32/arm_cos_f32/__hardfp_atan2f`，不再引用 `sinf/cosf/sqrtf`。
+- **整机试链接**：用 eIDE 现成 `.obj` + 新两个 .o + .lib，改 `.lnp` 输出到临时目录，AC5 armlink `--strict` **0 err 0 warn**；ROM 743076 → 745856 B（+2.7 KB = 正弦表 2052 B + 两函数 284 B + `Leg_Position_Leg2`）。作者的 `.axf/.map/.obj` 未动。未下载、未上机。
+- include 改相对路径后，用 eIDE 原样包含目录（不含 `DSP/Inc`）重编 `leg_solver.c` 三配置 + `task_comm.c` 各 **0 err 0 warn**；从 `MDK-ARM/` 目录按 Keil 的 `../` 源路径编也 0/0。
+- **按 eIDE 现状挂全部 19 个 DSP 库试链接：armlink 不报错**，但 `arm_sin_f32/arm_cos_f32` 取自列表第一个 `arm_ARMv8MBLl_math.lib`（ARMv8-M 基础版、无 FPU 软浮点），不是给 M7 双精度 FPU 编的那份；只挂 `arm_cortexM7lfdp_math.lib` 时取自正确的库，0 warn，ROM 745856 B。
+- **源码方式（最终）**：三个新源 + `leg_solver.c` + `task_comm.c` 默认 / `-DSYSID_ENABLE=1` / `-DLEG_TRIG_LIBM=1` 三配置各 0 err 0 warn；从 `MDK-ARM/` 按 Keil 路径编也 0/0；`sinTable_f32` 独立 `.constdata` 2052 B。整机试链接：不挂库 0 err 0 warn；按作者现状挂 19 个库也 0 err 0 warn 且 0 个库成员被拉入（`arm_sin/cos_f32` 来自本工程 .o）。作者 `.axf/.map/.obj` 未动。
+
+**待台架**
+- 腿从趴地摆到垂到限位，ch9 与 ch12、ch10 与 ch13 应全程重合；重合 = 解算排除，剩下只有电机内部零点与尺子；不重合把两条线截图。
+- Keil 侧第一次编译看链接是否报 `arm_sin_f32` 未定义（若 Keil 没读到 Lib 组新条目，重新打开工程）。
+- eIDE 侧：直接重新编译即可，不需要改任何配置；`Lib` 文件夹里作者加的 19 个 DSP 库建议在面板里全部删掉（现在无害，但没用）。eIDE 打开状态下不要手改 `eide.yml`。
+
+---
+
+## 变更 85 · MATLAB 增益表管线阶段 0：复现板上现表（作者：开始执行 matlab 接入计划，尝试复现目前这个 K 表）
+
+| 文件 | 改动 |
+| --- | --- |
+| `tools/matlab/`（新增，26 个文件） | 入口 `run_all.m`；`config/` 机器表（local / chuanliantui，与 `machine_config.c` 同思路可切换）+ Q/R 表；`model/sjtu5/` Leg2 5 方程模型（符号推导 → `matlabFunction` 缓存）；`design/` 网格扫描 + c2d + dlqr + poly22 拟合；`emit/` 直接写 C；`check/` 五项核对；`ref/` Leg2 原件副本；目录职责见 `LQR_MATLAB_PLAN.md` §四 |
+| `tools/matlab/output/lqr_gain_table.c`、`report_local-sjtu5-20260922-0945.txt` | 复现产物与全程报告 |
+| `.gitignore` | 加 `/tools/matlab/cache`、`/tools/matlab/*.log` |
+| `tools/matlab/LQR_MATLAB_PLAN.md` | 状态、目录树、阶段 0 结果、进度表、§十二 运行方式；纠正"升 poly33 要改板上求值器"的说法（多项式在生成的 C 里，板上不用改） |
+| `md/AGENTS.md` | 文件树加 `tools/matlab/` 一行 |
+
+**结果（表号 local-sjtu5-20260922-0945）**
+- A/B：本管线符号推导 vs Leg2 `AB_WBR_gen.m`，9 个腿长组合相对差 **0**。
+- K：拟合 K vs `ref/LQR_K_WBR.m`（板上现表的 MATLAB 原型），121 网格点最大相对差 **3.5e-11**，7 个非网格/非对称点 **1.3e-11**。
+- C：生成的 C vs 板上 `imcalib/Algorithm/lqr_gain_table.c`，21×21 点 × 40 元素最大相对差 **1.6e-8**（float 舍入）；两份文件的系数逐项相同（如 `K_sym[0]` 的 1.35945499 / 3.81089163 / 2.06506157 / 7.03364897 / 0.394434452 / 0.895083785）。
+- 闭环：拟合 K 全网格离散谱半径最大 0.998929；`check_machine_config`（wheel_r / 杆长 / 区间 / 限幅 / CTRL_DT / K 表域）全一致；`check_c_compile` AC5 0 err 0 warn（`-o` 到临时目录）。
+- 结论：**板上现表 = Leg2 `WBR_modeling.mlx` 那组 Q/R（`[16000 1200 1000 870 2500 365 2500 365 10500 2000]` / `[5480 5480 650 650]`）+ sjtu5 模型 + 小机器参数 + 0.13:0.01:0.23 网格 + poly22**，本管线已能 1:1 出这张表，导出格式、下标、符号全对。
+
+**顺带看到（信息，未处理）**
+- 现表 poly22 对 dlqr 真值的拟合残差最大 0.026（相对 1.5%，K(4,1) 位移→右髋），是现表自带的误差；要压就 `fit_K(S, 3)`，板上不用改。
+- 作者 2026-09-22 已把 `machine_config.c` 小机器区间改成 0.13~0.23（同批把 `dm_zero` / `leg_off_phi0` 归零在标零点），MATLAB 机器表已镜像 0.13/0.23；零点归零那两项与本管线无关、未动。
+
+**输入 / 输出 / 调用链**
+- `run_all` → `machine_load` / `lqr_weights` → `scan_grid`（`model_AB` → `AB_sjtu5_gen` → `c2d` → `dlqr`）→ `fit_K` → `emit_gain_table` → 五个 `check_*` → `output/report_*.txt`（diary）。
+- 复现模式判定：机器 local + 模型 sjtu5 + Q/R tag `mlx-2026-07-27` + 取行 nearest；此时 `check_vs_ref` 与 `check_c_vs_board` 是判据，否则只作信息（调参后 K 当然和现表不同）。
+
+**核对**
+- 板上代码零改动：`imcalib/`、`Core/` 未碰；`build/CtrBoard-H7_ALL/.obj/` 未被写入。
+- 未改极性、零点、量程、镜像、IMU 表、`MACHINE_DEFAULT`。
+
+**下一步（阶段 1）**
+- `tune/whatif.m` + `tune/sim_real.m`（搬 PSO v2 真实层仿真），改 Q/R → 出表 → 核对 → 只换 `lqr_gain_table.c` 一个文件上板 → 本账本记"表号 + Q/R + 现象"。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

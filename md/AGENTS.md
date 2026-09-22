@@ -151,6 +151,7 @@ CtrBoard-H7_ALL/
 │       ├── mono_ns.c/h            ← 单调 ns 时钟 (DWT)
 │       ├── simple-function.c/h   ← 简单函数库 (一阶低通 Lowpass_* / 斜坡 Ramp_*)
 │       ├── kalman.c/h            ← 带加速度输入的一维卡尔曼 (速度估计, 同 Leg2_v1)
+│       ├── arm_sin_f32.c / arm_cos_f32.c / arm_sin_table_f32.c ← CMSIS-DSP 1.6.0 查表 sin/cos 源码 (leg_solver 用)
 │       └── Vofa_send.c/h          ← Vofa+ 调试发送
 │   └── Sysid/                     ← 测试专用 (SYSID_ENABLE 总开关)
 │       ├── sysid_config.h         ← 测试总开关
@@ -175,6 +176,7 @@ CtrBoard-H7_ALL/
 ```
 
 `tools/sysid_export.py` ← 上位机导出 (VOFA 文件 → 契约 CSV + manifest + 校验和)
+`tools/matlab/` ← LQR 增益表 MATLAB 管线 (机器表 / 模型 / 扫描 / 拟合 / 导出 C / 五项核对)，入口 `run_all.m`，计划与进度见 `tools/matlab/LQR_MATLAB_PLAN.md`
 
 ---
 
@@ -193,7 +195,7 @@ CtrBoard-H7_ALL/
 | 机器配置表 | machine_config.c/h | ✅ 新增，**两份表 + 运行时切换**（`Machine_Select`） |
 | 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 测试模式体 + 激励序列 + 自动跑批 + 事件标记 + 安全链；关掉开关即回到原样；🟡 sysid 独立数据帧**当前发不出去**：`task_comm.c` 未调用 `Sysid_Log_Send_Pump()`，且 1 kHz 推帧需先定抽取方案（变更 64） |
 | DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
-| 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证 |
+| 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证；三角函数走 CMSIS-DSP 查表（`LEG_TRIG_LIBM=1` 退回 libm）；含 Leg2 `Leg_Position` 移植 `Leg_Position_Leg2()` 供 VOFA 对照 |
 | RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置 |
 | CubeAI 推理 | rl_policy.c/h | ✅ 完成；🟡 推理未在任务中调用 |
 | 力矩执行层 | rl_torque.c/h | ✅ 完成，DM/DJI 分离输出 + 轮子 PID |
@@ -212,7 +214,7 @@ CtrBoard-H7_ALL/
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
 - **控制频率**：actuationTask 1kHz（TIM6 Prescaler=274 / Period=999）。LQR 与手动遥操共用该节拍
-- **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集；小机器当前为 0.13~0.20 m
+- **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集；小机器当前为 0.13~0.21 m
 - **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，同为 1 kHz 直接照抄）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
@@ -223,6 +225,7 @@ CtrBoard-H7_ALL/
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用，策略仲裁回到 LQR/手动两路）
+- **CMSIS-DSP**：CubeMX 的 X-CUBE-ALGOBUILD 只生成头文件 `Middlewares/ST/ARM/DSP/Inc/arm_math.h`（1.7.0），**不挂库、不加源**。本工程用源码方式：`imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（照抄 `Drivers/CMSIS/DSP/Source` 1.6.0）+ `arm_sin_table_f32.c`（只截 513 点 `sinTable_f32`），头文件走相对路径 `#include "../../Drivers/CMSIS/DSP/Include/arm_math.h"`；两套工程都不需要改包含目录，eIDE 靠 `srcDirs` 自动扫到，Keil 已登记进 `imcalib/user-lib` 组。**不要把 `arm_common_tables.c` 整个当源文件编**（armcc 不拆数据段，700 KB 表整段进 flash），**也不要挂 `Drivers/CMSIS/DSP/Lib/ARM` 下的 .lib**：目录里 19 个库只有 `arm_cortexM7lfdp_math.lib` 对应本机，多挂时 armlink 不报错、静默取第一个（软浮点）；eIDE 开着时手改 `eide.yml` 几秒内被覆盖。再要用别的 DSP 函数，照同样办法把对应源文件抄进 user-lib
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。
 
 ---

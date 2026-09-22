@@ -16,3 +16,7 @@
 
 # sysid 采集数据与导出产物
 /data
+
+# MATLAB 增益表管线缓存 (matlabFunction 生成物、.mat)
+/tools/matlab/cache
+/tools/matlab/*.log

@@ -48,6 +48,7 @@ typedef struct {
     float   vel_leg_comp_sign; /* 速度补偿 */
     uint8_t vel_src;           /* 0 低通 1 卡尔曼 */
     uint8_t yaw_hold;          /* 偏航角环 */
+    uint8_t yaw_rate_hold;     /* 偏航角速度环 */
     float   acc_fwd_sign;      /* 前向加速度符号 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */

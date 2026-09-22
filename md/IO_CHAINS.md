@@ -271,7 +271,7 @@ lqr_balance.c (手动腿测, 左拨杆中位 + 右拨杆非中位):
   wheel  → 腿长目标 (0.3 m/s 积分, 机器区间)
 
 lqr_balance.c (LQR, 左拨杆中位 + 右拨杆中位):
-  ch1    → 前后速度, ch0 → 偏航角速度, wheel → 腿长目标 (机器区间 ∩ K 表域)
+  ch1    → 前后速度, ch0 → 偏航角速度 (两偏航列默认不参与, 变更 83), wheel → 腿长目标 (机器区间 ∩ K 表域)
 ```
 
 **dr16_t 字段:**
@@ -406,7 +406,7 @@ leg_l / leg_r (leg_state_t):
     │
     │  Leg_Solve() @ task_comm.c
     ▼
-三层求解:
+三层求解 (三角函数为 CMSIS-DSP 查表 arm_sin/cos_f32, 同 Leg2; LEG_TRIG_LIBM=1 退回 libm):
 
 ① Leg_Solve_Geometry — 闭链几何
     qf = mirror × hip_f, qb = mirror × hip_b
@@ -604,6 +604,6 @@ motor_state.dji.vel_rad_s          DR16_Snapshot()
 **腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。
 （本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
 **速度**：`ω_轮·machine->wheel_r + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）；腿摆速度补偿符号由 `lqr_debug.vel_leg_comp_sign` 暂作台架 A/B，默认 −1 保持现状。
-**腿长限制**：机器表工作区间与 K 表拟合域 0.13~0.23 m 的交集；小机器为 0.13~0.20 m。
+**腿长限制**：机器表工作区间与 K 表拟合域 0.13~0.23 m 的交集；小机器为 0.13~0.21 m。
 **调试门**：`lqr_debug` 可分别关闭轮、髋、腿长 PID 的最终输出并调整限幅；关闭通道时 PID 仍持续计算。
 **符号责任**：反馈极性按 `feedback_sign` 在驱动解码时统一到机体坐标；输出极性按 `output_sign` 在驱动下发时统一处理（`dm.c` / `dji.c`），调用方不要取反。详见 [LQR_PLAN.md](LQR_PLAN.md)。
