@@ -5,9 +5,10 @@
 #include <math.h>
 #include <string.h>
 
-#define RL_TQ_POS_SCALE        0.5f
-#define RL_TQ_WHEEL_VEL_SCALE  20.0f
-#define RL_TQ_WHEEL_VEL_MAX    20.0f    /* 轮速上限 rad/s (测试用; 满速 62) */
+#define RL_TQ_POS_SCALE        0.5f     /* 训练侧: 腿目标 = act × 0.5 + 默认角 */
+#define RL_TQ_WHEEL_VEL_SCALE  10.0f    /* 训练侧: 轮目标速度 = act × 10 */
+#define RL_TQ_LEG_TRQ_MAX      40.0f    /* 训练侧: 虚拟腿关节力矩上限 (映射前裁) */
+#define RL_TQ_WHEEL_TRQ_MAX    3.9f     /* 训练侧: 轮力矩上限 */
 #define RL_TQ_VSHANK_MIN       2.277f
 #define RL_TQ_VSHANK_MAX       3.133f
 
@@ -21,6 +22,60 @@ enum {
     VJ_R_WHEEL = 5,
     VJ_NUM     = 6,
 };
+
+typedef struct {
+    float upper[3];
+    float hinge[3];
+    float lower[3];
+    float axis_y;
+} gas_spring_geom_t;
+
+/* chuanliantui.xml 的气弹簧端点 */
+static const gas_spring_geom_t gas_spring_geom[2] = {
+    {
+        {0.02560606f, 0.00350000f, -0.03710530f},
+        {-0.16528873f, -0.01150000f, -0.12953623f},
+        {0.01969256f, -0.01000000f, -0.04446437f},
+        -1.0f,
+    },
+    {
+        {0.02560606f, -0.00350000f, -0.03710530f},
+        {-0.16528873f, 0.01150000f, -0.12953623f},
+        {0.01969256f, 0.01000000f, -0.04446437f},
+        1.0f,
+    },
+};
+
+/* 端点连线推力转虚拟小腿力矩 */
+static float RL_Gas_Spring_Shank_Torque(uint8_t side, float q, float force_n)
+{
+    const gas_spring_geom_t *geom;
+    float angle;
+    float x_rot;
+    float z_rot;
+    float dx;
+    float dy;
+    float dz;
+    float length;
+
+    if (side >= 2u || !isfinite(q) || !isfinite(force_n) || force_n <= 0.0f)
+    {
+        return 0.0f;
+    }
+    geom = &gas_spring_geom[side];
+    angle = geom->axis_y * q;
+    x_rot = cosf(angle) * geom->lower[0] + sinf(angle) * geom->lower[2];
+    z_rot = -sinf(angle) * geom->lower[0] + cosf(angle) * geom->lower[2];
+    dx = geom->hinge[0] + x_rot - geom->upper[0];
+    dy = geom->hinge[1] + geom->lower[1] - geom->upper[1];
+    dz = geom->hinge[2] + z_rot - geom->upper[2];
+    length = sqrtf(dx * dx + dy * dy + dz * dz);
+    if (!isfinite(length) || length < 0.001f)
+    {
+        return 0.0f;
+    }
+    return force_n * geom->axis_y * (dx * z_rot - dz * x_rot) / length;
+}
 
 /* 检查数组 */
 static uint8_t RL_Torque_Array_Finite(const float *data, uint32_t count)
@@ -40,14 +95,15 @@ static uint8_t RL_Torque_Array_Finite(const float *data, uint32_t count)
 }
 
 /* 初始化参数: chuanliantui 起立策略 (networkzn1)
- * dof_pos = 训练默认角映射到固件关节 (zero + sign × 默认角, 见机器表 .rl); PD 增益待训练侧 */
+ * dof_pos = 训练默认角映射到固件关节 (zero + sign × 默认角, 见机器表 .rl)
+ * PD 来自训练仓库 chuanliantui_config.py control: stiffness f0/f1 10, damping f0/f1 1.0, 轮 damping 0.1 */
 void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
 {
     const rl_map_t *map = &machine->rl;
     const float dof_train[6] = {RL_OBS_DOF_POS_L_THIGH, RL_OBS_DOF_POS_L_SHANK, 0.0f,
                                 RL_OBS_DOF_POS_R_THIGH, RL_OBS_DOF_POS_R_SHANK, 0.0f};
-    const float p_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   /* 待训练侧 */
-    const float d_gains[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   /* 待训练侧 */
+    const float p_gains[6] = {10.0f, 10.0f, 0.0f, 10.0f, 10.0f, 0.0f};   /* 训练 Kp */
+    const float d_gains[6] = {1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f};       /* 训练 Kd */
 
     (void)model;
     if (param == NULL)
@@ -61,8 +117,8 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
     param->dof_pos[VJ_R_SHANK] = map->zero[3] + (float)map->sign[VJ_R_SHANK] * dof_train[VJ_R_SHANK];
     memcpy(param->p_gains, p_gains, sizeof(p_gains));
     memcpy(param->d_gains, d_gains, sizeof(d_gains));
-    param->wheel_pid[0][0] = 0.0f;   /* 轮速度增益, 待训练侧 */
-    param->wheel_pid[1][0] = 0.0f;
+    param->wheel_pid[0][0] = 0.1f;   /* 轮速度增益 = 训练 damping */
+    param->wheel_pid[1][0] = 0.1f;
 }
 
 /* 初始化 PID */
@@ -115,6 +171,9 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     float tau_v[VJ_NUM];
     float tau_f[2];
     float tau_b[2];
+    float shank_tau[2];
+    float q_train[2];
+    const rl_map_t *map;
     float leg_limit;
     float wheel_limit;
 
@@ -172,9 +231,6 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     {
         if (i == VJ_L_WHEEL || i == VJ_R_WHEEL)
         {
-            /* 轮速目标限幅到物理满速 */
-            vel_ref[i] = clampf(vel_ref[i], -RL_TQ_WHEEL_VEL_MAX,
-                                RL_TQ_WHEEL_VEL_MAX);
             state->pos_target[i] = vel_ref[i];
             tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i],
                 CTRL_DT);
@@ -187,13 +243,44 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                 CTRL_DT) - param->d_gains[i] * qd[i];
         }
     }
+    /* 训练侧虚拟关节力矩上限: Isaac 在映射前裁 */
+    for (uint32_t i = 0u; i < VJ_NUM; i++)
+    {
+        if (i == VJ_L_WHEEL || i == VJ_R_WHEEL)
+        {
+            tau_v[i] = clampf(tau_v[i], -RL_TQ_WHEEL_TRQ_MAX, RL_TQ_WHEEL_TRQ_MAX);
+        }
+        else
+        {
+            tau_v[i] = clampf(tau_v[i], -RL_TQ_LEG_TRQ_MAX, RL_TQ_LEG_TRQ_MAX);
+        }
+    }
     memcpy(state->virtual_torque, tau_v, sizeof(state->virtual_torque));
 
+    /* 补偿符号按机器表，0 时关闭 */
+    map = &machine->rl;
+    shank_tau[0] = tau_v[VJ_L_SHANK];
+    shank_tau[1] = tau_v[VJ_R_SHANK];
+    if (map->configured && machine->gas_comp_sign[0] != 0)
+    {
+        q_train[0] = (float)map->sign[VJ_L_SHANK]
+                   * Angle_Wrap_180(q[VJ_L_SHANK] - map->zero[1]);
+        shank_tau[0] += (float)(map->sign[VJ_L_SHANK] * machine->gas_comp_sign[0])
+                      * RL_Gas_Spring_Shank_Torque(0u, q_train[0], machine->gas_spring_force_n[0]);
+    }
+    if (map->configured && machine->gas_comp_sign[1] != 0)
+    {
+        q_train[1] = (float)map->sign[VJ_R_SHANK]
+                   * Angle_Wrap_180(q[VJ_R_SHANK] - map->zero[3]);
+        shank_tau[1] += (float)(map->sign[VJ_R_SHANK] * machine->gas_comp_sign[1])
+                      * RL_Gas_Spring_Shank_Torque(1u, q_train[1], machine->gas_spring_force_n[1]);
+    }
+
     /* 虚拟力矩映射: vshank_jac[0]→后髋, [1]→前髋 */
-    tau_f[0] = tau_v[VJ_L_THIGH] + tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[1];
-    tau_b[0] = tau_v[VJ_L_SHANK] * leg_l->output.vshank_jac[0];
-    tau_f[1] = tau_v[VJ_R_THIGH] + tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[1];
-    tau_b[1] = tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[0];
+    tau_f[0] = tau_v[VJ_L_THIGH] + shank_tau[0] * leg_l->output.vshank_jac[1];
+    tau_b[0] = shank_tau[0] * leg_l->output.vshank_jac[0];
+    tau_f[1] = tau_v[VJ_R_THIGH] + shank_tau[1] * leg_r->output.vshank_jac[1];
+    tau_b[1] = shank_tau[1] * leg_r->output.vshank_jac[0];
 
     /* DM 输出 (满限幅) */
     leg_limit = machine->dm_trq_clamp;

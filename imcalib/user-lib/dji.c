@@ -22,6 +22,7 @@ const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM] = {
 
 /* 反馈值 */
 dji_motor_feedback_t dji_motor_feedback[DJI_MOTOR_NUM];
+volatile int16_t wheel_current[4];
 
 /* 转换角度 */
 float Dji_Encoder_To_Rad(int32_t encoder_count)
@@ -213,7 +214,7 @@ void Dji_Circle_Calculate(void)
 
 /* 发电流 */
 HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
-                                   const int16_t current_raw[4])
+                                   const volatile int16_t current_raw[4])
 {
     uint8_t data[8];
 
@@ -235,9 +236,12 @@ HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
                                         float right_torque_nm)
 {
-    int16_t wheel_current[4] = {0};
     const dji_motor_config_t *cfg_l = &dji_motor_config[DJI_MOTOR_WHEEL_LFT];
 
+    wheel_current[0] = 0;
+    wheel_current[1] = 0;
+    wheel_current[2] = 0;
+    wheel_current[3] = 0;
     wheel_current[DJI_MOTOR_WHEEL_LFT] = Dji_Torque_To_Current(
         DJI_MOTOR_WHEEL_LFT,
         left_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out);
@@ -251,11 +255,14 @@ HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
 /* 全停机 */
 HAL_StatusTypeDef Dji_All_Stop(void)
 {
-    const int16_t zero_current[4] = {0};
     const dji_motor_config_t *config = &dji_motor_config[DJI_MOTOR_WHEEL_LFT];
 
+    wheel_current[0] = 0;
+    wheel_current[1] = 0;
+    wheel_current[2] = 0;
+    wheel_current[3] = 0;
     return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), config->control_id,
-                            zero_current);
+                            wheel_current);
 }
 
 /* 查在线 */

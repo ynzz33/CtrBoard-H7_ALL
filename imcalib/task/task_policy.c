@@ -57,10 +57,11 @@ static uint8_t RL_Joint_Map(float joint_pos[4], float joint_vel[6])
     joint_pos[3] = (float)map->sign[4] * Angle_Wrap_180(leg_r.output.virtual_shank_angle - map->zero[3]);
     qd[0] = leg_l.input.d_hip_f;
     qd[1] = leg_l.output.d_virtual_shank_angle;
-    qd[2] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    /* 台架反馈核对: 物理左轮目前从 DJI RGT 索引进入, RL 左轮槽在这里交换来源 */
+    qd[2] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
     qd[3] = leg_r.input.d_hip_f;
     qd[4] = leg_r.output.d_virtual_shank_angle;
-    qd[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    qd[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
     for (uint8_t i = 0u; i < 6u; i++)
     {
         joint_vel[i] = (float)map->sign[i] * qd[i];
@@ -86,6 +87,24 @@ static uint8_t RL_Control_Update_Observation(const float command[3])
     }
     RL_Observation_Update_History(&rl_control.observation);
     return rl_control.observation.history_ready;
+}
+
+/* 未投入时的观测预览: 只供 VOFA, 不推历史 */
+static void RL_Observation_Preview(const float command[3])
+{
+    float joint_pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float joint_vel[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    uint8_t source_valid;
+
+    source_valid = (uint8_t)(imu_state.online && leg_l.output.valid && leg_r.output.valid);
+    if (source_valid)
+    {
+        (void)RL_Joint_Map(joint_pos, joint_vel);
+    }
+    RL_Observation_Reset(&rl_control.observation);
+    (void)RL_Observation_Build(&rl_control.observation, &rl_control.param,
+        imu_state.gyro_rad_s, imu_state.quat, command,
+        joint_pos, joint_vel, source_valid);
 }
 
 /* 发布动作 (固件关节空间) */
@@ -202,17 +221,18 @@ static void RL_Infer_Body(void)
     float action_t[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   /* 训练空间 */
     float action[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};     /* 固件空间 */
 
-    /* 未投入: 清历史, 发零动作保持新鲜 (LQR 挡也走这里) */
+    RL_Command_From_Rc(command);
+
+    /* 未投入: 清历史 (预览观测照算供 VOFA), 发零动作保持新鲜 (LQR 挡也走这里) */
     if (!output_task_rl_engaged())
     {
         warmup_cnt = 0u;
         rl_control.infer_phase = 0u;
-        RL_Observation_Reset(&rl_control.observation);
+        RL_Observation_Preview(command);
         RL_Action_Publish(action, 0u, 0u);
         return;
     }
 
-    RL_Command_From_Rc(command);
     if (!RL_Control_Update_Observation(command))
     {
         /* 观测无效: 重新预热, 零力矩 */

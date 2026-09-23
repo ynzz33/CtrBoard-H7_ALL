@@ -53,6 +53,7 @@ typedef struct {
 
 extern const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM];
 extern dji_motor_feedback_t dji_motor_feedback[DJI_MOTOR_NUM];
+extern volatile int16_t wheel_current[4]; /* 最后一次左右轮电流指令 raw, 供发送与 VOFA 观测 */
 
 void Dji_Init(void);
 void Dji_Parse(void);
@@ -63,7 +64,7 @@ int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm);
 HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
                                         float right_torque_nm);
 HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
-                                   const int16_t current_raw[4]);
+                                   const volatile int16_t current_raw[4]);
 HAL_StatusTypeDef Dji_All_Stop(void);
 bool Dji_Is_Online(uint8_t index);
 

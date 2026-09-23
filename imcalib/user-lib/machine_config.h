@@ -13,7 +13,7 @@
 #define MACHINE_WHEEL_NUM         2u
 
 /* 上电默认机器: 换机器改这一行 */
-#define MACHINE_DEFAULT           MACHINE_ID_LOCAL
+#define MACHINE_DEFAULT           MACHINE_ID_CHUANLIANTUI
 
 /* 一路电机的极性 */
 typedef struct {
@@ -27,7 +27,8 @@ typedef struct {
     int8_t  eul_sign[3];  /* 欧拉角符号, 同序 */
     int8_t  gyr_sign[3];  /* 角速度符号, 模块 X/Y/Z */
     int8_t  acc_sign[3];  /* 加速度符号, 模块 X/Y/Z */
-    int8_t  quat_sign[3]; /* 四元数 X/Y/Z 符号 */
+    uint8_t quat_src[3];  /* 四元数输出 X/Y/Z 分别取模块 X/Y/Z 哪一路 */
+    int8_t  quat_sign[3]; /* 四元数输出 X/Y/Z 极性, 独立于 quat_src */
 } imu_cfg_t;
 
 /* RL 关节映射: 训练关节 = sign × wrap(固件角 − zero); 速度、动作、力矩乘同一 sign
@@ -65,6 +66,8 @@ typedef struct {
     float       leg_len_min;
     float       leg_len_max;
     float       leg_off_phi0[2];
+    float       gas_spring_force_n[2]; /* 左右轴向力 */
+    int8_t      gas_comp_sign[2];      /* -1/0/+1 */
     /* IMU 安装极性 */
     imu_cfg_t   imu;
     /* RL 关节映射 */

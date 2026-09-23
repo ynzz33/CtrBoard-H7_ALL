@@ -9,7 +9,7 @@
 #define LQR_LPF_ALPHA       0.3f
 /* 速度卡尔曼: 同 Leg2_v1 Body.h (P0 / Q / R / P 上限) */
 #define LQR_KF_P0           0.1f
-#define LQR_KF_Q            0.005f
+#define LQR_KF_Q            0.007f
 #define LQR_KF_R            0.01f
 #define LQR_KF_P_MAX        0.5f
 #define LQR_GRAVITY         9.81f
@@ -60,7 +60,7 @@ void LQR_Init(lqr_state_t *st)
 {
     memset(st, 0, sizeof(*st));
     lqr_debug.vel_leg_comp_sign = -1.0f;
-    lqr_debug.vel_src = 0u;
+    lqr_debug.vel_src = 1u;
     lqr_debug.yaw_hold = 1u;
     lqr_debug.yaw_rate_hold = 1u;
     lqr_debug.pos_hold = 0u;
@@ -385,4 +385,41 @@ void LQR_Control_Update(lqr_state_t *st)
                               lqr_debug.trq_max_hip);
         }
     }
+}
+
+/* 临时隔离测试: 只保留 yaw 角 / yaw 角速度对左右轮的贡献, 髋部输出清零 */
+void LQR_Control_Update_Yaw_Only(lqr_state_t *st)
+{
+    float phi_error;
+    float dphi_error;
+    float sum;
+    uint8_t i;
+
+    /* 先复用常规更新刷新腿长相关增益, 后面覆盖掉非 yaw 输出 */
+    LQR_Control_Update(st);
+
+    phi_error = lqr_debug.yaw_hold
+              ? LQR_Wrap_Pi(st->target[LQR_X_PHI] - st->x[LQR_X_PHI])
+              : 0.0f;
+    dphi_error = lqr_debug.yaw_rate_hold
+               ? st->target[LQR_X_DPHI] - st->x[LQR_X_DPHI]
+               : 0.0f;
+
+    memset(st->u_col, 0, sizeof(st->u_col));
+    for (i = LQR_U_WL; i <= LQR_U_WR; i++)
+    {
+        sum = st->K[i][LQR_X_PHI] * phi_error
+            + st->K[i][LQR_X_DPHI] * dphi_error;
+        if (!isfinite(sum))
+        {
+            sum = 0.0f;
+        }
+        st->u[i] = clampf(sum, -lqr_debug.trq_max_wheel,
+                          lqr_debug.trq_max_wheel);
+    }
+    st->u[LQR_U_BL] = 0.0f;
+    st->u[LQR_U_BR] = 0.0f;
+
+    st->u_col[LQR_X_PHI] = st->K[LQR_U_WL][LQR_X_PHI] * phi_error;
+    st->u_col[LQR_X_DPHI] = st->K[LQR_U_WL][LQR_X_DPHI] * dphi_error;
 }

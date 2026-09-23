@@ -8,17 +8,17 @@
 
 #define REMOTE_COMMAND_SCALE 3.0f   /* 手动遥操: obs 指令缩放 (旧路径) */
 
-/* 推理路径: 遥控 → 策略指令的训练侧范围 (待训练侧给; 0 = 该路恒零) */
-#define RL_CMD_VX_MAX       0.0f    /* m/s */
-#define RL_CMD_YAW_MAX      0.0f    /* rad/s */
-#define RL_CMD_HEIGHT_MIN   0.0f    /* m */
-#define RL_CMD_HEIGHT_MAX   0.0f    /* m */
+/* 推理路径: 遥控 → 策略指令的训练侧范围 (chuanliantui_standup_config: vx/yaw 恒 0, 高度 0.20 m) */
+#define RL_CMD_VX_MAX       0.0f    /* m/s, 起立策略训练域 [0, 0] */
+#define RL_CMD_YAW_MAX      0.0f    /* rad/s, 训练域 [0, 0] */
+#define RL_CMD_HEIGHT_MIN   0.20f   /* m, 机身高度目标; 解锁后固定 0.20 */
+#define RL_CMD_HEIGHT_MAX   0.20f   /* 同上, 拨轮无效 */
 
-/* 推理路径: 投入后先零动作 N 步, 只跑 PD + 历史 (复现"接地前零动作"; 步数待训练侧) */
-#define RL_WARMUP_STEPS     50u
+/* 推理路径: 投入后先零动作 N 步, 只跑 PD + 历史 (训练: 首次轮接地前零动作; 实机轮已接地, 只留短预热) */
+#define RL_WARMUP_STEPS     10u
 
-/* 动作裁剪 (训练侧 clip_actions, 待训练侧; 0 = 不裁) */
-#define RL_ACTION_CLIP      0.0f
+/* 动作裁剪 (训练 normalization.clip_actions = 100) */
+#define RL_ACTION_CLIP      100.0f
 
 #define RL_LATENT_SIZE      3u
 

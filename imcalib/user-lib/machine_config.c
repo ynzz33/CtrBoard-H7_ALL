@@ -6,12 +6,12 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .name           = "chuanliantui",
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = 15.5f,                       /* 转子→轮子总减速比 */
-        .dji_trq_clamp  = 4.8f,                        /* 15.5 箱比下的输出轴物理上限 */
+        .dji_trq_clamp  = 3.9f,                        /* 对齐训练侧轮关节力矩限幅 */
         .wheel_r        = 0.04f,                       /* 占位，待实测 */
         .dm_pos_max     = 3.14159f,                    /* DM-J8009P: 上位机 ±π */
         .dm_vel_max     = 45.0f,
         .dm_trq_max     = 54.0f,                       /* MIT 刻度, 勿改 */
-        .dm_trq_clamp   = 20.0f,                       /* 满限幅 (作者许可力矩) */
+        .dm_trq_clamp   = 40.0f,                       /* 对齐训练侧腿关节力矩限幅 */
         /* 极性: 前左/后左/前右/后右 */
         .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
         .dji_sign       = {{1, 1}, {-1, -1}},
@@ -26,19 +26,24 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .leg_len_min    = 0.14f,
         .leg_len_max    = 0.34f,
         .leg_off_phi0   = {-0.13f, -0.07f},
+        .gas_spring_force_n = {150.0f, 150.0f},
+        .gas_comp_sign = {0, 0},                     /* 左右符号待台架 */
         /* IMU: 照抄原 hi229.h 全局宏, 大机器待实测 */
         .imu = {
             .eul_src   = {1, 0, 2},
-            .eul_sign  = {1, -1, -1},
-            .gyr_sign  = {-1, 1, -1},
+            .eul_sign  = {1, 1, -1},
+            .gyr_sign  = {1, 1, -1}, /* RL 训练轴: 低头 +pitch、左滚 +roll、左偏航 -yaw */
             .acc_sign  = {-1, 1, -1},
-            .quat_sign = {-1, 1, -1},
+            .quat_src  = {1, 0, 2},    /* 四元数 X/Y 通道交换; 这里只选通道 */
+            .quat_sign = {1, 1, -1},  /* quat_src 后独立修正训练极性 */
         },
-        /* RL 关节映射: 待训练侧给 lf0/lf1 定义、待台架; 未配置 (sign 全 0) 则推理链门控关 */
+        /* RL 关节映射候选 A (作者 2026-09-23 定, 依据变更 97 URDF 推导):
+         * lf0 = −(thigh − 2.476872), lf1 = −(vs − 3.086386), 右腿反号; 轮 sign 按训练轴/台架后退方向校正
+         * 默认站姿固件应读 thigh ≈ 2.54 / vs ≈ 2.99 (VOFA ch11/ch13), 不符则回看候选 B */
         .rl = {
-            .sign       = {0, 0, 0, 0, 0, 0},
-            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
-            .configured = 0u,
+            .sign       = {-1, -1, -1, 1, 1, 1},
+            .zero       = {2.476872f, 3.086386f, 2.476872f, 3.086386f},
+            .configured = 1u,
         },
     },
     [MACHINE_ID_LOCAL] = {
@@ -64,12 +69,15 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .leg_len_min    = 0.13f,
         .leg_len_max    = 0.23f,
         .leg_off_phi0   = {-0.0f, -0.0f},
+        .gas_spring_force_n = {0.0f, 0.0f},
+        .gas_comp_sign = {0, 0},
         /* IMU */
         .imu = {
             .eul_src   = {1, 0, 2},
             .eul_sign  = {-1,-1, +1},
             .gyr_sign  = {-1,-1, +1},
             .acc_sign  = {-1, 1, -1},
+            .quat_src  = {0, 1, 2},
             .quat_sign = {-1, 1, -1},
         },
         /* RL 关节映射: 模型对应大机器, 小机器未配置 */

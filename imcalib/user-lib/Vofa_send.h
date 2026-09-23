@@ -13,7 +13,7 @@
 /*       UART9 被 DR16 占用且没有 TX DMA, 都不能选。     */
 /* 波特率必须与 Vofa+ 一致 (CubeMX 里对应口已是 1152000)。*/
 #ifndef VOFA_PORT
-#define VOFA_PORT   8
+#define VOFA_PORT   1
 #endif
 
 #if VOFA_PORT == 8

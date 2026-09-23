@@ -101,5 +101,6 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt);
 void    LQR_Control_Update(lqr_state_t *st);
+void    LQR_Control_Update_Yaw_Only(lqr_state_t *st);
 
 #endif

@@ -1,4 +1,5 @@
 #include "robot_control.h"
+#include "machine_config.h"
 #include "dm.h"
 #include "dji.h"
 #include "tim.h"
@@ -17,6 +18,10 @@
 static uint8_t lqr_running;     /* 已投入 */
 static uint8_t lqr_manual;      /* 手动腿测 */
 static uint8_t rl_engaged;      /* RL 已投入 */
+volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
+volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
+
+#define LQR_YAW_ONLY_TEST 1u    /* 临时隔离测试: 仅 yaw 反馈驱动轮子 */
 
 /* 输出初始化 */
 void output_task_init(void)
@@ -40,17 +45,32 @@ uint8_t output_task_rl_engaged(void)
 /* valid=0 或总输出关 → 零力矩; 否则原样下发 (各路限幅已在控制器内做, 极性在驱动边界做) */
 static void output_dispatch(const torque_output_t *torque)
 {
-    if (!torque->valid || !torque_output_enabled)
+    if (!torque->valid || !torque_output_enabled
+        || ctrl_strategy != CTRL_STRATEGY_MANUAL
+        || !rl_control.infer_enable
+        || !action_state.rl_ready
+        || !output_task_rl_engaged()
+       )
     {
         output_debug_dm_sent = 0u;
         output_debug_dji_sent = 0u;
+        for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++) rl_output_dm_cmd_nm[i] = 0.0f;
+        for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++) rl_output_wheel_cmd_nm[i] = 0.0f;
         (void)Dm_Send_Zero();
         (void)Dji_All_Stop();
         return;
     }
-    output_debug_dm_sent = Dm_Send_Torque(torque->dm);
-    output_debug_dji_sent = (uint8_t)Dji_Send_Wheel_Torque(
-        torque->dji[DJI_MOTOR_WHEEL_LFT], torque->dji[DJI_MOTOR_WHEEL_RGT]);
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        rl_output_dm_cmd_nm[i] = torque->dm[i];
+    }
+    rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT] = torque->dji[DJI_MOTOR_WHEEL_LFT];
+    rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT] = torque->dji[DJI_MOTOR_WHEEL_RGT];
+
+    output_debug_dm_sent = (uint8_t)(Dm_Send_Torque(torque->dm) == HAL_OK);
+    /* 物理左右轮反馈源交叉: RL 左/右轮输出也交叉到实际电机槽 */
+    output_debug_dji_sent = (uint8_t)(Dji_Send_Wheel_Torque(
+        torque->dji[DJI_MOTOR_WHEEL_RGT], torque->dji[DJI_MOTOR_WHEEL_LFT]) == HAL_OK);
         // (void)Dm_Send_Zero();
         // (void)Dji_All_Stop();
 }
@@ -120,9 +140,18 @@ static void solve_lqr(torque_output_t *torque)
     {
         return;
     }
+#if LQR_YAW_ONLY_TEST
+    LQR_Control_Update_Yaw_Only(&lqr_state);
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = lqr_debug.wheel_enable
+        ? lqr_state.u[LQR_U_WL] : 0.0f;
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = lqr_debug.wheel_enable
+        ? lqr_state.u[LQR_U_WR] : 0.0f;
+    torque->valid = 1u;
+#else
     LQR_Control_Update(&lqr_state);
     torque->valid = Leg_Balance_Compute(&leg_balance, &lqr_state, &leg_l, &leg_r,
                                         CTRL_DT, torque);
+#endif
 }
 
 /* 手动腿测: 摇杆 → 腿长/摆角目标 → PID → 力域映射 (轮零) */
@@ -136,15 +165,20 @@ static void solve_lqr_manual(torque_output_t *torque)
 /* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 动作可用 (手动基准已锁 / 推理就绪) */
 static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
 {
+    float wheel_vel_rl[2];
+
     if (!(robot_state.rc_enable && robot_state.motor_enabled
           && leg_l.output.valid && leg_r.output.valid
           && (action_state.base_action_locked || action_state.rl_ready)))
     {
         return;
     }
+    /* RL 输入核对确认左右轮反馈源交叉，PD 轮速也按物理侧重排。 */
+    wheel_vel_rl[DJI_MOTOR_WHEEL_LFT] = wheel_vel[DJI_MOTOR_WHEEL_RGT];
+    wheel_vel_rl[DJI_MOTOR_WHEEL_RGT] = wheel_vel[DJI_MOTOR_WHEEL_LFT];
     (void)RL_Torque_Compute(&leg_l, &leg_r,
         &rl_control.torque_param[rl_control.policy.selected_model],
-        wheel_vel, action_state.a, &rl_control.torque_state, torque);
+        wheel_vel_rl, action_state.a, &rl_control.torque_state, torque);
     torque->valid = 1u;
 }
 

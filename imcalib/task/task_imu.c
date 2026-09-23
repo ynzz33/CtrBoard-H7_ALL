@@ -31,12 +31,13 @@ void imu_task_body(void)
     if (!imu_state.online)
         Attitude_Init(&imu_state);
 
-    /* 轴 + 符号 + 单位: 欧拉角按机体 俯仰/横滚/偏航 序取模块对应路 */
+    /* 欧拉角、四元数分别按源通道重映射，再独立应用极性 */
     cfg = &machine->imu;
     imu_state.quat[0] = sample.quat[0];
     for (i = 0u; i < 3u; i++)
     {
-        imu_state.quat[i + 1u]   = (float)cfg->quat_sign[i] * sample.quat[i + 1u];
+        imu_state.quat[i + 1u]   = (float)cfg->quat_sign[i]
+                                 * sample.quat[cfg->quat_src[i] + 1u];
         imu_state.euler_deg[i]   = (float)cfg->eul_sign[i] * sample.eul[cfg->eul_src[i]];
         imu_state.gyro_rad_s[i]  = (float)cfg->gyr_sign[i] * sample.gyr[i] * 0.01745329251994f;
         imu_state.acc_g[i]       = (float)cfg->acc_sign[i] * sample.acc[i];

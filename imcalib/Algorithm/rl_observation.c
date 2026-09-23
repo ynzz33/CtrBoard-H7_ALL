@@ -161,6 +161,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
         return 0u;
     }
 
+    /* imu_state 已由 machine.imu 完成轴映射与极性校正；策略按训练 XYZ 直接读取。 */
     for (i = 0u; i < 3u; i++)
         state->obs[RL_OBS_GYRO_X + i] = gyro_rad_s[i] * param->gyro_scale[i];
     for (i = 0u; i < 3u; i++)
