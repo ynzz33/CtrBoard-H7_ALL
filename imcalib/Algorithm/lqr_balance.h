@@ -51,6 +51,9 @@ typedef struct {
     uint8_t pos_hold;          /* 位移环 (0 = 位移列不进控制) */
     float   vel_ramp;          /* 速度目标斜坡 m/s^2 (0 = 不斜坡, 阶跃) */
     float   acc_fwd_sign;      /* 前向加速度符号 */
+    float   pitch_comp_sign;   /* 轮速补偿俯仰项符号 */
+    float   pitch_off;         /* 俯仰零偏 rad */
+    float   pos_arm_vel;       /* 松杆后车速低于此才积位移 m/s (0 = 立即) */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
     uint8_t len_pid_enable;    /* 腿长PID */
@@ -62,6 +65,7 @@ typedef struct {
     float x[LQR_X_NUM];             /* 状态 */
     float target[LQR_X_NUM];        /* 目标 */
     float u[LQR_U_NUM];             /* LQR 输出 */
+    float u_col[LQR_X_NUM];         /* 左轮各列贡献 (调试) */
     float K[LQR_U_NUM][LQR_X_NUM];  /* 增益 */
     float len[2];                   /* 实测腿长 */
     float len_eval[2];              /* 上次增益求值腿长 */
@@ -75,6 +79,7 @@ typedef struct {
     float leg_len_tgt[2];           /* 腿长目标 */
     float leg_ang_tgt[2];           /* 腿摆角目标 (手动腿测) */
     float pos;                      /* 位移积分 */
+    uint8_t pos_armed;              /* 位移积分已启动 */
     float yaw_tgt;                  /* 偏航角目标 */
     float vel_tgt;                  /* 速度目标 (斜坡后) */
     float roll;                     /* 机体横滚角 */

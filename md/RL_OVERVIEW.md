@@ -10,8 +10,9 @@
 - `rl_torque` 保持动作、PID、雅可比和电机输出的直接链路。PID 直接逐个 `PID_struct_init`，不使用参数指针同步、循环初始化或隐式重配。
 - 当前不加入气弹簧补偿、斜率限制或额外控制策略。
 - 多次计算保持单一中间量和短表达式；注释简短。循环索引在 `for` 内定义。
+- 2026-09-22 起只有一个模型 `networkzn1`（chuanliantui 起立策略）；推理路径由 `rl_control.infer_enable` 切换，默认 0 走旧手动遥操；训练关节与固件关节的映射在机器表 `.rl`，未配置整链门控关。接入说明与训练侧待提供清单见 **§八**。
 
-> 最后更新：2026-09-21
+> 最后更新：2026-09-22
 > 参考实车：XYEGA_RM2026_WheelLeg_Infatry_RLdeploy（复旦 EGA 2026 国赛上场版）
 
 ---
@@ -24,7 +25,7 @@
 2. **板端**（STM32H723 + CubeAI）实时推理，输出 6 维动作
 3. **执行层**把动作经 PD + 雅可比映射为 6 个电机力矩
 
-整个链路在 1kHz 控制环里跑，RL 推理锁频 100Hz（每 10 个周期推理一次，其余复用上次动作）。
+整个链路在 500 Hz 控制环里跑（同训练 PD 内环，变更 96），RL 推理 100 Hz（policyTask 自己 10 ms 一拍，执行任务每拍复用最新动作）。
 
 **数据流一句话**：
 ```
@@ -70,7 +71,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 
 | 任务 | 频率 | 节拍方式 | 职责 |
 |------|------|----------|------|
-| `actuationTask` | 1kHz | TIM6 信号量（硬实时） | 策略仲裁（LQR / 手动遥操）→ 力矩计算 → CAN 下发 |
+| `actuationTask` | 500Hz | TIM6 信号量（硬实时） | 策略仲裁（LQR / 手动遥操）→ 力矩计算 → CAN 下发 |
 | `policyTask` | 100Hz | osDelay | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 500Hz | osDelay(2ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
 | `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA |
@@ -84,7 +85,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 ```
 [ISR] FDCAN → dm/dji raw_pending
 [ISR] UART  → hi229_rx.flag / dbus_rx.flag
-[ISR] TIM6  → ctrl_tick_sem (1kHz 信号量)
+[ISR] TIM6  → ctrl_tick_sem (500Hz 信号量)
 
 imuTask     → imu_state {quat, eul, gyr, acc, online}
 commTask    → motor_state/leg_state; ctrl_fault; VOFA
@@ -126,52 +127,50 @@ DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `out
 
 | 索引 | 内容 | 缩放 |
 |------|------|------|
-| 0-2 | 陀螺仪角速度 (rad/s) | × gyro_scale（待配） |
+| 0-2 | 陀螺仪角速度 (rad/s) | × 0.25 |
 | 3-5 | 投影重力 (机体坐标系) | × 1.0 |
-| 6-8 | 指令 [vx, yaw_rate, height] | × command_scale（待配） |
-| 9-12 | 关节角度偏差 (4 腿关节 - 中位) | × 1.0 |
-| 13-18 | 关节角速度 (6 维含轮子) | × joint_vel_scale（待配） |
-| 19-24 | 上步动作 (6 维) | × 1.0 |
+| 6-8 | 指令 [vx, yaw_rate, height] | × [2.0, 0.25, 5.0] |
+| 9-12 | 训练关节角 − 默认角 [lf0, lf1, rf0, rf1]，默认角 [−0.06, 0.10, 0.06, −0.10] | × 1.0 |
+| 13-18 | 训练关节速度 (6 维含轮子) | × 0.05 |
+| 19-24 | 上步动作 (训练空间原值) | × 1.0 |
+
+整体裁剪到 ±100。缩放与默认角来自训练侧《ONNX 导出说明》（2026-09-22），宏在 `rl_observation.h`，`RL_Observation_Param_Init()` 填入并置 `configured=1`。
 
 投影重力：`g_body = R^T * [0,0,-1]^T`，用四元数旋转计算。
 
-历史堆叠：循环左移，`[t-4, t-3, t-2, t-1, t]` 五帧。
+历史堆叠：循环左移，`[t-4, t-3, t-2, t-1, t]` 五帧；首帧重复 5 次填满，末帧含本次观测。
 
-**当前阻塞**：`rl_control.param.configured` 未置 1，`obs_dof_pos`/`command_scale`/`gyro_scale`/`joint_vel_scale` 全部为零。需训练同学提供参数后填入。
+**关节映射**（`task_policy.c::RL_Joint_Map()`）：训练用串联代理关节 lf0/lf1（lf1 不是实物电机），固件给的是前髋大腿角 `thigh_angle` 与 EGA 虚拟小腿角 `virtual_shank_angle`。观测关节 = `sign × wrap(固件角 − zero)`，速度乘同一 `sign`；`sign[6]`/`zero[4]` 在机器表 `machine->rl`，**当前全 0、`configured=0`，待训练侧给 lf0/lf1 定义后由作者台架定**。未配置时观测无效、不推理、零力矩。
 
 ### 3.3 推理 (`rl_policy`)
 
-4 个 CubeAI 模型，按策略切换：
+只有一个 CubeAI 模型：`networkzn1`（训练侧 chuanliantui_standup `model_6000_h723.onnx`，X-CUBE-AI 10.2.0 / ST Edge AI Core 2.2.0 生成，2026-09-22）。
 
-| 策略 | 模型 | 用途 |
+| 张量 | 形状 | 含义 |
 |------|------|------|
-| Stable | stable.onnx | 站立平衡 |
-| MiniRecover/Spin | pin.onnx | 小陀螺 |
-| Upstairs | upstairs.onnx | 上楼梯/行走 |
-| Jump | jump.onnx | 跳跃 |
+| 输入 0 `observations` | [1, 25] | 当前观测 |
+| 输入 1 `observation_history` | [1, 125] | 5 帧历史 |
+| 输出 0 `actions` | [1, 6] | 动作均值（训练空间） |
+| 输出 1 `latent` | [1, 3] | 编码器输出，只存进 `rl_policy_t.latent` 供调试 |
 
-每个模型：双输入 `[obs(25), history(125)]` → 单输出 `[action(6)]`。
+权重 152 KB flash、activation 1.1 KB、43k MACC；`rl_policy.c` 静态检查 25/125/6/3，激活缓存静态分配（`AI_ALIGNED(4)`），无堆内存，CRC 外设时钟在 `RL_Policy_Init()` 使能。`RL_Policy_Run()` 记录成功/失败次数与耗时（`run_ok`/`run_fail`/`run_us`，DWT 计时）。
 
-静态分配激活缓存（`AI_ALIGNED(4)`），无堆内存。CRC 外设时钟需使能。
-
-**当前状态**：`ctrl_task_body()` 构建观测但**不调用 `RL_Policy_Run()`**，手动遥操模式直接把遥控器偏移当 action 赋给 `action_state`。待观测参数配齐后再开启推理。
+旧的 stable/pin/upstairs/jump 四模型（EGA 参考车）已从两套工程与 `X-CUBE-AI/App` 删除；`rl_model_t` 只剩 `RL_MODEL_STANDUP`。
 
 ### 3.4 力矩执行 (`rl_torque`)
 
 6 维动作 → 6 个电机力矩的完整转换：
 
 ```
-1. 动作直接使用 (无额外限幅)
-2. PD 控制:
-   腿关节(4维): pos_ref = act × 0.5 + dof_pos
-   轮子(2维):   vel_ref = act × 20.0
-   tau_v = Kp×(pos_ref - q)，关节开启角度环绕
-   轮子: tau_v = PID(vel_current, vel_ref)
+1. 动作 (固件关节空间; task_policy 把训练动作乘 .rl.sign 得到)
+2. PD 控制 (500 Hz, 同训练):
+   腿关节(4维): 目标 = act × 0.5 + dof_pos, dof_pos = zero + sign × 训练默认角 (RL_Torque_Param_Init 按机器表算)
+                tau_v = Kp × wrap(目标 − q) − Kd × q̇   (D 项用关节速度, 同仿真 PD; 不再用 pid 的 Δe 微分)
+   轮子(2维):   目标速度 = act × 10 (训练侧尺度), 限 ±20 rad/s; tau_v = Kp_w × (目标 − 轮速)
 3. 虚拟→实际 (vshank_jac):
    tau_front_hip = tau_thigh + tau_shank × vshank_jac[1]
    tau_rear_hip  = tau_shank × vshank_jac[0]
-4. 输出限幅:
-   腿 ±5Nm, 轮 ±5Nm (Jump 轮 ±4Nm)
+4. 输出限幅: 机器表 dm_trq_clamp / dji_trq_clamp
 ```
 
 力矩输出结构 `torque_output_t` 将 DM 与 DJI 分离（已重构）：
@@ -182,13 +181,7 @@ DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `out
 
 PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。控制器在总初始化和模型切换时逐个调用 `PID_struct_init`，不做运行时参数同步。当前不包含气弹簧补偿和输出斜率限制。
 
-**当前 PID 参数快照（以代码为准）：**
-
-| 模型 | 关节 Kp | 关节 Kd | 轮子 Kp | 轮子 Ki | 轮子 Kd |
-|------|---------|---------|---------|---------|---------|
-| Stable | 3.5 | 0 | 8.0 | 0 | 0 |
-| Pin | 2.0 | 0 | 5.0 | 0 | 0 |
-| Jump | 2.0 | 0 | 5.0 | 0 | 0 |
+**当前 PD 参数（以代码为准）**：`RL_Torque_Param_Init()` 只有 STANDUP 一组，关节 Kp/Kd 与轮速度增益 **全部为 0，待训练侧给**（仿真里 lf0/lf1 的 stiffness/damping、轮的 damping、各关节力矩上限）。增益为 0 时链路照跑、力矩恒零，正好做"总输出关只看动作"的第一步。
 
 **已修正**：DJI 力矩常数的减速比因子已修——`per_raw` 按 `machine->dji_gear_ratio` 缩放（见 `dji.c` 的 `Dji_Torque_To_Current`）。剩余：**Kt 绝对值仍待台架实测**（悬臂挂砝码/弹簧秤法）。型号/刻度/减速比已集中到 `imcalib/user-lib/machine_config.h`。
 
@@ -203,7 +196,20 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 | ch1（右Y） | 轮子速度 | ×4.0 直接赋值（宽死区100） |
 | ch0（右X） | yaw 指令 | ×REMOTE_COMMAND_SCALE → obs |
 
-使能边沿锁存当前关节角为 base_action，后续摇杆在此基础上偏移。
+使能边沿锁存当前关节角为 base_action，后续摇杆在此基础上偏移。（`rl_control.infer_enable = 0`，默认）
+
+**推理路径**（`rl_control.infer_enable = 1`，`task_policy.c::RL_Infer_Body()`，100 Hz）：
+
+| 步骤 | 内容 |
+|------|------|
+| 投入判定 | 读 `output_task_rl_engaged()`：左拨杆上 + 右拨杆中 + 电机使能（拨杆语义仍只在 `task_actuation.c`）。未投入：清历史、发零动作、`rl_ready=0` |
+| 指令 | 右摇杆 Y → vx × `RL_CMD_VX_MAX`；右摇杆 X → yaw_rate = −yaw × `RL_CMD_YAW_MAX`（右推为负，同 LQR）；拨轮 → 高度在 `[RL_CMD_HEIGHT_MIN, MAX]` 线性；宏在 `rl_policy.h`，**当前全 0 待训练侧** |
+| 观测 | `RL_Control_Update_Observation()`：源无效或 `.rl` 未配置 → 从头预热、零动作 |
+| 预热 | 投入后前 `RL_WARMUP_STEPS`（50 步 = 0.5 s，待训练侧）零动作，PD 与历史照跑，复现仿真"首次接地前零动作" |
+| 推理 | `RL_Policy_Run()` → 训练动作 → 可选裁剪 `RL_ACTION_CLIP`（0 = 不裁，待训练侧）→ 存 last_action → 乘 `.rl.sign` 变固件动作 → 发布，`rl_ready=1` |
+| 失败 | 推理失败：发零动作、`rl_ready=0`（零力矩），`run_fail++` 上 VOFA ch6 |
+
+`task_actuation.c::solve_rl()` 的出力前提改为"手动基准已锁 **或** `rl_ready`"，其余不变。两条路径都每 10 ms 发布一次动作，`FAULT_ACTION`（100 ms 不新鲜）只在策略任务挂掉时触发。
 
 ### 3.6 使能与安全 (`task_comm`)
 
@@ -219,7 +225,7 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 
 **翻倒**：|pitch| > 1.4rad 置 fallen，< 1.0rad 回正（回差）
 
-**总开关**：`torque_output_enabled`（初始化为 1；要先不出力看命令方向就在调试器置 0）
+**总开关**：`torque_output_enabled`（初始化为 1；要先不出力看命令方向就在调试器置 0）。**打开 `rl_control.infer_enable` 之前先把它置 0**，RL 链路第一步只看 VOFA 不出力。
 
 `torque_output_enabled=0` 时执行任务保持 DJI 零电流和 DM 零力矩；遥控、动作、IMU、CAN、电机在线与翻倒保护仍有效。
 
@@ -258,11 +264,11 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 | 姿态解算 | Attitude_Algorithm.c/h | ✅ Mahony + HI229 融合 |
 | Vofa 调试 | Vofa_send.c/h | ✅ JustFloat DMA 发送；通道布局以代码为准 |
 | 五连杆 | leg_solver.c/h | ✅ 几何/腿长/腿角/虚拟小腿/雅可比/force_map/极性，含 thigh_angle 根因修复，已上机验证 |
-| RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置（param.configured=0） |
-| CubeAI 推理 | rl_policy.c/h | ✅ 4 模型初始化 + 运行 + 维度静态检查；🟡 推理未在任务中调用 |
+| RL 观测 | rl_observation.c/h | ✅ 缩放/默认角已按训练侧填（configured=1）+ ±100 裁剪；🟡 关节映射 `.rl` 待训练侧 + 台架 |
+| CubeAI 推理 | rl_policy.c/h | ✅ 单模型 networkzn1（2 输入 2 输出）+ 耗时/成败计数；✅ 已接进 policyTask 推理路径（`infer_enable`）；🟡 待台架 |
 | 力矩执行 | rl_torque.c/h | ✅ PID + 雅可比映射 + DM/DJI 分离输出 + 轮子 PID；已上机验证 |
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 4 任务体、共享状态、使能机、故障门、VOFA 32ch（上限 32）；已上机验证 |
-| 遥控映射 | task_policy.c | ✅ ch3→大腿/wheel→小腿/ch1→轮子，手动遥操模式 |
+| 遥控映射 | task_policy.c | ✅ 手动遥操（默认）+ 推理路径（投入 → 预热 → 推理 → 映射发布） |
 | 力矩下发 | task_actuation.c | ✅ torque_output_t 直接下发 DM+DJI，无手动映射 |
 | 离线测试 | tests/offline_test.c | ✅ 纯算法数值验证 |
 
@@ -270,11 +276,11 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 
 | 项目 | 位置 | 说明 | 优先级 |
 |------|------|------|--------|
-| **观测缩放参数** | `rl_control.param` | gyro_scale/command_scale/joint_vel_scale/obs_dof_pos 需训练同学提供 | 🔴 P0 |
-| **开启 RL 推理** | `task_policy.c` | param 配齐后加 `RL_Policy_Run()` 调用 | 🔴 P0 |
+| **关节映射 `.rl`** | `machine_config.c` | 训练侧给 lf0/lf1 定义 → 作者台架定 sign/zero → `configured=1`；没有它推理链不开 | 🔴 P0 |
+| **PD 增益** | `rl_torque.c::RL_Torque_Param_Init()` | lf0/lf1 Kp/Kd、轮速度增益、力矩上限，待训练侧 | 🔴 P0 |
+| **指令范围 / 预热步数 / 动作裁剪** | `rl_policy.h` `RL_CMD_*` / `RL_WARMUP_STEPS` / `RL_ACTION_CLIP` | 待训练侧 | 🟡 P1 |
 | **DJI 力矩常数** | `dji.h DJI_NM_FULL_*` + `dji_gear_ratio` | ✅ 减速比因子已修正；Kt 绝对值待实测（悬臂挂砝码法） | 🟢 P2 |
-| **遥控缩放** | `task_policy.c` | MANUAL_ACTION_SCALE 和 REMOTE_COMMAND_SCALE 需与训练侧对齐 | 🟡 P1 |
-| **模型切换状态机** | 未实现 | stable/pin/upstairs/jump 切换条件待定义 | 🟡 P1 |
+| **遥控缩放（手动路径）** | `task_policy.c` | MANUAL_ACTION_SCALE / REMOTE_COMMAND_SCALE 只影响旧手动遥操 | 🟢 P2 |
 | **跌倒恢复** | 未实现 | 只有翻倒标志，无自动起身 FSM | 🟡 P2 |
 | **轮子电机毛刺** | DJI M2006 | 即使无 D 项也抖，可能需死区或低通滤波 | 🟡 P2 |
 
@@ -314,23 +320,21 @@ Leg_Solve 当前已完成以下验证：
 后续 RL 整链路仍按以下顺序进行，任何一步失败则停止：
 
 ```
-① 观测参数配置 (param.configured = 1)
-   → 与训练同学对齐 gyro_scale/command_scale/joint_vel_scale/obs_dof_pos
+① 训练侧给定义: lf0/lf1 零位与正方向、PD 增益、指令范围、起立接管细节 (见 §八 清单)
+   → 作者台架定 .rl 的 sign/zero, configured = 1
 
-② 开启 RL 推理 (RL_Policy_Run)
-   → 确认 CubeAI 4 模型初始化成功，action 6 维 finite
+② 总输出关 (torque_output_enabled = 0) + infer_enable = 1, 左上 + 右中投入
+   → VOFA ch6 状态位就绪、ch31 耗时、ch15~20 动作有限稳定, ch21~24 映射零点合理
+   → 低头 ch3 为正; 身体前倾时轮动作 (ch17/ch20) 应朝前追车身
 
-③ DJI 力矩常数实测
-   → 悬臂挂砝码法确认 NM_PER_RAW
+③ 填 PD 增益, 仍总输出关
+   → ch25~30 力矩方向: 腿目标偏离时力矩指向目标, 轮力矩方向同动作
 
-④ 低力矩 RL 闭环
-   → 先用小 Kp 验证力矩方向正确
+④ 架空开总输出, 小限幅
+   → PD 保持默认姿态, 摇杆指令不发散
 
-⑤ 模型切换状态机
-   → 定义 stable/pin/upstairs/jump 切换条件
-
-⑥ 实机验证
-   → 逐步提高增益，验证平衡/行走/小陀螺/跳跃
+⑤ 下地
+   → 起立 / 站立; 逐步放开限幅与指令范围
 ```
 
 ---
@@ -354,9 +358,36 @@ Leg_Solve 当前已完成以下验证：
 - **BMI088**（本项目未使用，用 HI229）：驱动输出已是 rad/s 和 g
 - **Mahony**：无 acc_trust 门控，无输出限幅
 - **串口**：IDLE+DMA Circular，不使用 Resync
-- **推理频率**：100Hz（每 10 个 1kHz 周期推理一次）
+- **推理频率**：100Hz（policyTask 10 ms；执行任务 500 Hz 每拍用最新动作）
 - **观测维度**：25 + 125(历史) = 150
-- **动作维度**：6（左大腿, 左虚拟小腿, 左轮, 右大腿, 右虚拟小腿, 右轮）
+- **动作维度**：6，训练空间 [lf0, lf1, lfwheel, rf0, rf1, rfwheel]，乘 `.rl.sign` 变固件动作（左大腿, 左虚拟小腿, 左轮, 右大腿, 右虚拟小腿, 右轮）
 - **物理通道**：DM×4（左前/左后/右前/右后髋） + DJI×2（左轮/右轮）
-- **力矩限幅**：腿 ±5Nm，轮 ±5Nm（Jump 轮 ±4Nm）
+- **力矩限幅**：机器表 `dm_trq_clamp` / `dji_trq_clamp`
 - **DJI 减速比**：M2006 = 36，反馈 rpm 是转子转速，÷36 才是输出轴
+
+---
+
+## 八、networkzn1 接入（2026-09-22，账本变更 95）
+
+### 8.1 训练侧必须提供的定义（拿到前不上台架）
+
+| 项 | 要什么 | 填到哪 |
+|----|--------|--------|
+| 关节定义 | lf0 / lf1 的转轴、零位姿态（图或 URDF）、正方向、串联代理两段杆长；右腿是否镜像（默认角 ±0.06 / ∓0.10 像是镜像）；他们期望我们怎么从五连杆算 lf1（是否 EGA "足端相对大腿"的虚拟小腿） | 作者台架定 `machine_config.c` `.rl.sign/.zero`，置 `configured=1` |
+| PD | lf0 / lf1 的 Kp、Kd（连续阻尼 N·m·s/rad，固件直接乘关节速度）、轮速度增益、各关节力矩上限、`clip_actions`、obs 里 last_action 是 clip 前还是后 | `rl_torque.c::RL_Torque_Param_Init()`、`rl_policy.h RL_ACTION_CLIP` |
+| 指令 | vx、偏航角速度、高度三路的训练范围与单位，高度指什么高度，起立策略要不要指令 | `rl_policy.h RL_CMD_*` |
+| 起立接管 | 初始姿态、接地判据、通常几步；开始时俯仰是否很大（现在 \|pitch\|>1.4 rad 直接失能，可能冲突） | `rl_policy.h RL_WARMUP_STEPS`、翻倒阈值 |
+| 坐标确认 | 机体 x 前 / y 左 / z 上，角速度机体系，投影重力 = R^T[0,0,−1]，四元数序 | 只核对，不改 |
+
+模型对应大机器 chuanliantui（DM8009P + M3508），上机前 `MACHINE_DEFAULT` 要切到 `MACHINE_ID_CHUANLIANTUI`；小机器上跑这个策略没有意义。大机器 `.imu` 表仍是"照抄原宏、待实测"，②那一步一起看。
+
+### 8.2 两个运行时开关
+
+| 开关 | 位置 | 含义 |
+|------|------|------|
+| `rl_control.infer_enable` | `robot_control.c` 初始化 0，调试器 / 改代码置 1 | 0 = 旧手动遥操（对照），1 = 推理路径 |
+| `torque_output_enabled` | 初始化 1 | 开 `infer_enable` 前先置 0，只看 VOFA |
+
+### 8.3 VOFA
+
+RL 模式（`infer_enable=1` 且左拨杆上位）复用 LQR 无意义的通道，下标不动：ch3~5 投影重力、ch6 RL 状态位、ch15~20 网络动作、ch21~24 观测关节角、ch25~30 力矩命令（总输出关也有值）、ch31 推理耗时。以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。

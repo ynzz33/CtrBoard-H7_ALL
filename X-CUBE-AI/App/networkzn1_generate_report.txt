@@ -1,35 +1,37 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-09-19 15:46:08
-Parameters            : generate --target stm32h7 --name pin -m C:/Users/ynz/Desktop/zzzzzzzz/0~0Hal_zzzz/h723(DM_Borad)/XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main/pseudocode/example/onnx/pin/spin_pos0.23_0.65_p10.0_d1.0_0.1.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace19348539295670017691822520818499664 --output C:/Users/ynz/.stm32cubemx/pin_output
+Created date          : 2026-09-22 21:57:33
+Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_6000_h723.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace4641731128940015430102507431322344 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
 
 Exec/report summary (generate)
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-model file         :   C:\Users\ynz\Desktop\zzzzzzzz\0~0Hal_zzzz\h723(DM_Borad)\XYEGA_RM2026_WheelLeg_Infatry_RLdeploy-main\pseudocode\example\onnx\pin\spin_pos0.23_0.65_p10.0_d1.0_0.1.onnx   
-type               :   onnx                                                                                                                                                                     
-c_name             :   pin                                                                                                                                                                      
-compression        :   none                                                                                                                                                                     
-options            :   allocate-inputs, allocate-outputs                                                                                                                                        
-optimization       :   time                                                                                                                                                                     
-target/series      :   stm32h7                                                                                                                                                                  
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace19348539295670017691822520818499664                                                                                        
-output dir         :   C:\Users\ynz\.stm32cubemx\pin_output                                                                                                                                     
-model_fmt          :   float                                                                                                                                                                    
-model_name         :   spin_pos0_23_0_65_p10_0_d1_0_0_1                                                                                                                                         
-model_hash         :   0xeff1b3f8026220d4a8219cd00e3b501e                                                                                                                                       
-params #           :   38,825 items (151.66 KiB)                                                                                                                                                
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-input 1/2          :   'obs', f32(1x25), 100 Bytes, activations                                                                                                                                 
-input 2/2          :   'obs_history', f32(1x125), 500 Bytes, activations                                                                                                                        
-inputs (total)     :   600 Bytes                                                                                                                                                                
-output 1/1         :   'actions', f32(1x6), 24 Bytes, activations                                                                                                                               
-macc               :   43,401                                                                                                                                                                   
-weights (ro)       :   155,300 B (151.66 KiB) (1 segment)                                                                                                                                       
-activations (rw)   :   1,112 B (1.09 KiB) (1 segment) *                                                                                                                                         
-ram (total)        :   1,112 B (1.09 KiB) = 1,112 + 0 + 0                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
+model file         :   C:\Users\ynz\Desktop\model_6000_h723.onnx                                          
+type               :   onnx                                                                               
+c_name             :   networkzn1                                                                         
+compression        :   none                                                                               
+options            :   allocate-inputs, allocate-outputs                                                  
+optimization       :   time                                                                               
+target/series      :   stm32h7                                                                            
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace4641731128940015430102507431322344   
+output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                        
+model_fmt          :   float                                                                              
+model_name         :   model_6000_h723                                                                    
+model_hash         :   0x4899195601babb22a7c0b46cc151ad84                                                 
+params #           :   38,825 items (151.66 KiB)                                                          
+----------------------------------------------------------------------------------------------------------
+input 1/2          :   'observations', f32(1x25), 100 Bytes, activations                                  
+input 2/2          :   'observation_history', f32(1x125), 500 Bytes, activations                          
+inputs (total)     :   600 Bytes                                                                          
+output 1/2         :   'actions', f32(1x6), 24 Bytes, activations                                         
+output 2/2         :   'latent', f32(1x3), 12 Bytes, activations                                          
+outputs (total)    :   36 Bytes                                                                           
+macc               :   43,401                                                                             
+weights (ro)       :   155,300 B (151.66 KiB) (1 segment)                                                 
+activations (rw)   :   1,112 B (1.09 KiB) (1 segment) *                                                   
+ram (total)        :   1,112 B (1.09 KiB) = 1,112 + 0 + 0                                                 
+----------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - spin_pos0_23_0_65_p10_0_d1_0_0_1
+Model name - model_6000_h723
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
 m_id   layer (type,original)                                oshape          param/size          macc                     connected to   | c_size          c_macc             c_type              
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
@@ -39,7 +41,7 @@ m_id   layer (type,original)                                oshape          para
 3      encoder_2_weight (Placeholder, Gemm)                 [b:64,c:128]    8,192/32,768                                                | +256(+0.8%)     +8,256(+100.0%)    Dense_[2]           
        encoder_2_bias (Placeholder, Gemm)                   [b:64]          64/256                                                      | -256(-100.0%)                      
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
-5      encoder_4_weight (Placeholder, Gemm)                 [b:3,c:64]      192/768                                                     | +12(+1.6%)      +195(+100.0%)      Dense_[4]           
+5      encoder_4_weight (Placeholder, Gemm)                 [b:3,c:64]      192/768                                                     | +12(+1.6%)      +195(+100.0%)      Dense_[o][4]        
        encoder_4_bias (Placeholder, Gemm)                   [b:3]           3/12                                                        | -12(-100.0%)                       
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
 7      actor_0_weight (Placeholder, Gemm)                   [b:128,c:28]    3,584/14,336                                                | +512(+3.6%)     +3,712(+100.0%)    Dense_[6]           
@@ -54,10 +56,10 @@ m_id   layer (type,original)                                oshape          para
 13     actor_6_weight (Placeholder, Gemm)                   [b:6,c:32]      192/768                                                     | +24(+3.1%)      +198(+100.0%)      Dense_[o][12]       
        actor_6_bias (Placeholder, Gemm)                     [b:6]           6/24                                                        | -24(-100.0%)                       
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
-0      obs (Input, )                                        [b:1,c:25]                                                                  |                                    
-       obs_history (Input, )                                [b:1,c:125]                                                                 |                                    
+0      observations (Input, )                               [b:1,c:25]                                                                  |                                    
+       observation_history (Input, )                        [b:1,c:125]                                                                 |                                    
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
-1      _encoder_encoder_0..m_output_0 (Gemm, Gemm)          [b:1,c:128]                       16,128                      obs_history   |                 -16,128(-100.0%)   
+1      _encoder_encoder_0..m_output_0 (Gemm, Gemm)          [b:1,c:128]                       16,128              observation_history   |                 -16,128(-100.0%)   
                                                                                                                      encoder_0_weight   | 
                                                                                                                        encoder_0_bias   | 
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
@@ -69,12 +71,12 @@ m_id   layer (type,original)                                oshape          para
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
 4      _encoder_encoder_1..u_output_0 (Nonlinearity, Elu)   [b:1,c:64]                           768   _encoder_encoder_2..m_output_0   |                 -64(-8.3%)         Nonlinearity_[3]    
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
-5      _encoder_encoder_4..m_output_0 (Gemm, Gemm)          [b:1,c:3]                            195   _encoder_encoder_1..u_output_0   |                 -195(-100.0%)      
+5      latent (Gemm, Gemm)                                  [b:1,c:3]                            195   _encoder_encoder_1..u_output_0   |                 -195(-100.0%)      
                                                                                                                      encoder_4_weight   | 
                                                                                                                        encoder_4_bias   | 
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
-6      _Concat_output_0 (Concat, Concat)                    [b:1,c:28]                                                            obs   |                                    Concat_[5]          
-                                                                                                       _encoder_encoder_4..m_output_0   | 
+6      _Concat_output_0 (Concat, Concat)                    [b:1,c:28]                                                   observations   |                                    Concat_[5]          
+                                                                                                                               latent   | 
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
 7      _actor_actor_0_Gemm_output_0 (Gemm, Gemm)            [b:1,c:128]                        3,712                 _Concat_output_0   |                 -3,712(-100.0%)    
                                                                                                                        actor_0_weight   | 
@@ -104,15 +106,15 @@ model/c-model: macc=43,817/43,401 -416(-0.9%) weights=155,300/155,300  activatio
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : spin_pos0_23_0_65_p10_0_d1_0_0_1
-c-name                : pin
+model name            : model_6000_h723
+c-name                : networkzn1
 c-node #              : 13
 c-array #             : 29
 activations size      : 1112 (1 segment)
 weights size          : 155300 (1 segment)
 macc                  : 43401
-inputs                : ['obs_output', 'obs_history_output']
-outputs               : ['actions_output']
+inputs                : ['observations_output', 'observation_history_output']
+outputs               : ['actions_output', 'latent_output']
 
 C-Arrays (29)
 ------ ------------------------------------------ ------------- ------------------------- ------------- --------- 
@@ -139,21 +141,21 @@ c_id   name (*_array)                             item/size     domain/mem-pool 
 18     _encoder_encoder_2_Gemm_output_0_bias      64/256        weights/weights           const float             
 19     _encoder_encoder_2_Gemm_output_0_output    64/256        activations/**default**   float                   
 20     _encoder_encoder_2_Gemm_output_0_weights   8192/32768    weights/weights           const float             
-21     _encoder_encoder_4_Gemm_output_0_bias      3/12          weights/weights           const float             
-22     _encoder_encoder_4_Gemm_output_0_output    3/12          activations/**default**   float                   
-23     _encoder_encoder_4_Gemm_output_0_weights   192/768       weights/weights           const float             
-24     actions_bias                               6/24          weights/weights           const float             
-25     actions_output                             6/24          activations/**default**   float         /output   
-26     actions_weights                            192/768       weights/weights           const float             
-27     obs_history_output                         125/500       activations/**default**   float         /input    
-28     obs_output                                 25/100        activations/**default**   float         /input    
+21     actions_bias                               6/24          weights/weights           const float             
+22     actions_output                             6/24          activations/**default**   float         /output   
+23     actions_weights                            192/768       weights/weights           const float             
+24     latent_bias                                3/12          weights/weights           const float             
+25     latent_output                              3/12          activations/**default**   float         /output   
+26     latent_weights                             192/768       weights/weights           const float             
+27     observation_history_output                 125/500       activations/**default**   float         /input    
+28     observations_output                        25/100        activations/**default**   float         /input    
 ------ ------------------------------------------ ------------- ------------------------- ------------- --------- 
 
 C-Layers (13)
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
 c_id   name (*_layer)                      id   layer_type      macc    rom     tensors                                       shape (array id)    
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
-0      _encoder_encoder_0_Gemm_output_0    1    Dense           16128   64512   I: obs_history_output                         f32(1x125) (27)     
+0      _encoder_encoder_0_Gemm_output_0    1    Dense           16128   64512   I: observation_history_output                 f32(1x125) (27)     
                                                                                 W: _encoder_encoder_0_Gemm_output_0_weights   f32(128x125) (15)   
                                                                                 W: _encoder_encoder_0_Gemm_output_0_bias      f32(128) (13)       
                                                                                 O: _encoder_encoder_0_Gemm_output_0_output    f32(1x128) (14)     
@@ -169,13 +171,13 @@ c_id   name (*_layer)                      id   layer_type      macc    rom     
 3      _encoder_encoder_1_1_Elu_output_0   4    Nonlinearity    704     0       I: _encoder_encoder_2_Gemm_output_0_output    f32(1x64) (19)      
                                                                                 O: _encoder_encoder_1_1_Elu_output_0_output   f32(1x64) (16)      
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
-4      _encoder_encoder_4_Gemm_output_0    5    Dense           195     780     I: _encoder_encoder_1_1_Elu_output_0_output   f32(1x64) (16)      
-                                                                                W: _encoder_encoder_4_Gemm_output_0_weights   f32(3x64) (23)      
-                                                                                W: _encoder_encoder_4_Gemm_output_0_bias      f32(3) (21)         
-                                                                                O: _encoder_encoder_4_Gemm_output_0_output    f32(1x3) (22)       
+4      latent                              5    Dense           195     780     I: _encoder_encoder_1_1_Elu_output_0_output   f32(1x64) (16)      
+                                                                                W: latent_weights                             f32(3x64) (26)      
+                                                                                W: latent_bias                                f32(3) (24)         
+                                                                                O: latent_output                              f32(1x3) (25)       
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
-5      _Concat_output_0                    6    Concat          0       0       I: obs_output                                 f32(1x25) (28)      
-                                                                                I: _encoder_encoder_4_Gemm_output_0_output    f32(1x25) (28)      
+5      _Concat_output_0                    6    Concat          0       0       I: observations_output                        f32(1x25) (28)      
+                                                                                I: latent_output                              f32(1x25) (28)      
                                                                                 O: _Concat_output_0_output                    f32(1x28) (0)       
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
 6      _actor_actor_0_Gemm_output_0        7    Dense           3712    14848   I: _Concat_output_0_output                    f32(1x28) (0)       
@@ -203,9 +205,9 @@ c_id   name (*_layer)                      id   layer_type      macc    rom     
                                                                                 O: _actor_encoder_1_2_Elu_output_0_output     f32(1x32) (11)      
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
 12     actions                             13   Dense           198     792     I: _actor_encoder_1_2_Elu_output_0_output     f32(1x32) (11)      
-                                                                                W: actions_weights                            f32(6x32) (26)      
-                                                                                W: actions_bias                               f32(6) (24)         
-                                                                                O: actions_output                             f32(1x6) (25)       
+                                                                                W: actions_weights                            f32(6x32) (23)      
+                                                                                W: actions_bias                               f32(6) (21)         
+                                                                                O: actions_output                             f32(1x6) (22)       
 ------ ----------------------------------- ---- --------------- ------- ------- --------------------------------------------- ------------------- 
 
 
@@ -218,7 +220,7 @@ c_id    m_id   name (type)                                          #op         
 1       2      _encoder_encoder_1..u_output_0 (Nonlinearity)      1,408     op_f32_f32 
 2       3      _encoder_encoder_2..m_output_0 (Dense)             8,256   smul_f32_f32 
 3       4      _encoder_encoder_1..u_output_0 (Nonlinearity)        704     op_f32_f32 
-4       5      _encoder_encoder_4..m_output_0 (Dense)               195   smul_f32_f32 
+4       5      latent (Dense)                                       195   smul_f32_f32 
 5       6      _Concat_output_0 (Concat)                              0   smul_f32_f32 
 6       7      _actor_actor_0_Gemm_output_0 (Dense)               3,712   smul_f32_f32 
 7       8      _actor_encoder_1_Elu_output_0 (Nonlinearity)       1,408     op_f32_f32 
@@ -262,17 +264,17 @@ macc=43,401 weights=155,300 act=1,112 ram_io=0
  module                            text    rodata    data     bss 
  ------------------------------ ------- --------- ------- ------- 
  NetworkRuntime1020_CM7_GCC.a     8,312         0       0       0 
- pin.o                              832       204   3,604     240 
- pin_data.o                          48        16      88       0 
+ networkzn1.o                       832       204   3,608     292 
+ networkzn1_data.o                   48        16      88       0 
  lib (toolchain)*                   324       328       0       0 
  ------------------------------ ------- --------- ------- ------- 
- RT total**                       9,516       548   3,692     240 
+ RT total**                       9,516       548   3,696     292 
  ------------------------------ ------- --------- ------- ------- 
  weights                              0   155,304       0       0 
  activations                          0         0       0   1,112 
  io                                   0         0       0       0 
  ------------------------------ ------- --------- ------- ------- 
- TOTAL                            9,516   155,852   3,692   1,352 
+ TOTAL                            9,516   155,852   3,696   1,404 
  ------------------------------ ------- --------- ------- ------- 
  *  toolchain objects (libm/libgcc*)
  ** RT AI runtime objects (kernels+infrastructure)
@@ -281,19 +283,19 @@ macc=43,401 weights=155,300 act=1,112 ram_io=0
   --------------------------------------------------
                FLASH (ro)     %*   RAM (rw)       % 
   --------------------------------------------------
-  RT total         13,756   8.1%      3,932   78.0% 
+  RT total         13,760   8.1%      3,988   78.2% 
   --------------------------------------------------
-  TOTAL           169,060             5,044         
+  TOTAL           169,064             5,100         
   --------------------------------------------------
   *  rt/total
 
 
 Generated files (7)
--------------------------------------------------------- 
-C:\Users\ynz\.stm32cubemx\pin_output\pin_data_params.h   
-C:\Users\ynz\.stm32cubemx\pin_output\pin_data_params.c   
-C:\Users\ynz\.stm32cubemx\pin_output\pin_data.h          
-C:\Users\ynz\.stm32cubemx\pin_output\pin_data.c          
-C:\Users\ynz\.stm32cubemx\pin_output\pin_config.h        
-C:\Users\ynz\.stm32cubemx\pin_output\pin.h               
-C:\Users\ynz\.stm32cubemx\pin_output\pin.c               
+---------------------------------------------------------------------- 
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1_data_params.h   
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1_data_params.c   
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1_data.h          
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1_data.c          
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1_config.h        
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1.h               
+C:\Users\ynz\.stm32cubemx\networkzn1_output\networkzn1.c               

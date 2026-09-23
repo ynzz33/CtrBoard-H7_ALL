@@ -34,6 +34,12 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .acc_sign  = {-1, 1, -1},
             .quat_sign = {-1, 1, -1},
         },
+        /* RL 关节映射: 待训练侧给 lf0/lf1 定义、待台架; 未配置 (sign 全 0) 则推理链门控关 */
+        .rl = {
+            .sign       = {0, 0, 0, 0, 0, 0},
+            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
+            .configured = 0u,
+        },
     },
     [MACHINE_ID_LOCAL] = {
         .name           = "local-m2006-j4310",
@@ -65,6 +71,12 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .gyr_sign  = {-1,-1, +1},
             .acc_sign  = {-1, 1, -1},
             .quat_sign = {-1, 1, -1},
+        },
+        /* RL 关节映射: 模型对应大机器, 小机器未配置 */
+        .rl = {
+            .sign       = {0, 0, 0, 0, 0, 0},
+            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
+            .configured = 0u,
         },
     },
 };

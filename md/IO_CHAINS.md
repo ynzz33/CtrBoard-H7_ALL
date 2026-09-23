@@ -251,6 +251,7 @@ task_comm.c: Remote_Control_Update()
     ├─ s1 != DOWN → rc_enable = 1
     └─ s1 → mode
     (policyTask: Remote_Command_Apply() 读 rc_command → vx_cmd/yaw_cmd/height_cmd × REMOTE_COMMAND_SCALE)
+    (推理路径 infer_enable=1: RL_Command_From_Rc() → vx/yaw_rate/height 按 RL_CMD_* 范围, 转向取负; 关节经机器表 .rl 映射到训练关节)
     │
     │  消费端
     ▼
@@ -603,10 +604,12 @@ motor_state.dji.vel_rad_s          rc_command (commTask 已解算)
 
 **分层**（作者 2026-09-21 定）：解算与估计每拍都算（同 RL 观测），控制律只在对应挡位算，出力只在使能 + 解算有效 + 投入时发；投入瞬间只清位移积分，低通滤波器常跑不复位。
 
-**状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ（偏航角）不参与控制，只控角速度。
+**状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ / dφ / s 三列由 `lqr_debug.yaw_hold / yaw_rate_hold / pos_hold` 开关。
+**俯仰零偏**：`pitch = euler[PITCH] − lqr_debug.pitch_off`（变更 96，默认 0），同一 pitch 进 θ_b 与两腿世界系摆角。
+**位移积分**：速度目标非 0 清零撤防；目标回 0 且 |ds| < `lqr_debug.pos_arm_vel` 才启动（默认 0 = 立即），`lqr_state.pos_armed` 可看。
 **腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。
 （本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
-**速度**：`ω_轮·machine->wheel_r + L·dθ·cosθ + dL·sinθ` 后接一阶低通（α=0.3）；腿摆速度补偿符号由 `lqr_debug.vel_leg_comp_sign` 暂作台架 A/B，默认 −1 保持现状。
+**速度**：`ω_轮·machine->wheel_r + L·dθ·cosθ + dL·sinθ`，`ω_轮 = ω_电机 + vel_leg_comp_sign·dθ_leg + pitch_comp_sign·ω_pitch`（两个符号都是 `lqr_debug` 台架 A/B 字段，默认 −1 / −1 保持现状）；后接低通（α=0.3）或卡尔曼，`vel_src` 选。
 **腿长限制**：机器表工作区间与 K 表拟合域 0.13~0.23 m 的交集；小机器为 0.13~0.21 m。
 **调试门**：`lqr_debug` 可分别关闭轮、髋、腿长 PID 的最终输出并调整限幅；关闭通道时 PID 仍持续计算。
 **符号责任**：反馈极性按 `feedback_sign` 在驱动解码时统一到机体坐标；输出极性按 `output_sign` 在驱动下发时统一处理（`dm.c` / `dji.c`），调用方不要取反。详见 [LQR_PLAN.md](LQR_PLAN.md)。

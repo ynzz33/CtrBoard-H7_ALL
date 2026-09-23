@@ -171,26 +171,39 @@ static void Robot_Enable_Update(void)
 }
 
 /*
- * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"电机角零位 + 腿长解算对照 + 手动腿测/LQR 出力"帧 (2026-09-21 第五版)
+ * VOFA 观测帧 (JustFloat, 32 通道) — 当前为"LQR 分层验证"帧 (2026-09-23 第六版)
  * ch0  在线掩码: bit0 IMU / bit1 遥控 / bit2~5 髋(前左后左前右后右) / bit6~7 轮(左/右)
- * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能 / bit8 LQR·手动腿测已投入
+ * ch1  状态位: bit0 使能 / bit1 跌倒 / bit2 左腿有效 / bit3 右腿有效 / bit4~7 四髋使能 / bit8 LQR·手动腿测已投入 / bit9 RL 已投入
  * ch2  策略号: 0 RL / 1 LQR / 2 测试 / 3 手动腿测 / 4 失能
- * ch3~6   四髋角 (rad, 零点后 pos_zero_rad): 前左 / 后左 / 前右 / 后右   ← 标零点用
+ * ch3~4   偏航角 x[2] / 偏航角速度 x[3] (rad, rad/s)
+ * ch5~6   位移积分 pos (m) / 偏航角目标 yaw_tgt (rad)
  * ch7~8   解算摆角 (rad, 机体系, 前摆为正): 左 / 右      ← 腿竖直时读零位
  * ch9~10  腿长 (m): 左 / 右
- * ch11    左腿摆角速度 (rad/s)                           ← 轮速补偿用的量
- * ch12~13 Leg2 Leg_Position 解算腿长 (m, 同一组髋角, 对照): 左 / 右   ← 应与 ch9~10 重合
- * ch14~15 腿长目标 (m): 左 / 右
- * ch16~19 髋力矩命令 (N·m): 前左 / 后左 / 前右 / 后右
+ * ch11~12 轮对地角速度估计 whl[] (rad/s): 左 / 右          ← 卡轮摇车身应贴 0 (pitch_comp_sign A/B)
+ * ch13    速度目标 vel_tgt (m/s, 斜坡后)
+ * ch14    位移积分已启动 pos_armed (0/1)
+ * ch15    轮速和 (rad/s)
+ * ch16~17 轮速反馈 (rad/s): 左 / 右
+ * ch18~19 轮电流反馈 raw: 左 / 右                          ← 电流涨轮速不动 = 静摩擦
  * ch20~21 足端力 F (N): 左 / 右
  * ch22~23 虚拟髋扭矩 Tp (N·m): 左 / 右
  * ch24~25 LQR 轮输出原值 u (N·m, 未门控未限幅, 只在 LQR 投入时更新): 左 / 右   ← 轮不出力也能看方向
  * ch26    速度估计 x[1] (m/s, LQR 实际吃到的: vel_src=1 卡尔曼 / 0 低通)
- * ch27    偏航角速度 x[3] (rad/s, LQR 吃到的)              ← 扶住不动时应≈0 (零偏)
- * ch28~29 俯仰角 (rad) / 俯仰角速度 (rad/s), LQR 吃到的
+ * ch27    左腿摆角世界系 x[4] (rad)                          ← 匀速漂移段与 ch28 对比定偏置来源
+ * ch28~29 俯仰角 (rad, 已扣 pitch_off) / 俯仰角速度 (rad/s), LQR 吃到的
  * ch30    横滚角 (rad, LQR 吃到的)                        ← 车身摆平时应≈0
  * ch31    横滚补偿力 roll.pos_out (N, 左腿 +/右腿 −)      ← 查腿长左右差
- * ch26~30 由每拍必算的状态估计更新 (需 IMU 在线 + 两腿有效); ch14~23、31 未投入时为 0
+ * ch3~14、26~30 由每拍必算的状态估计更新 (需 IMU 在线 + 两腿有效); ch20~25、31 未投入时为 0
+ * 左轮十列分项 lqr_state.u_col[0..9] 在调试器 Watch 看
+ *
+ * RL 推理模式 (rl_control.infer_enable=1 且左拨杆上位) 复用 LQR 无意义的通道, 下标不动:
+ * ch3~5   观测投影重力 x/y/z (水平静止 ≈ 0/0/−1; 低头 x 应为正)
+ * ch6     RL 状态: bit0 网络就绪 / bit1 历史就绪 / bit2 动作可用 / bit3 已投入 / bit4~5 阶段(0 未投入 1 预热 2 推理) / bit8~15 推理失败计数
+ * ch15~20 网络输出动作 (训练空间, 未乘 sign): 左大腿 / 左小腿 / 左轮 / 右大腿 / 右小腿 / 右轮
+ * ch21~24 观测关节角 (训练关节 − 默认角): 左大腿 / 左小腿 / 右大腿 / 右小腿   ← 看映射零点
+ * ch25~28 RL 髋力矩命令 (N·m, 已限幅, 未投入为 0): 前左 / 后左 / 前右 / 后右
+ * ch29~30 RL 轮力矩命令 (N·m): 左 / 右                    ← 总输出关也能看方向
+ * ch31    推理耗时 (us)
  */
 static void Robot_Control_Send_Vofa(void)
 {
@@ -219,6 +232,7 @@ static void Robot_Control_Send_Vofa(void)
     state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_RGT) ? 0x40u : 0x00u;
     state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_RGT) ? 0x80u : 0x00u;
     state_bits |= output_task_lqr_engaged() ? 0x100u : 0x00u;
+    state_bits |= output_task_rl_engaged() ? 0x200u : 0x00u;
     dbg[1] = (float)state_bits;
 
     /* ch2 策略号: 0 RL / 1 LQR / 2 测试 / 3 手动腿测 / 4 失能 */
@@ -229,21 +243,22 @@ static void Robot_Control_Send_Vofa(void)
     dbg[5] = lqr_state.pos;
     dbg[6] = lqr_state.yaw_tgt;
 
-    /* ch7~11 腿解算: 摆角，腿长，大腿角，虚拟小腿角 */
+    /* ch7~10 腿解算: 摆角, 腿长 */
     dbg[7]  = leg_l.output.virtual_leg_angle;
     dbg[8]  = leg_r.output.virtual_leg_angle;
     dbg[9]  = leg_l.output.virtual_leg_length;
     dbg[10] = leg_r.output.virtual_leg_length;
-    dbg[11] = leg_l.output.thigh_angle;
-    dbg[12] = leg_r.output.thigh_angle;
-    dbg[13] = leg_l.output.virtual_shank_angle;
-    dbg[14] = leg_r.output.virtual_shank_angle;
 
-    /* ch14~15 腿长目标 左 / 右 */
-    // dbg[14] = lqr_state.leg_len_tgt[0];
+    /* ch11~14 轮对地角速度 左/右, 速度目标(斜坡后), 位移积分已启动 */
+    dbg[11] = lqr_state.whl[0];
+    dbg[12] = lqr_state.whl[1];
+    dbg[13] = lqr_state.vel_tgt;
+    dbg[14] = (float)lqr_state.pos_armed;
+
+    /* ch15 轮速和 */
     dbg[15] = motor_state.dji.vel_rad_s[0]+motor_state.dji.vel_rad_s[1];
 
-    /* ch16~19 髋力矩命令 (N·m): 前左/后左/前右/后右 */
+    /* ch16~19 轮速 左/右, 轮电流 raw 左/右 */
     dbg[16] = motor_state.dji.vel_rad_s[0];
     dbg[17] = motor_state.dji.vel_rad_s[1];
     dbg[18] = motor_state.dji.current_raw[0];
@@ -259,9 +274,9 @@ static void Robot_Control_Send_Vofa(void)
     dbg[24] = lqr_state.u[LQR_U_WL];
     dbg[25] = lqr_state.u[LQR_U_WR];
 
-    /* ch26~27 速度估计: 当前符号 / 符号取反对照 */
+    /* ch26~27 速度估计 / 左腿摆角世界系 */
     dbg[26] = lqr_state.x[LQR_X_DS];
-    dbg[27] = lqr_state.x[LQR_X_DPHI];
+    dbg[27] = lqr_state.x[LQR_X_THL];
 
     /* ch28~29 俯仰角 / 俯仰角速度 */
     dbg[28] = lqr_state.x[LQR_X_THB];
@@ -270,6 +285,40 @@ static void Robot_Control_Send_Vofa(void)
     /* ch30~31 横滚角 / 横滚补偿力 */
     dbg[30] = lqr_state.roll;
     dbg[31] = leg_balance.roll.pos_out;     /* 横滚补偿力 */
+
+    /* RL 推理模式: 复用 LQR 无意义的通道 (下标不动, 见上表 RL 段) */
+    if (rl_control.infer_enable && ctrl_strategy == CTRL_STRATEGY_MANUAL)
+    {
+        const torque_output_t *rl_tq = &rl_control.torque_state.last_torque;
+        float engaged = output_task_rl_engaged() ? 1.0f : 0.0f;
+        uint32_t rl_bits;
+
+        rl_bits  = rl_control.policy.ready ? 0x01u : 0x00u;
+        rl_bits |= rl_control.observation.history_ready ? 0x02u : 0x00u;
+        rl_bits |= action_state.rl_ready ? 0x04u : 0x00u;
+        rl_bits |= output_task_rl_engaged() ? 0x08u : 0x00u;
+        rl_bits |= (uint32_t)rl_control.infer_phase << 4;
+        rl_bits |= (rl_control.policy.run_fail & 0xFFu) << 8;
+        dbg[3] = rl_control.observation.obs[RL_OBS_GRAV_X];
+        dbg[4] = rl_control.observation.obs[RL_OBS_GRAV_Y];
+        dbg[5] = rl_control.observation.obs[RL_OBS_GRAV_Z];
+        dbg[6] = (float)rl_bits;
+        for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
+        {
+            dbg[15u + i] = rl_control.observation.last_action[i];
+        }
+        dbg[21] = rl_control.observation.obs[RL_OBS_L_THIGH];
+        dbg[22] = rl_control.observation.obs[RL_OBS_L_SHANK];
+        dbg[23] = rl_control.observation.obs[RL_OBS_R_THIGH];
+        dbg[24] = rl_control.observation.obs[RL_OBS_R_SHANK];
+        dbg[25] = engaged * rl_tq->dm[DM_MOTOR_LEG_F_LFT];
+        dbg[26] = engaged * rl_tq->dm[DM_MOTOR_LEG_B_LFT];
+        dbg[27] = engaged * rl_tq->dm[DM_MOTOR_LEG_F_RGT];
+        dbg[28] = engaged * rl_tq->dm[DM_MOTOR_LEG_B_RGT];
+        dbg[29] = engaged * rl_tq->dji[DJI_MOTOR_WHEEL_LFT];
+        dbg[30] = engaged * rl_tq->dji[DJI_MOTOR_WHEEL_RGT];
+        dbg[31] = (float)rl_control.policy.run_us;
+    }
     Vofa_Send(dbg, 32u);
 }
 

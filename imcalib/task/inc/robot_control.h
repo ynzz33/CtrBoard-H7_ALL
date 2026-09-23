@@ -14,7 +14,7 @@
 #include "lqr_balance.h"
 #include "leg_balance.h"
 
-#define CTRL_DT 0.001f
+#define CTRL_DT 0.002f   /* actuationTask 500 Hz (TIM6), 同训练 PD 内环 */
 
 /* 控制策略 */
 typedef enum {
@@ -54,7 +54,8 @@ typedef struct {
     float a[RL_ACTION_SIZE];
     uint32_t last_ok_tick;
     uint8_t updated;
-    uint8_t base_action_locked;
+    uint8_t base_action_locked;     /* 手动基准已锁 */
+    uint8_t rl_ready;               /* 推理动作可用 */
 } action_state_t;
 
 typedef struct {
@@ -75,6 +76,8 @@ typedef struct {
     rl_policy_t policy;
     rl_torque_param_t torque_param[RL_MODEL_COUNT];
     rl_torque_state_t torque_state;
+    uint8_t infer_enable;           /* 0 手动遥操 1 推理 */
+    uint8_t infer_phase;            /* 0 未投入 1 预热 2 推理 */
 } rl_control_state_t;
 
 typedef struct {
@@ -123,6 +126,7 @@ void ctrl_task_body(void);
 void output_task_init(void);
 void output_task_body(void);
 uint8_t output_task_lqr_engaged(void);
+uint8_t output_task_rl_engaged(void);
 void comm_task_body(void);
 
 #endif

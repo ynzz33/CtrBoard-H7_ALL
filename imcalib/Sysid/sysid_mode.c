@@ -537,7 +537,7 @@ void Sysid_Mode_Init(void)
     reinit_cnt++;   /* 累计不清零: 用来发现反复重入 */
 #if SYSID_MODE != SYSID_MODE_TORQUE
     /* 位置控制: 虚拟关节 PD (只保留腿的位置环, 轮子增益归零) */
-    RL_Torque_Param_Init(&sysid_pose_param, RL_MODEL_STABLE);
+    RL_Torque_Param_Init(&sysid_pose_param, RL_MODEL_STANDUP);
     sysid_pose_param.p_gains[0] = SYSID_POSE_KP;    /* 左大腿 */
     sysid_pose_param.p_gains[1] = SYSID_POSE_KP;    /* 左小腿 */
     sysid_pose_param.p_gains[3] = SYSID_POSE_KP;    /* 右大腿 */

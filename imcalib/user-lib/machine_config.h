@@ -30,6 +30,14 @@ typedef struct {
     int8_t  quat_sign[3]; /* 四元数 X/Y/Z 符号 */
 } imu_cfg_t;
 
+/* RL 关节映射: 训练关节 = sign × wrap(固件角 − zero); 速度、动作、力矩乘同一 sign
+ * sign 序 [左大腿 左小腿 左轮 右大腿 右小腿 右轮]; zero 只有四个腿关节 (同序去掉轮) */
+typedef struct {
+    int8_t  sign[6];      /* 符号 */
+    float   zero[4];      /* 零位 */
+    uint8_t configured;   /* 训练侧定义 + 台架核对后置 1 */
+} rl_map_t;
+
 /* 一台机器的全部参数 */
 typedef struct {
     const char *name;
@@ -59,6 +67,8 @@ typedef struct {
     float       leg_off_phi0[2];
     /* IMU 安装极性 */
     imu_cfg_t   imu;
+    /* RL 关节映射 */
+    rl_map_t    rl;
 } machine_cfg_t;
 
 extern const machine_cfg_t machine_table[MACHINE_NUM];

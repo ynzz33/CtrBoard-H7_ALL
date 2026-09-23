@@ -18,8 +18,8 @@
 #define LEG_BALANCE_LEN_KD         50000.0f
 #define LEG_BALANCE_SYM_KP         30.0f
 #define LEG_BALANCE_SYM_KD         500.0f
-#define LEG_BALANCE_ROLL_KP        0.0f
-#define LEG_BALANCE_ROLL_KD        0.0f
+#define LEG_BALANCE_ROLL_KP        500.0f
+#define LEG_BALANCE_ROLL_KD        100.0f
 /* 手动腿测: 腿摆角 PD, 同 Leg2_v1 app_self_rescue.h (KP/KD/Tp 上限) */
 #define LEG_BALANCE_ANG_KP         20.0f
 #define LEG_BALANCE_ANG_KD         30.0f

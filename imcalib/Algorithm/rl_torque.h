@@ -15,8 +15,6 @@ typedef struct {
     float p_gains[6];
     float d_gains[6];
     float wheel_pid[2][3]; /* [左/右][kp, ki, kd] */
-    uint8_t spin_mode;
-    uint8_t jump_mode;
 } rl_torque_param_t;
 
 typedef struct {

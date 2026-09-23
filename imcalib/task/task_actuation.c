@@ -16,6 +16,7 @@
 
 static uint8_t lqr_running;     /* 已投入 */
 static uint8_t lqr_manual;      /* 手动腿测 */
+static uint8_t rl_engaged;      /* RL 已投入 */
 
 /* 输出初始化 */
 void output_task_init(void)
@@ -27,6 +28,12 @@ void output_task_init(void)
 uint8_t output_task_lqr_engaged(void)
 {
     return lqr_running;
+}
+
+/* RL 是否已投入: 左上 + 右中 + 电机使能 (供策略任务预热计时与 VOFA) */
+uint8_t output_task_rl_engaged(void)
+{
+    return rl_engaged;
 }
 
 /* ================= 3 分发层: 唯一下发点 ================= */
@@ -126,12 +133,12 @@ static void solve_lqr_manual(torque_output_t *torque)
                                        CTRL_DT, torque);
 }
 
-/* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 基准动作已锁 */
+/* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 动作可用 (手动基准已锁 / 推理就绪) */
 static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
 {
     if (!(robot_state.rc_enable && robot_state.motor_enabled
           && leg_l.output.valid && leg_r.output.valid
-          && action_state.base_action_locked))
+          && (action_state.base_action_locked || action_state.rl_ready)))
     {
         return;
     }
@@ -158,6 +165,7 @@ void output_task_body(void)
     Torque_Output_Clear(&torque);
     strategy = strategy_from_remote(&rc_command);
     ctrl_strategy = strategy;
+    rl_engaged = 0u;
 
     switch (strategy)
     {
@@ -192,7 +200,8 @@ void output_task_body(void)
 
     case CTRL_STRATEGY_MANUAL:
         lqr_running = 0u;
-        if (rc_command.s2 == DR16_SW_MID)
+        rl_engaged = (uint8_t)(rc_command.s2 == DR16_SW_MID && robot_state.motor_enabled);
+        if (rl_engaged)
         {
             solve_rl(wheel_vel, &torque);
         }

@@ -35,11 +35,29 @@ void RL_Observation_Init(rl_observation_state_t *state)
     RL_Observation_Reset(state);
 }
 
-/* 初始化参数 */
+/* 初始化参数: 训练侧观测缩放 + 默认角 (见 rl_observation.h) */
 void RL_Observation_Param_Init(rl_observation_param_t *param)
 {
+    uint32_t i;
+
     if (param == NULL) return;
     memset(param, 0, sizeof(*param));
+    param->obs_dof_pos[0] = RL_OBS_DOF_POS_L_THIGH;
+    param->obs_dof_pos[1] = RL_OBS_DOF_POS_L_SHANK;
+    param->obs_dof_pos[2] = RL_OBS_DOF_POS_R_THIGH;
+    param->obs_dof_pos[3] = RL_OBS_DOF_POS_R_SHANK;
+    param->command_scale[0] = RL_OBS_CMD_VX_SCALE;
+    param->command_scale[1] = RL_OBS_CMD_YAW_SCALE;
+    param->command_scale[2] = RL_OBS_CMD_HEIGHT_SCALE;
+    for (i = 0u; i < 3u; i++)
+    {
+        param->gyro_scale[i] = RL_OBS_GYRO_SCALE;
+    }
+    for (i = 0u; i < 6u; i++)
+    {
+        param->joint_vel_scale[i] = RL_OBS_JOINT_VEL_SCALE;
+    }
+    param->configured = 1u;
 }
 
 /* 清空观测 */
@@ -159,6 +177,19 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
         state->obs[RL_OBS_L_THIGH_VEL + i] = joint_vel[i] * param->joint_vel_scale[i];
     for (i = 0u; i < RL_ACTION_SIZE; i++)
         state->obs[RL_OBS_LAST_ACTION + i] = state->last_action[i];
+
+    /* 整体裁剪 */
+    for (i = 0u; i < RL_OBS_SIZE; i++)
+    {
+        if (state->obs[i] > RL_OBS_CLIP)
+        {
+            state->obs[i] = RL_OBS_CLIP;
+        }
+        else if (state->obs[i] < -RL_OBS_CLIP)
+        {
+            state->obs[i] = -RL_OBS_CLIP;
+        }
+    }
 
     if (!RL_Observation_Array_Finite(state->obs, RL_OBS_SIZE))
     {

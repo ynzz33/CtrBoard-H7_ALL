@@ -125,6 +125,7 @@ DR16_Parse: 解析 18 字节 → dr16_t
 |------|------|------|
 | LQR / 手动腿测 | `lqr_balance.c::LQR_Target_Update()` | `vel × 1.2 m/s`、`−yaw × 5 rad/s`、`len × 0.3 m/s` 积分成腿长目标、手动时 `ang × 0.5 rad` 摆角 |
 | RL 观测 | `task_policy.c::Remote_Command_Apply()` | `vx_cmd ← vel`、`yaw_cmd ← yaw`、`height_cmd ← len`，各 × `REMOTE_COMMAND_SCALE` |
+| RL 推理路径（`infer_enable=1`） | `task_policy.c::RL_Command_From_Rc()` | `vx ← vel × RL_CMD_VX_MAX`、`yaw_rate ← −yaw × RL_CMD_YAW_MAX`（右推为负，同 LQR）、`height ← len` 线性到 `[RL_CMD_HEIGHT_MIN, MAX]`；宏在 `rl_policy.h`，待训练侧 |
 | RL 手动偏移 | 同上 | `thigh ← ang × 4`、`shank ← len × 4`、`wheel ← vel × 4` |
 | 挡位 | `task_actuation.c` | `s1`：中 = LQR、上 = RL、下 / 离线 = 失能 → `ctrl_strategy`；`s2` 中位 = 投入出力 |
 

@@ -18,7 +18,7 @@
 
 > **事故来源（作者原话："以后不允许做这种东西"）**：2026-09-18，AI 在"腿几何搬进机器配置表"那一批里，顺手按"参考固件推导"把大机器 `dm_sign` 的**两个前髋极性取反**（`{{1,1},{1,1},{-1,-1},{-1,-1}}` → `{{-1,-1},{1,1},{1,1},{-1,-1}}`），既未单独报备，也未在变更记录里单列。结果台架腿部解算错乱：**摆动腿时腿长跟着动、腿摆角却不变**。由作者台架测出、自行还原。
 
-- **禁止以任何理由修改物理量**：极性（`dm_sign` / `dji_sign`）、零点（`dm_zero` / `leg_off_*`）、轴向正负、环绕约定、MIT 量程刻度（`dm_pos_max` / `dm_vel_max` / `dm_trq_max`）、`mirror`、`+ LEG_PI` 之类的符号项。**无论 AI 的推导、参考代码对照、手册解读、数值仿真多么自洽，都不构成改动理由。**
+- **禁止以任何理由修改物理量**：极性（`dm_sign` / `dji_sign` / `rl.sign`）、零点（`dm_zero` / `leg_off_*` / `rl.zero`）、轴向正负、环绕约定、MIT 量程刻度（`dm_pos_max` / `dm_vel_max` / `dm_trq_max`）、`mirror`、`+ LEG_PI` 之类的符号项。**无论 AI 的推导、参考代码对照、手册解读、数值仿真多么自洽，都不构成改动理由。**
 - 这类量**只能由作者在台架上实测确定**。AI 只允许做三件事：**指出可疑点、给出可执行的验证方法、解释现象**。
 - AI 推出的结论**只能写在对话里供作者判断**，不得写进代码、配置或文档里的"当前值"。
 - 即使作者要求修改，也必须：先复述"改哪个文件哪一行、从什么改成什么、依据是什么" → 作者确认 → 改完在 `md/sysid-change-map.md` **单独记一条**（谁 / 何时 / 依据）。
@@ -131,7 +131,7 @@ CtrBoard-H7_ALL/
 │   │   ├── lqr_gain_table.c/h     ← LQR 增益表 (MATLAB 生成物, 勿手改)
 │   │   ├── torque_output.h        ← 公共力矩输出结构 (DM/DJI 分离)
 │   │   ├── rl_observation.c/h     ← RL 观测构建 + 5帧历史
-│   │   ├── rl_policy.c/h          ← CubeAI 四模型推理封装
+│   │   ├── rl_policy.c/h          ← CubeAI 推理封装 (单模型 networkzn1)
 │   │   └── rl_torque.c/h          ← 动作→力矩执行层
 │   ├── task/
 │   │   ├── inc/robot_control.h    ← 共享状态与跨任务接口
@@ -158,7 +158,7 @@ CtrBoard-H7_ALL/
 │       ├── sysid_config.h         ← 测试总开关
 │       ├── sysid_mode.c/h         ← 测试模式单周期体 (含快照采集)
 │       └── sysid_log.c/h          ← sysid 独立帧 + 环形缓冲 + DMA 发送泵
-├── X-CUBE-AI/App/          ← 4 个 ONNX 生成模型 (stable/upstairs/pin/jump)
+├── X-CUBE-AI/App/          ← X-CUBE-AI 生成的 networkzn1 (chuanliantui 起立策略, 2026-09-22)
 ├── tests/offline_test.c    ← 离线数值测试 (纯算法, 不进固件构建)
 └── md/
     ├── AGENTS.md            ← 本文件 (AI 协作规范)
@@ -197,8 +197,8 @@ CtrBoard-H7_ALL/
 | 测试模块 | Sysid/（`SYSID_ENABLE` 开关） | ✅ 测试模式体 + 激励序列 + 自动跑批 + 事件标记 + 安全链；关掉开关即回到原样；🟡 sysid 独立数据帧**当前发不出去**：`task_comm.c` 未调用 `Sysid_Log_Send_Pump()`，且 1 kHz 推帧需先定抽取方案（变更 64） |
 | DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
 | 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证；三角函数走 CMSIS-DSP 查表（`LEG_TRIG_LIBM=1` 退回 libm）；含 Leg2 `Leg_Position` 移植 `Leg_Position_Leg2()` 供 VOFA 对照 |
-| RL 观测 | rl_observation.c/h | ✅ 代码完成；🟡 缩放参数未配置 |
-| CubeAI 推理 | rl_policy.c/h | ✅ 完成；🟡 推理未在任务中调用 |
+| RL 观测 | rl_observation.c/h | ✅ 缩放/默认角已按训练侧填；🟡 关节映射 `.rl` 待训练侧 + 台架 |
+| CubeAI 推理 | rl_policy.c/h | ✅ 单模型 networkzn1，已接进 policyTask（`rl_control.infer_enable`，默认 0）；🟡 待台架 |
 | 力矩执行层 | rl_torque.c/h | ✅ 完成，DM/DJI 分离输出 + 轮子 PID |
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 完成，已上机验证 |
 | 遥控指令 | user-lib/rc_command.c/h | ✅ 四轴归一化 + 拨杆，commTask 填、其余只读；ch1 死区 10 |
@@ -214,9 +214,9 @@ CtrBoard-H7_ALL/
 ## 关键约束
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
-- **控制频率**：actuationTask 1kHz（TIM6 Prescaler=274 / Period=999）。LQR 与手动遥操共用该节拍
+- **控制频率**：actuationTask **500 Hz**（TIM6 Prescaler=274 / Period=1999，`CTRL_DT=0.002f`；变更 96 为对齐训练 PD 内环从 1 kHz 改回）。LQR、手动遥操、RL 共用该节拍
 - **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集，只夹拨轮目标；投入不查实测腿长（同 Leg2，变更 92），趴地投入靠腿长 PID 撑起
-- **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，同为 1 kHz 直接照抄）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
+- **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，按 1 kHz 照抄；变更 96 节拍改 500 Hz 后 D 项等效翻倍，再上 LQR 时待作者定：TIM6 回 1 kHz 或 KD 折半）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
 - **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换；取轴与符号来自机器表 `machine->imu`（`task_imu.c` 应用），驱动 `hi229.c/h` 只出原始值
@@ -224,7 +224,7 @@ CtrBoard-H7_ALL/
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
 - **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz；不再维护通道 Markdown，当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准；sysid 帧 37 列，以 `Sysid/sysid_log.c::assemble_frame()` 为准（`sysid_log.h` 顶部注释表尚未同步）
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
-- **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
+- **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**、**RL 关节映射 `.rl`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **测试开关**：`imcalib/Sysid/sysid_config.h` 的 `SYSID_ENABLE`（0 = 测试代码不被调用；仲裁里的测试入口已 `#if 0`，开关打开也不会进测试模式）
 - **CMSIS-DSP**：CubeMX 的 X-CUBE-ALGOBUILD 只生成头文件 `Middlewares/ST/ARM/DSP/Inc/arm_math.h`（1.7.0），**不挂库、不加源**。本工程用源码方式：`imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（照抄 `Drivers/CMSIS/DSP/Source` 1.6.0）+ `arm_sin_table_f32.c`（只截 513 点 `sinTable_f32`），头文件走相对路径 `#include "../../Drivers/CMSIS/DSP/Include/arm_math.h"`；两套工程都不需要改包含目录，eIDE 靠 `srcDirs` 自动扫到，Keil 已登记进 `imcalib/user-lib` 组。**不要把 `arm_common_tables.c` 整个当源文件编**（armcc 不拆数据段，700 KB 表整段进 flash），**也不要挂 `Drivers/CMSIS/DSP/Lib/ARM` 下的 .lib**：目录里 19 个库只有 `arm_cortexM7lfdp_math.lib` 对应本机，多挂时 armlink 不报错、静默取第一个（软浮点）；eIDE 开着时手改 `eide.yml` 几秒内被覆盖。再要用别的 DSP 函数，照同样办法把对应源文件抄进 user-lib
 - **单位/坐标系/轴向**是嵌入式控制的头号 bug 源——改任何涉及姿态、力矩、符号、量纲的代码前，先确认约定。

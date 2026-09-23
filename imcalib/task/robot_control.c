@@ -32,6 +32,7 @@ void Action_State_Clear(void)
     action_state.last_ok_tick = 0u;
     action_state.updated = 0u;
     action_state.base_action_locked = 0u;
+    action_state.rl_ready = 0u;
 }
 
 /* 控制初始化 */
@@ -63,11 +64,10 @@ void Robot_Control_Init(void)
     RL_Observation_Init(&rl_control.observation);
     RL_Observation_Param_Init(&rl_control.param);
     RL_Policy_Reset(&rl_control.policy);
-    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STABLE], RL_MODEL_STABLE);
-    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_UPSTAIRS], RL_MODEL_UPSTAIRS);
-    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_PIN], RL_MODEL_PIN);
-    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_JUMP], RL_MODEL_JUMP);
-    RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STABLE]);
+    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
+    RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
+    rl_control.infer_enable = 0u;   /* RL 推理: 0 手动遥操 1 推理 (开之前先把总输出置 0 看方向) */
+    rl_control.infer_phase = 0u;
     Action_State_Clear();
 
     LQR_Init(&lqr_state);

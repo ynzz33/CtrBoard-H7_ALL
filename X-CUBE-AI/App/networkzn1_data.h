@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
-  * @file    pin_data.h
+  * @file    networkzn1_data.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-09-19T15:46:07+0800
+  * @date    2026-09-22T21:57:32+0800
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * Copyright (c) 2026 STMicroelectronics.
@@ -14,68 +14,68 @@
   ******************************************************************************
   */
 
-#ifndef PIN_DATA_H
-#define PIN_DATA_H
+#ifndef NETWORKZN1_DATA_H
+#define NETWORKZN1_DATA_H
 
-#include "pin_config.h"
-#include "pin_data_params.h"
-
-AI_DEPRECATED
-#define AI_PIN_DATA_ACTIVATIONS(ptr_)  \
-  ai_pin_data_activations_buffer_get(AI_HANDLE_PTR(ptr_))
+#include "networkzn1_config.h"
+#include "networkzn1_data_params.h"
 
 AI_DEPRECATED
-#define AI_PIN_DATA_WEIGHTS(ptr_)  \
-  ai_pin_data_weights_buffer_get(AI_HANDLE_PTR(ptr_))
+#define AI_NETWORKZN1_DATA_ACTIVATIONS(ptr_)  \
+  ai_networkzn1_data_activations_buffer_get(AI_HANDLE_PTR(ptr_))
+
+AI_DEPRECATED
+#define AI_NETWORKZN1_DATA_WEIGHTS(ptr_)  \
+  ai_networkzn1_data_weights_buffer_get(AI_HANDLE_PTR(ptr_))
 
 
 AI_API_DECLARE_BEGIN
 
 
-extern const ai_u64 s_pin_weights_array_u64[19413];
+extern const ai_u64 s_networkzn1_weights_array_u64[19413];
 
 
 
 /*!
  * @brief Get network activations buffer initialized struct.
- * @ingroup pin_data
+ * @ingroup networkzn1_data
  * @param[in] ptr a pointer to the activations array storage area
  * @return an ai_buffer initialized struct
  */
 AI_DEPRECATED
 AI_API_ENTRY
-ai_buffer ai_pin_data_activations_buffer_get(const ai_handle ptr);
+ai_buffer ai_networkzn1_data_activations_buffer_get(const ai_handle ptr);
 
 /*!
  * @brief Get network weights buffer initialized struct.
- * @ingroup pin_data
+ * @ingroup networkzn1_data
  * @param[in] ptr a pointer to the weights array storage area
  * @return an ai_buffer initialized struct
  */
 AI_DEPRECATED
 AI_API_ENTRY
-ai_buffer ai_pin_data_weights_buffer_get(const ai_handle ptr);
+ai_buffer ai_networkzn1_data_weights_buffer_get(const ai_handle ptr);
 
 /*!
  * @brief Get network weights array pointer as a handle ptr.
- * @ingroup pin_data
+ * @ingroup networkzn1_data
  * @return a ai_handle pointer to the weights array
  */
 AI_DEPRECATED
 AI_API_ENTRY
-ai_handle ai_pin_data_weights_get(void);
+ai_handle ai_networkzn1_data_weights_get(void);
 
 
 /*!
  * @brief Get network params configuration data structure.
- * @ingroup pin_data
+ * @ingroup networkzn1_data
  * @return true if a valid configuration is present, false otherwise
  */
 AI_API_ENTRY
-ai_bool ai_pin_data_params_get(ai_network_params* params);
+ai_bool ai_networkzn1_data_params_get(ai_network_params* params);
 
 
 AI_API_DECLARE_END
 
-#endif /* PIN_DATA_H */
+#endif /* NETWORKZN1_DATA_H */
 

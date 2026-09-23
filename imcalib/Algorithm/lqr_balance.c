@@ -66,6 +66,9 @@ void LQR_Init(lqr_state_t *st)
     lqr_debug.pos_hold = 0u;
     lqr_debug.vel_ramp = 5.0f;      /* 同 Leg2 RAMP_VEL_RATE */
     lqr_debug.acc_fwd_sign = 1.0f;
+    lqr_debug.pitch_comp_sign = -1.0f;  /* 现行公式 */
+    lqr_debug.pitch_off = 0.0f;
+    lqr_debug.pos_arm_vel = 0.0f;
     lqr_debug.wheel_enable = 1u;
     lqr_debug.hip_enable = 1u;
     lqr_debug.len_pid_enable = 1u;
@@ -137,6 +140,7 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
     st->vel_tgt = 0.0f;
     /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
     st->pos = 0.0f;
+    st->pos_armed = 1u;
     st->x[LQR_X_S] = 0.0f;
     return 1u;
 }
@@ -231,7 +235,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
     st->len[0] = leg_l->output.virtual_leg_length;
     st->len[1] = leg_r->output.virtual_leg_length;
 
-    pitch = imu->euler_rad[LQR_IMU_PITCH_IDX];
+    pitch = imu->euler_rad[LQR_IMU_PITCH_IDX] - lqr_debug.pitch_off;   /* 零偏 */
     omg_pitch = Lowpass_Update(&st->lpf_omg_pitch,
                                imu->gyro_rad_s[LQR_IMU_GYRO_PITCH]);
     st->roll = imu->euler_rad[LQR_IMU_ROLL_IDX];
@@ -248,11 +252,13 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
     st->x[LQR_X_DPHI] = Lowpass_Update(&st->lpf_omg_yaw,
                                        imu->gyro_rad_s[LQR_IMU_GYRO_YAW]);
 
-    /* 轮子相对地面角速度: 反馈已扣减速比, 再补偿腿摆与俯仰 */
+    /* 轮子相对地面角速度: 反馈已扣减速比, 再补偿腿摆与俯仰 (俯仰项符号 A/B, 见 LQR_PLAN §六 ①e) */
     whl[0] = wheel_vel[0] + lqr_debug.vel_leg_comp_sign
-             * leg_l->output.d_virtual_leg_angle - omg_pitch;
+             * leg_l->output.d_virtual_leg_angle
+             + lqr_debug.pitch_comp_sign * omg_pitch;
     whl[1] = wheel_vel[1] + lqr_debug.vel_leg_comp_sign
-             * leg_r->output.d_virtual_leg_angle - omg_pitch;
+             * leg_r->output.d_virtual_leg_angle
+             + lqr_debug.pitch_comp_sign * omg_pitch;
     st->whl[0] = whl[0];
     st->whl[1] = whl[1];
 
@@ -274,9 +280,11 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
 
     /* 对照: 补偿符号取反再算一遍, 只供台架 A/B 看哪条平 */
     whl[0] = wheel_vel[0] - lqr_debug.vel_leg_comp_sign
-             * leg_l->output.d_virtual_leg_angle - omg_pitch;
+             * leg_l->output.d_virtual_leg_angle
+             + lqr_debug.pitch_comp_sign * omg_pitch;
     whl[1] = wheel_vel[1] - lqr_debug.vel_leg_comp_sign
-             * leg_r->output.d_virtual_leg_angle - omg_pitch;
+             * leg_r->output.d_virtual_leg_angle
+             + lqr_debug.pitch_comp_sign * omg_pitch;
     vel[0] = whl[0] * machine->wheel_r
            + leg_l->output.virtual_leg_length * st->x[LQR_X_DTHL]
              * cosf(st->x[LQR_X_THL])
@@ -287,14 +295,24 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
            + leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
     st->ds_alt = Lowpass_Update(&st->lpf_vel_alt, (vel[0] + vel[1]) * 0.5f);
 
-    /* 位移积分: 有速度指令时不积分, 避免跟着指令漂 */
-    if (st->target[LQR_X_DS] == 0.0f)
+    /* 位移积分: 有速度指令时清零并撤防; 目标回零后车速降到 pos_arm_vel 以下才开始积 (0 = 立即) */
+    if (st->target[LQR_X_DS] != 0.0f)
     {
-        st->pos += st->x[LQR_X_DS] * dt;
+        st->pos = 0.0f;
+        st->pos_armed = 0u;
     }
     else
     {
-        st->pos = 0.0f;
+        if (!st->pos_armed
+            && (lqr_debug.pos_arm_vel <= 0.0f
+                || fabsf(st->x[LQR_X_DS]) < lqr_debug.pos_arm_vel))
+        {
+            st->pos_armed = 1u;
+        }
+        if (st->pos_armed)
+        {
+            st->pos += st->x[LQR_X_DS] * dt;
+        }
     }
     st->x[LQR_X_S] = st->pos;
     st->valid = 1u;
@@ -306,6 +324,7 @@ void LQR_Control_Update(lqr_state_t *st)
 {
     float K_sym[40];
     float sum;
+    float term;
     uint8_t i;
     uint8_t j;
 
@@ -332,22 +351,24 @@ void LQR_Control_Update(lqr_state_t *st)
         {
             if (j == LQR_X_PHI)
             {
-                if (!lqr_debug.yaw_hold)
-                {
-                    continue;   /* 关: 偏航角不参与 */
-                }
-                sum += st->K[i][j] * LQR_Wrap_Pi(st->target[j] - st->x[j]);
-                continue;
+                term = lqr_debug.yaw_hold
+                     ? st->K[i][j] * LQR_Wrap_Pi(st->target[j] - st->x[j])
+                     : 0.0f;                        /* 关: 偏航角不参与 */
             }
-            if (j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold)
+            else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold)
+                     || (j == LQR_X_S && !lqr_debug.pos_hold))
             {
-                continue;       /* 关: 偏航角速度不参与 */
+                term = 0.0f;                        /* 关: 该列不参与 */
             }
-            if (j == LQR_X_S && !lqr_debug.pos_hold)
+            else
             {
-                continue;       /* 关: 位移不参与 (只控速度) */
+                term = st->K[i][j] * (st->target[j] - st->x[j]);
             }
-            sum += st->K[i][j] * (st->target[j] - st->x[j]);
+            if (i == LQR_U_WL)
+            {
+                st->u_col[j] = term;                /* 左轮分项 */
+            }
+            sum += term;
         }
         if (!isfinite(sum))
         {

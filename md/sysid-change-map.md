@@ -2703,6 +2703,99 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 95 · networkzn1 接入：单模型封装 + 观测参数 + 推理路径 + 关节映射表（作者：可以，你先改）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/rl_policy.c/h` | 四模型封装收成 networkzn1 单模型：`rl_model_t` 只剩 `RL_MODEL_STANDUP`；静态检查 2 输入 (25/125)、2 输出 (6/3)；`RL_Policy_Run()` 读输出 0 动作、输出 1 latent 存 `policy->latent`，DWT 计耗时 `run_us`，计数 `run_ok/run_fail`。头文件新增推理路径参数宏：`RL_CMD_VX_MAX/YAW_MAX/HEIGHT_MIN/MAX`（全 0，待训练侧）、`RL_WARMUP_STEPS`（50）、`RL_ACTION_CLIP`（0 = 不裁）、`RL_LATENT_SIZE` |
+| `imcalib/Algorithm/rl_observation.c/h` | 训练侧观测参数进宏（gyro 0.25、cmd [2.0, 0.25, 5.0]、关节速度 0.05、默认角 [−0.06, 0.10, 0.06, −0.10]），`RL_Observation_Param_Init()` 填入并置 `configured=1`；`RL_Observation_Build()` 末尾整体裁剪 ±100 |
+| `imcalib/user-lib/machine_config.c/h` | 新增 `rl_map_t`（`sign[6]` / `zero[4]` / `configured`）与机器表字段 `.rl`；两台机器都填 0、`configured=0` |
+| `imcalib/Algorithm/rl_torque.c/h` | 参数只剩 STANDUP 一组：`dof_pos = zero + sign × 训练默认角`（按机器表算），Kp/Kd/轮增益全 0 待训练侧；轮速尺度 20 → 10；腿 D 项改为 `− Kd × q̇`（pid 的 Δe 微分置 0）；删 `spin_mode/jump_mode` 与 `act[]` 拷贝 |
+| `imcalib/task/inc/robot_control.h` | `action_state_t` 加 `rl_ready`；`rl_control_state_t` 加 `infer_enable` / `infer_phase`；声明 `output_task_rl_engaged()` |
+| `imcalib/task/robot_control.c` | 只初始化 STANDUP 参数；`infer_enable=0`、`infer_phase=0`；`Action_State_Clear()` 清 `rl_ready` |
+| `imcalib/task/task_policy.c` | 两条路径：`infer_enable=0` 旧手动遥操不变（obs 改用映射后关节，无人消费）；`infer_enable=1` 走 `RL_Infer_Body()`：投入 (`output_task_rl_engaged()`) → `RL_Command_From_Rc()` → `RL_Control_Update_Observation()`（`RL_Joint_Map()` 固件角 → 训练关节，未配置返回 0）→ 预热 N 步零动作 → `RL_Policy_Run()` → 裁剪 → `Set_Last_Action` → 乘 sign → `RL_Action_Publish(rl_ready=1)`；未投入 / 观测无效 / 推理失败发零动作 `rl_ready=0` |
+| `imcalib/task/task_actuation.c` | 新增 `rl_engaged` + `output_task_rl_engaged()`（左上 + 右中 + 使能）；`solve_rl()` 前提改为 `base_action_locked || rl_ready` |
+| `imcalib/task/task_comm.c` | ch1 加 bit9 RL 已投入；RL 模式覆盖 ch3~6、ch15~31（投影重力 / 状态位 / 动作 / 观测关节 / 力矩 / 耗时），头注释同步 |
+| `imcalib/Sysid/sysid_mode.c` | `RL_MODEL_STABLE` → `RL_MODEL_STANDUP`（只为 `-DSYSID_ENABLE=1` 仍可编；测试模式仍 `#if 0`） |
+| `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | 去掉残留的 upstairs 四个条目（CubeMX 重生成后只有 networkzn1 是对的） |
+| `X-CUBE-AI/App/` | 旧 jump/pin/stable/upstairs 32 个文件由**作者自行删除**（目录时间 22:04，本条未动） |
+| `md/RL_OVERVIEW.md` / `AGENTS.md` / `DBUS.md` / `IO_CHAINS.md` | §3.2~3.6、§四、§五、§七同步，新增 §八（训练侧待提供清单 + 开关 + VOFA）；AGENTS 文件树 / 模块表 / §0.1 加 `rl.sign/rl.zero`；DBUS / IO_CHAINS 加推理路径指令行 |
+
+**为什么**
+- 训练同学的模型是 2 输出（actions + latent），旧封装按 1 输出写；四个旧网络已不在 Keil 工程，`rl_policy.c` 再引用它们 Keil 链接必失败。
+- 训练是串联代理关节，实机是五连杆：符号和零点不能由 AI 定，所以做成机器表 `.rl`，默认未配置整链门控关，与 `.imu` 同思路。
+- D 项改用关节速度，是为了和仿真 PD（`Kp(q_des − q) − Kd q̇`）一致，也避免每 10 ms 目标跳变的微分冲击；Kd=0 时与之前完全等价。
+- 预热 N 步零动作复现训练侧"首次轮接地前零动作、PD 与历史照跑"。
+- `infer_enable` 默认 0：作者当前在小机器上测 LQR，旧手动遥操路径和 LQR 行为都不受影响。
+
+**输入 / 输出 / 调用链**
+- `actuationTask` 1 kHz：`rc_command.s1/s2` + `motor_enabled` → `rl_engaged` → `solve_rl()`（要 `base_action_locked || rl_ready`）→ `RL_Torque_Compute()` → `output_dispatch()`。
+- `policyTask` 10 ms：`output_task_rl_engaged()` → 指令 → 观测（`machine->rl` 映射）→ 预热 / 推理 → `action_state`（固件动作、`rl_ready`）。
+- VOFA 由 `commTask` 读 `rl_control.*`、`action_state.rl_ready`、`torque_state.last_torque`（未投入时力矩通道乘 0）。
+
+**未动物理量**：`dm_sign` / `dji_sign` / `dm_zero` / `leg_off_phi0` / `.imu` / `MACHINE_DEFAULT` 全未改；新加的 `.rl.sign/.zero` 全 0 且 `configured=0`，由作者台架定。转向指令取负是遥控语义，同变更 82。
+
+**核对**
+- AC5：18 个文件（改动的 + 含 `robot_control.h` / `machine_config.h` 的）默认与 `-DSYSID_ENABLE=1` 各 **0 err 0 warn**（`-o` 到临时目录）。
+- 整机试链接：eIDE 现成 `.obj` + 本次新 .o + networkzn1 三个 .o，去掉四个旧网络 .o，输出到临时目录，armlink **0 err 0 warn**；ROM 745 172 → 272 036 B，RW 72 960 → 57 552 B（四个旧网络与四块 activation 去掉）。作者 `.axf/.map/.obj` 未动。
+- `grep` 无 `RL_MODEL_STABLE/JUMP/PIN/UPSTAIRS`、`spin_mode`、`ai_stable_*` 等残留。
+- 未下载、未上机。
+
+**待训练侧 / 待台架**：见 `RL_OVERVIEW.md` §八。顺序：① 训练侧给 lf0/lf1 定义、PD、指令范围 → 作者定 `.rl` → ② 总输出关 + `infer_enable=1` 看 VOFA 动作 → ③ 填增益看力矩方向 → ④ 架空 → ⑤ 下地。上大机器前 `MACHINE_DEFAULT` 切 `MACHINE_ID_CHUANLIANTUI`。
+
+---
+
+## 变更 96 · LQR 分层验证旋钮：俯仰零偏 + 轮速俯仰补偿符号 + 位移积分启动阈值 + 左轮分项 + VOFA 第六版（作者：太多补偿融合在一起，一项一项验证；关位移环匀速往后走；松杆回到上电位置）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `pitch_comp_sign`（默认 −1 = 现行公式）、`pitch_off`（默认 0）、`pos_arm_vel`（默认 0 = 旧逻辑）；`lqr_state_t` 加 `u_col[10]`（左轮十列分项）、`pos_armed` |
+| `imcalib/Algorithm/lqr_balance.c` | `LQR_Init()` 填三个默认值；`LQR_State_Update()`：`pitch = euler − pitch_off`，轮对地角速度两处（含 `ds_alt` 对照）的 `− omg_pitch` 改为 `+ pitch_comp_sign × omg_pitch`；位移积分改为"有指令清零撤防 → 目标回零且 |x[1]| < pos_arm_vel 才启动"；`LQR_Enable_Latch()` 投入时 `pos_armed=1`。`LQR_Control_Update()` 求和循环改为 `term` 逐项写，`i == 左轮` 时存 `u_col[j]`，`continue` 改成 `term = 0`，数值与原来逐位相同 |
+| `imcalib/task/task_comm.c` | VOFA 第六版：ch11/12 = `whl[0/1]`（原大腿角）、ch13 = `vel_tgt`、ch14 = `pos_armed`（原虚拟小腿角）、ch27 = `x[4]` 左腿摆角世界系（原与 ch4 重复的偏航角速度）；ch15~19 轮速和 / 轮速 / 轮电流为作者先前所放，保留；头注释整块重写 |
+| `md/LQR_PLAN.md` | §2.3 位移行、§2.5 三个新旋钮、§六新增 ①e 与"⑤ 分层验证"表、§八新增三项 |
+
+**为什么**
+- 作者台架已排除反馈侧极性（偏航角 / 角速度 / 轮号 / 轮速 / 俯仰 / 两腿摆角全对，RL 链路两轮硬件正常），关位移环后车**匀速**后退。匀速 = 净力矩 0 = 车身正处在真实平衡姿态，此时 ch28 读到的就是俯仰零偏；`pitch_off` 让作者在调试器里把这个读数填回去，不用等车站稳。放在测量侧（同 Leg2 `IMU_PITCH_OFFSET`），IMU 零偏和重心偏移两种来源都能消。
+- `pitch_comp_sign`：现行 `whl = ω_电机 − ω_pitch` 与推导相反——轮子卡住、车身前倾时编码器读到的已经是 −ω_pitch，再减一次得到"轮子在倒转"，实际它没动；后果是俯仰阻尼比 K 表设计值少约三分之一。Leg2 同样写法（`Body.c:89`），且 §0.1 禁止 AI 改符号，故默认值不动、只给 A/B 开关，台架按 §六 ①e 定。
+- `pos_arm_vel`：斜坡 5 m/s² 让速度目标 0.24 s 内归零，车还在滑行，滑行距离全记进 `pos` 再被拉回，短距离推杆就是"回到起点"。阈值到了才启动积分，Leg2 注释掉的 `vel_kalman ∈ ±0.5` 门控是同一思路。
+- `u_col[]`：分层验证时要知道左轮力矩是谁在推（位移 / 速度 / 俯仰 / 腿摆角），Watch 里直接看十列。
+
+**输入 / 输出 / 调用链**
+- `lqr_debug.pitch_off` → `LQR_State_Update()` 的 `pitch` → `x[4]/x[6]/x[8]`、速度运动学 cos/sin 项；翻倒检测仍用 `imu_state` 原值不受影响。
+- `lqr_debug.pitch_comp_sign` → `whl[0/1]` → `ds_raw` → `ds_lpf/ds_kf` → `x[1]` → 位移积分；`ds_alt` 对照同步。
+- `lqr_debug.pos_arm_vel` + `target[1]` + `x[1]` → `pos_armed` → `pos` → `x[0]`。
+- `u_col[j]` 只写不读，供 Watch。
+
+**未动物理量**：`dm_sign` / `dji_sign` / `dm_zero` / `leg_off_phi0` / `.imu` / K 表 / 三个默认值全部等于现行为，刷新固件后手感不变。
+
+**核对**：AC5 `lqr_balance.c` / `leg_balance.c` / `task_actuation.c` / `task_comm.c` 默认与 `-DSYSID_ENABLE=1` 各 **0 err 0 warn**（`-o` 到临时目录，已删）。未链接、未上机。
+
+**待台架**：`LQR_PLAN.md` §六 ⑤ 分层表（基线 → 零偏 → 补偿符号 → 位移环 → 偏航角速度 → 偏航角 → 横滚 → 启动阈值），一步一个量。
+
+---
+
+## 变更 96 · actuationTask 整体改回 500 Hz（作者：按训练文档，直接把整个函数弄成 500 Hz，用 RL 时不用 LQR）
+
+| 文件 | 改动 |
+| --- | --- |
+| `Core/Src/tim.c`、`CtrBoard-H7_ALL.ioc` | TIM6 Period 999 → **1999**，Prescaler 274 不变：275 MHz / 275 / 2000 = 500 Hz（与变更 61 同一处，反向） |
+| `imcalib/task/inc/robot_control.h` | `CTRL_DT` 0.001f → **0.002f**，LQR / RL / sysid 的时间步统一跟随 |
+| `Core/Src/main.c`、`imcalib/user-lib/mono_ns.c` | TIM6 回调与单调时钟注释同步为 500 Hz（`Mono_Ns_Tick()` 只要求 ≥ 每 7.8 s 一次，500 Hz 无影响） |
+| `imcalib/task/task_actuation.c` | **无功能改动**。本条一度做过"RL 分支两拍算一次"的分频版，作者否决后撤回；撤回时误用 `git checkout` 把变更 95 在本文件的四处（`rl_engaged`、`output_task_rl_engaged()`、`solve_rl()` 前提 `rl_ready`、MANUAL 分支写 `rl_engaged`）一并还原，已重新补回，`grep` 核对四处都在 |
+| `md/AGENTS.md`、`md/RL_OVERVIEW.md`、`md/LQR_PLAN.md` §五 | 频率相关行同步；LQR_PLAN §五 顶部加注：本节以下是 1 kHz 时的记录 |
+
+**为什么**：训练侧文档写"策略 100 Hz、PD 内环 500 Hz"。我先提议只让 RL 分支分频、TIM6 与 LQR 保持 1 kHz（怕动到正在调的 LQR），作者明确否决："用 RL 时不会用 LQR，直接整个改成 500 Hz"，按作者决定执行。
+
+**对 LQR 的影响（作者已知，未处理）**：`pid_calc` 的 D 是每拍误差差分、不除 dt，腿长 / 防劈叉 / 横滚三组 KD（50000 / 500 / 100）是 1 kHz 照抄 Leg2 的值，500 Hz 下等效阻尼翻倍；`LQR_State_Update` 位移积分、`vel_ramp`、拨轮腿长积分、卡尔曼都吃 `CTRL_DT`，自动跟随。再上 LQR 时由作者定：TIM6 回 1 kHz，或三组 KD 折半。
+
+**其他跟随项**：RL 的 PD 用速度 D，与频率无关；sysid（关着）心跳 `SYSID_HB_TICKS=250` 在 500 Hz 下变成 500 ms，未动；commTask 仍 1 kHz，VOFA 不变；CAN 负载减半。
+
+**核对**：AC5 编译 `tim.c / main.c / mono_ns.c / robot_control.c / task_actuation.c / task_policy.c / task_comm.c / rl_*.c / lqr_balance.c / leg_balance.c / kalman.c / simple-function.c / sysid_*.c / dm.c / dji.c / machine_config.c` 共 20 个文件，默认与 `-DSYSID_ENABLE=1` 各 **0 err 0 warn**（`-o` 到临时目录）；整机试链接到临时目录 armlink **0 err 0 warn**，ROM 272 196 B。作者 `.axf/.map/.obj` 未动。未下载、未上机。
+
+**待台架**：示波器或计数确认 actuationTask 500 Hz；RL 台架顺序见 `RL_OVERVIEW.md` §八。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。
