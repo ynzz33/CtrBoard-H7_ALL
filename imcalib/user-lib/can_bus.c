@@ -1,16 +1,9 @@
 #include "can_bus.h"
-#if SYSID_ENABLE
-#include "mono_ns.h"
-#endif
 
 static can_bus_t can_bus[CAN_BUS_NUM];
 
 static FDCAN_HandleTypeDef *handles[CAN_BUS_NUM] = { &hfdcan1, &hfdcan2, &hfdcan3 };
 
-#if SYSID_ENABLE
-/* TX 完成环形缓冲 (ISR 写 / 任务读) */
-static can_tx_done_t tx_ring_buf[CAN_BUS_NUM][CAN_TX_RING_CAP];
-#endif
 
 /* 按总线号取句柄 */
 FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus)
@@ -77,9 +70,6 @@ static void Can_Bus_Start(uint32_t idx)
     HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
     HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0);
     HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0);
-#if SYSID_ENABLE
-    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_TX_COMPLETE, 0xFFFFFFFF);
-#endif
 }
 
 /* 初始化 */
@@ -107,21 +97,6 @@ void Can_Bus_Init(void)
         bus->dead_since   = HAL_GetTick();
         bus->reinit_tick  = HAL_GetTick();
 
-#if SYSID_ENABLE
-        bus->tx_complete_cnt = 0;
-        bus->tx_ring_w       = 0;
-        bus->tx_ring_r       = 0;
-        bus->tx_drop_cnt     = 0;
-        for (uint32_t j = 0; j < CAN_TX_PENDING_MAX; j++)
-        {
-            bus->tx_pending[j].kind = 0;
-            bus->tx_pending[j].seq  = 0;
-        }
-        for (uint32_t j = 0; j < CAN_TX_RING_CAP; j++)
-        {
-            tx_ring_buf[i][j].valid = 0;
-        }
-#endif
 
         Can_Bus_Start(i);
     }
@@ -151,9 +126,6 @@ bool Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                                    const uint8_t *data, uint8_t len)
 {
-#if SYSID_ENABLE
-    return Can_Bus_Transmit_Tagged(hfdcan, can_id, data, len, 0, 0);
-#else
     FDCAN_TxHeaderTypeDef tx_header;
     HAL_StatusTypeDef status;
     int32_t idx;
@@ -176,44 +148,8 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
         can_bus[idx].last_tx_tick = HAL_GetTick();
     }
     return status;
-#endif
 }
 
-#if SYSID_ENABLE
-/* 发送 (带标签) */
-HAL_StatusTypeDef Can_Bus_Transmit_Tagged(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
-                                          const uint8_t *data, uint8_t len,
-                                          uint8_t kind, uint16_t seq)
-{
-    int32_t idx = Can_Bus_Hw_Index(hfdcan);
-    if (idx < 0 || len > 8) return HAL_ERROR;
-
-    if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) == 0)
-    {
-        return HAL_ERROR;
-    }
-
-    FDCAN_TxHeaderTypeDef tx_header = can_bus[idx].tx_template;
-    tx_header.Identifier = can_id;
-    tx_header.DataLength = len;
-
-    HAL_StatusTypeDef st = HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &tx_header, (uint8_t *)data);
-    if (st == HAL_OK)
-    {
-        can_bus[idx].last_tx_tick = HAL_GetTick();
-
-        uint32_t buf = HAL_FDCAN_GetLatestTxFifoQRequestBuffer(hfdcan);
-        if (buf != 0u)
-        {
-            uint32_t bi = 31u - (uint32_t)__CLZ(buf);
-            can_bus[idx].tx_pending[bi].kind  = kind;
-            can_bus[idx].tx_pending[bi].seq   = seq;
-            can_bus[idx].tx_pending[bi].valid = 1u;
-        }
-    }
-    return st;
-}
-#endif
 
 /* ISR 接收 */
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
@@ -260,87 +196,6 @@ void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorSt
     can_bus[idx].state = CAN_BUS_STATE_DEAD;
 }
 
-#if SYSID_ENABLE
-/* ISR: TX 完成回调 */
-void HAL_FDCAN_TxBufferCompleteCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t BufferIndexes)
-{
-    int32_t idx = Can_Bus_Hw_Index(hfdcan);
-    if (idx < 0) return;
-
-    can_bus_t *bus = &can_bus[idx];
-    uint64_t ns = Mono_Ns_Get();
-
-    while (BufferIndexes != 0u)
-    {
-        uint32_t bi  = 31u - (uint32_t)__CLZ(BufferIndexes);
-        uint32_t bit = 1u << bi;
-
-        /* 只认本机登记过的元素, 其余位是硬件残留 */
-        if (bus->tx_pending[bi].valid == 0u)
-        {
-            BufferIndexes &= ~bit;
-            continue;
-        }
-
-        bus->tx_complete_cnt++;
-
-        can_tx_done_t *e = &tx_ring_buf[idx][bus->tx_ring_w % CAN_TX_RING_CAP];
-        e->kind  = bus->tx_pending[bi].kind;
-        e->seq   = bus->tx_pending[bi].seq;
-        e->tx_ns = ns;
-        e->valid = 1;
-        __DMB();
-
-        uint32_t next_w = bus->tx_ring_w + 1u;
-        if (next_w - bus->tx_ring_r > CAN_TX_RING_CAP)
-        {
-            bus->tx_drop_cnt++;
-            bus->tx_ring_r++;
-        }
-        bus->tx_ring_w = next_w;
-
-        bus->tx_pending[bi].kind  = 0;
-        bus->tx_pending[bi].seq   = 0;
-        bus->tx_pending[bi].valid = 0u;
-
-        BufferIndexes &= ~bit;
-    }
-}
-
-/* TX 完成事件出队 */
-bool Can_Bus_Tx_Pop(uint8_t bus, uint8_t *kind, uint16_t *seq, uint64_t *tx_ns)
-{
-    if (bus < 1u || bus > CAN_BUS_NUM) return false;
-
-    can_bus_t *b = &can_bus[bus - 1u];
-
-    __DMB();
-    if (b->tx_ring_r == b->tx_ring_w) return false;
-
-    can_tx_done_t *e = &tx_ring_buf[bus - 1u][b->tx_ring_r % CAN_TX_RING_CAP];
-    *kind  = e->kind;
-    *seq   = e->seq;
-    *tx_ns = e->tx_ns;
-    __DMB();
-
-    b->tx_ring_r++;
-    return true;
-}
-
-/* TX 完成帧计数 */
-uint32_t Can_Bus_Tx_Complete_Count(uint8_t bus)
-{
-    if (bus < 1u || bus > CAN_BUS_NUM) return 0u;
-    return can_bus[bus - 1u].tx_complete_cnt;
-}
-
-/* TX 丢弃帧计数 */
-uint32_t Can_Bus_Tx_Drop_Count(uint8_t bus)
-{
-    if (bus < 1u || bus > CAN_BUS_NUM) return 0u;
-    return can_bus[bus - 1u].tx_drop_cnt;
-}
-#endif
 
 /* 看门狗 */
 bool Can_Bus_Online(bool expect_traffic)

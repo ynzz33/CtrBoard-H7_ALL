@@ -1,10 +1,16 @@
 # LQR 平衡控制器 — 嵌入计划与实施记录
 
+> 2026-09-24：本文包含历史测试方案。Sysid、手动腿测、仅偏航测试、Leg2 腿长对照和速度反号对照已从固件删除；当前入口与参数以代码为准。
+
+> 当前 LQR 已移除防劈叉 PID：无 `leg_sym` 状态、初始化、计算或髋扭矩修正。下文有关防劈叉的描述仅为历史记录。
+
+> 当前 LQR 已移除 `pitch_off`，俯仰角直接取机器表映射后的 IMU 欧拉角。
+
 > 参考开源：`Leg2_v1`（上交轮腿 LQR，机械构造与本机一致）
 > 增益来源：`lqr_gain_table.h`（参考上车表）+ `leg_matlab_script`（自研脚本，待重跑对齐）
 > 最后更新：2026-09-24（切回小机器软件配置，待台架验证）
 
-当前小机器配置：`MACHINE_ID_LOCAL`、TIM6 1 kHz、`CTRL_DT=0.001f`；FDCAN 仲裁段 1 Mbps，数据段参数恢复小机器基线。LQR 已恢复完整求解和输出分发，`infer_enable=0`。软件阻断已排除并通过关键源文件编译；站立、偏航及左右轮反馈/下发映射仍待台架验证。下文数值和测试结论含历史快照，以当前代码为准。
+当前机器表显示名：小机器 `little-wheelleg`，大机器 `big-wheelleg`；机器 ID 与选型宏未变。当前小机器配置：`MACHINE_ID_LOCAL`、TIM6 1 kHz、`CTRL_DT=0.001f`；FDCAN 仲裁段 1 Mbps，数据段参数恢复小机器基线。LQR 已恢复完整求解和输出分发，`infer_enable=0`。软件阻断已排除并通过关键源文件编译；站立、偏航及左右轮反馈/下发映射仍待台架验证。下文数值和测试结论含历史快照，以当前代码为准。
 
 ---
 
@@ -54,7 +60,7 @@
 |---|---|
 | `imcalib/Algorithm/lqr_gain_table.c/h` | 参考上车增益表（240 个 poly22 系数，拟合域 0.13~0.23 m）；生成物，不要手改 |
 | `imcalib/Algorithm/lqr_balance.c/h` | 10 维状态估计 + 增益求值 + 状态反馈求和 + 遥控目标 |
-| `imcalib/Algorithm/leg_balance.c/h` | 腿长/防劈叉/横滚 PID + 力向量合成 + 力域映射 + 限幅；另有手动腿测的腿摆角 PD 与 `Leg_Balance_Manual()` |
+| `imcalib/Algorithm/leg_balance.c/h` | 腿长/横滚 PID + 力向量合成 + 力域映射 + 限幅；防劈叉与手动腿测已移除 |
 | `imcalib/Algorithm/torque_output.h` | 公共输出结构（从 `rl_torque.h` 搬出，两边共用） |
 | `imcalib/user-lib/simple-function.c/h` | 一阶低通 + 斜坡函数 |
 | `imcalib/user-lib/kalman.c/h` | 带加速度输入的一维卡尔曼（照抄 Leg2_v1 `kalman.c`，速度估计用） |
@@ -68,7 +74,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
   ── 以下只在左中 + 右中且投入后 ──
   ① LQR_Target_Update()     rc_command → target[10]，腿长目标按速率积分
   ③ LQR_Control_Update()    valid 才算：腿长变化 >0.5mm 求值 40 个增益 → u[i] = Σ K[i][j]·(target[j] − x[j])
-  ④ Leg_Balance_Compute()   腿长/防劈叉/横滚 PID → F；Leg_Force_Map_Forward(F, Tp) → 前后髋
+  ④ Leg_Balance_Compute()   腿长/横滚 PID → F；LQR 髋扭矩取反 → Tp；Leg_Force_Map_Forward(F, Tp) → 前后髋
                             → torque_output_t（输出极性在驱动边界处理）
   ⑤ Dm_Send_Torque() + Dji_Send_Wheel_Torque()
 ```
@@ -85,7 +91,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 | 3 | dφ | IMU 偏航角速度 + 低通；`lqr_debug.yaw_rate_hold=1` 时参与（Leg2 原样）；**默认 0 不参与**（变更 83） |
 | 4/5 | θ_ll / dθ_ll | `−leg_l.virtual_leg_angle + pitch` / `−d_virtual_leg_angle + omg_pitch` |
 | 6/7 | θ_lr / dθ_lr | 同上，右腿 |
-| 8/9 | θ_b / dθ_b | IMU 俯仰角 − `lqr_debug.pitch_off`（变更 96，默认 0）/ 俯仰角速度 + 低通；同一 pitch 也进 θ_ll/θ_lr |
+| 8/9 | θ_b / dθ_b | 机器表映射后的 IMU 俯仰角 / 俯仰角速度 + 低通；同一 pitch 也进 θ_ll/θ_lr |
 
 输出 `u = [T_wl, T_wr, T_bl, T_br]`；`T_b*` 即虚拟髋扭矩 Tp。
 
@@ -101,7 +107,7 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 | 增益重算阈值 | 0.5 mm | `lqr_balance.c` |
 | 低通系数 | α = 0.3 | `lqr_balance.c` |
 | 足端前馈 | +8 N | `leg_balance.h` |
-| 辅助 PID | 腿长 1500/50000（KP 作者已从 Leg2 的 1000 上调），防劈叉 30/500，横滚 500/100 | `leg_balance.h` |
+| 辅助 PID | 当前仅左右腿长、横滚；防劈叉已移除，具体增益以 `leg_balance.h` 为准 | `leg_balance.h` |
 | 手动腿测摆角 PD | 20 / 30，Tp 上限 4 N·m（同 Leg2 `app_self_rescue.h` 自救腿角环；作者 2026-09-21 定） | `leg_balance.h` |
 | 手动腿测摆角满杆 | ±0.5 rad | `lqr_balance.h` |
 
@@ -119,10 +125,9 @@ imu_state / leg_l / leg_r / motor_state / DR16 快照        （只读，单写�
 
 `yaw_hold` 开偏航角环、`yaw_rate_hold` 开偏航角速度环，**两者默认都是 0**（变更 83，作者：先把偏航两列都去掉看和现在有什么区别）。三种状态：都 0 = 偏航完全不控，转向摇杆无效，朝向只靠两轮对称性；`yaw_rate_hold=1` = Leg2 原样只有角速度阻尼；再 `yaw_hold=1` = 变更 82 的角度环（目标 `yaw_tgt` 投入时锁当前朝向；摇杆有输入时跟随当前角、回中后锁住；误差绕 ±π）。K 表偏航角一列在腿长 0.15 时左右轮 ∓0.26 N·m/rad。
 
-变更 96 三个分层验证旋钮（默认值全部等于旧行为）：
-- `pitch_off`（rad，默认 0）：俯仰零偏，从 IMU 俯仰角里扣掉后再进 θ_b、θ_ll、θ_lr。取法见 §六 ⑤ 第 1 步：关位移环让车匀速漂，此时 ch28 的读数就是它。
+当前保留的分层验证旋钮：
 - `pitch_comp_sign`（默认 −1 = 现行公式 `whl = ω_电机 + comp·dθ_leg − ω_pitch`）：轮对地角速度里俯仰项的符号。按推导应为 +1（轮卡住、车身前倾时编码器已读到 −ω_pitch，再减一次等于把俯仰阻尼打掉约三分之一），Leg2 与本机同为 −1，只能台架定，见 §六 ①e。
-- `pos_arm_vel`（m/s，默认 0）：速度目标回零后，车速绝对值降到它以下才开始积位移；0 = 目标回零立即积（旧逻辑）。用于消"松杆后回到起点"。`lqr_state.pos_armed`（VOFA ch14）显示是否已启动。
+- `pos_arm_vel`（m/s，默认 0）：速度目标回零后，车速绝对值降到它以下才开始积位移；0 = 目标回零立即积。`lqr_state.pos_armed` 可在 Watch 查看。
 - 观测：`lqr_state.u_col[0..9]` 是左轮力矩按十个状态列拆开的分项（Watch 看），谁在推一眼可见。
 
 ### 2.8 速度估计：卡尔曼 + 加速度前馈（2026-09-21，作者：先改成 Leg2 那种形式）
@@ -221,7 +226,7 @@ rc_command ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg
 两边都在腿竖直时读 0，但符号相反。**这就带出两个必须成对处理的取反**（已实现）：
 
 1. **状态取反**：`x[θ_ll] = −virtual_leg_angle + pitch`（角速度同理）。注意是**整体取反后再加 pitch**，不是只反腿角项——否则 `+pitch` 不跟着反，θ_ll 行会多出一个符号错的俯仰耦合项，而且常数目标 −0.05 会推向错误方向。
-2. **髋扭矩取反**：`Tp = −(u[T_BL] + 防劈叉)` 之后再进力映射。因为广义力与坐标反号，且 `Leg_Force_Map_Forward(F,Tp) ≡ Leg_Tougue(F,−Tp)`。
+2. **髋扭矩取反**：当前 `Tp_L/R = −u[T_BL/BR]`，再进力映射。因为广义力与坐标反号，且 `Leg_Force_Map_Forward(F,Tp) ≡ Leg_Tougue(F,−Tp)`。
 
 轮扭矩与 `F` 不需要任何取反。
 

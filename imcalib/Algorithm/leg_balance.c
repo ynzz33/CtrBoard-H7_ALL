@@ -12,12 +12,6 @@ void Leg_Balance_Init(leg_balance_t *lb)
                     LEG_BALANCE_LEN_KP, 0.0f, LEG_BALANCE_LEN_KD, 0.0f, 0.0f);
     PID_struct_init(&lb->leg_len[1], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
                     LEG_BALANCE_LEN_KP, 0.0f, LEG_BALANCE_LEN_KD, 0.0f, 0.0f);
-    PID_struct_init(&lb->leg_ang[0], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
-                    LEG_BALANCE_ANG_KP, 0.0f, LEG_BALANCE_ANG_KD, 0.0f, 0.0f);
-    PID_struct_init(&lb->leg_ang[1], POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
-                    LEG_BALANCE_ANG_KP, 0.0f, LEG_BALANCE_ANG_KD, 0.0f, 0.0f);
-    PID_struct_init(&lb->leg_sym, POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
-                    LEG_BALANCE_SYM_KP, 0.0f, LEG_BALANCE_SYM_KD, 0.0f, 0.0f);
     PID_struct_init(&lb->roll, POSITION_PID, LEG_BALANCE_OUT_MAX, 0.0f,
                     LEG_BALANCE_ROLL_KP, 0.0f, LEG_BALANCE_ROLL_KD, 0.0f, 0.0f);
 }
@@ -25,7 +19,7 @@ void Leg_Balance_Init(leg_balance_t *lb)
 /* 清控制器历史与调试观测值 */
 void Leg_Balance_Reset(leg_balance_t *lb)
 {
-    pid_t *pid[6];
+    pid_t *pid[3];
     uint8_t i;
 
     if (lb == NULL)
@@ -34,11 +28,8 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     }
     pid[0] = &lb->leg_len[0];
     pid[1] = &lb->leg_len[1];
-    pid[2] = &lb->leg_ang[0];
-    pid[3] = &lb->leg_ang[1];
-    pid[4] = &lb->leg_sym;
-    pid[5] = &lb->roll;
-    for (i = 0u; i < 6u; i++)
+    pid[2] = &lb->roll;
+    for (i = 0u; i < 3u; i++)
     {
         memset(pid[i]->err, 0, sizeof(pid[i]->err));
         memset(pid[i]->set, 0, sizeof(pid[i]->set));
@@ -103,7 +94,7 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
     return 1u;
 }
 
-/* 腿长/防劈叉/横滚 PID + 力向量 + 雅可比映射 → 电机力矩 */
+/* 腿长/横滚 PID + 力向量 + 雅可比映射 → 电机力矩 */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             float dt, torque_output_t *torque)
@@ -127,14 +118,13 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                    st->leg_len_tgt[0], dt);
     (void)pid_calc(&lb->leg_len[1], leg_r->output.virtual_leg_length,
                    st->leg_len_tgt[1], dt);
-    (void)pid_calc(&lb->leg_sym, st->x[LQR_X_THL] - st->x[LQR_X_THR], 0.0f, dt);
     (void)pid_calc(&lb->roll, st->roll, 0.0f, dt);
 
     /* 2. 力向量: 轮扭矩/虚拟髋扭矩来自 LQR, 足端力来自腿长+横滚+前馈
      * Tp 取反: 本工程腿摆角与模型 θ_ll 反号, 广义力随之反号
      * (Leg_Force_Map_Forward(F,Tp) ≡ Leg_Tougue(F,-Tp)) */
-    Tp[0] = -(st->u[LQR_U_BL] + lb->leg_sym.pos_out);
-    Tp[1] = -(st->u[LQR_U_BR] - lb->leg_sym.pos_out);
+    Tp[0] = -st->u[LQR_U_BL];
+    Tp[1] = -st->u[LQR_U_BR];
     F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + LEG_BALANCE_F_FEEDFORWARD;
     F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + LEG_BALANCE_F_FEEDFORWARD;
     if (!lqr_debug.hip_enable)
@@ -149,57 +139,6 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     }
     wheel[0] = lqr_debug.wheel_enable ? st->u[LQR_U_WL] : 0.0f;
     wheel[1] = lqr_debug.wheel_enable ? st->u[LQR_U_WR] : 0.0f;
-
-    /* 3. 力域映射 + 限幅 */
-    return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, torque);
-}
-
-/* 手动腿测: 腿长 PID + 摆角 PD → 力向量 → 电机力矩, 轮零, 不用 IMU */
-uint8_t Leg_Balance_Manual(leg_balance_t *lb, const lqr_state_t *st,
-                           const leg_state_t *leg_l, const leg_state_t *leg_r,
-                           float dt, torque_output_t *torque)
-{
-    float Tp[2];
-    float F[2];
-    float wheel[2];
-
-    if (lb == NULL || st == NULL || leg_l == NULL || leg_r == NULL
-        || torque == NULL)
-    {
-        return 0u;
-    }
-    if (!leg_l->output.valid || !leg_r->output.valid)
-    {
-        return 0u;
-    }
-
-    /* 1. 腿长 PID + 摆角 PD */
-    (void)pid_calc(&lb->leg_len[0], leg_l->output.virtual_leg_length,
-                   st->leg_len_tgt[0], dt);
-    (void)pid_calc(&lb->leg_len[1], leg_r->output.virtual_leg_length,
-                   st->leg_len_tgt[1], dt);
-    (void)pid_calc(&lb->leg_ang[0], leg_l->output.virtual_leg_angle,
-                   st->leg_ang_tgt[0], dt);
-    (void)pid_calc(&lb->leg_ang[1], leg_r->output.virtual_leg_angle,
-                   st->leg_ang_tgt[1], dt);
-
-    /* 2. 力向量: Tp 不取反, 摆角 PD 直接作用在解算摆角坐标上; Tp 上限同 Leg2 自救 */
-    Tp[0] = clampf(lb->leg_ang[0].pos_out, -LEG_BALANCE_ANG_TP_MAX, LEG_BALANCE_ANG_TP_MAX);
-    Tp[1] = clampf(lb->leg_ang[1].pos_out, -LEG_BALANCE_ANG_TP_MAX, LEG_BALANCE_ANG_TP_MAX);
-    F[0] = lb->leg_len[0].pos_out + LEG_BALANCE_F_FEEDFORWARD;
-    F[1] = lb->leg_len[1].pos_out + LEG_BALANCE_F_FEEDFORWARD;
-    if (!lqr_debug.hip_enable)
-    {
-        Tp[0] = 0.0f;
-        Tp[1] = 0.0f;
-    }
-    if (!lqr_debug.len_pid_enable)
-    {
-        F[0] = LEG_BALANCE_F_FEEDFORWARD;
-        F[1] = LEG_BALANCE_F_FEEDFORWARD;
-    }
-    wheel[0] = 0.0f;
-    wheel[1] = 0.0f;
 
     /* 3. 力域映射 + 限幅 */
     return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, torque);

@@ -231,9 +231,9 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 
 ### 3.7 LQR 平衡模式
 
-actuationTask 里新增了策略仲裁：**左拨杆中位 = 手动腿测（右拨杆也在中位时 = LQR 平衡），上位 = 手动遥操/RL，下位 = 失能**。
+actuationTask 策略仲裁：**左拨杆中位 = LQR，上位 = 手动遥操/RL，下位 = 失能；右拨杆中位才投入当前模式输出**。
 
-手动腿测是 LQR 的前置：拨轮给腿长、左摇杆 Y 给虚拟腿摆角，走 LQR 同一套腿长 PID + 力域映射，轮零、IMU 只做观测、不用 K 表，用来先验证极性和雅可比（VOFA ch2 = 3；通道表以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准），见 `LQR_PLAN.md` §2.7 / §六 ⓪。
+手动腿测和 Sysid 测试路径已在 2026-09-24 清理；`LQR_PLAN.md` 中的对应章节保留为历史记录。
 
 LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只在 `task_actuation.c` 的策略分支交汇，彼此不直接调用。完整设计、参数来源、台架验证顺序与遗留项见 **[LQR_PLAN.md](LQR_PLAN.md)**。
 
@@ -243,7 +243,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 - LQR 模式不检查 `base_action_locked`，改查 `imu_state.online && leg_l.valid && leg_r.valid`
 - LQR 不满足条件时直接零力矩，**不自动降级**到别的策略
 - `lqr_debug` 可在调试器 Watch 中独立开关轮、髋、腿长 PID 并调整轮/髋限幅；不占 VOFA 通道
-- LQR 腿长/横滚/防劈叉 PID 参数与 Leg2_v1 同值（D 项已恢复）；腿长区间与投入下限按本机自标；符号/零点待台架，见 `LQR_PLAN.md` §六 ①
+- LQR 当前保留腿长/横滚 PID，防劈叉 PID 已移除；腿长区间按本机自标，符号/零点待台架，见 `LQR_PLAN.md` §六 ①
 
 ---
 

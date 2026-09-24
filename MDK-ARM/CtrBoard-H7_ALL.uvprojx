@@ -337,7 +337,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32H723xx,USE_PWR_LDO_SUPPLY</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../imcalib/user-lib;../imcalib/Algorithm;../imcalib/task/inc;../imcalib/Sysid;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
+              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../imcalib/user-lib;../imcalib/Algorithm;../imcalib/task/inc;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1416,21 +1416,6 @@
               <FileName>task_comm.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/task/task_comm.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>imcalib/Sysid</GroupName>
-          <Files>
-            <File>
-              <FileName>sysid_mode.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/Sysid/sysid_mode.c</FilePath>
-            </File>
-            <File>
-              <FileName>sysid_log.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/Sysid/sysid_log.c</FilePath>
             </File>
           </Files>
         </Group>

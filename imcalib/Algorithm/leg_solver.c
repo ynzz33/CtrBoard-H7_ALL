@@ -184,11 +184,6 @@ static uint8_t Leg_Solve_Velocity(leg_state_t *leg, const leg_solver_cache_t *ca
 /* 力矩映射: leg_jac 转置 → force_map */
 static void Leg_Solve_Force_Map(leg_state_t *leg)
 {
-    float tau_f_test;
-    float tau_b_test;
-    float force_test;
-    float torque_test;
-
     leg->output.force_map[0][0] = leg->output.leg_jac[0][0];
     leg->output.force_map[0][1] = leg->output.leg_jac[1][0];
     leg->output.force_map[1][0] = leg->output.leg_jac[0][1];
@@ -196,20 +191,6 @@ static void Leg_Solve_Force_Map(leg_state_t *leg)
     leg->output.force_det = leg->output.force_map[0][0] * leg->output.force_map[1][1]
                           - leg->output.force_map[0][1] * leg->output.force_map[1][0];
     leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);
-    if (!leg->output.force_valid)
-    {
-        return;
-    }
-
-    /* 自检: 给定力=1,力矩=0.5 反算误差 */
-    tau_f_test = leg->output.force_map[0][0] + 0.5f * leg->output.force_map[0][1];
-    tau_b_test = leg->output.force_map[1][0] + 0.5f * leg->output.force_map[1][1];
-    force_test =  ( leg->output.force_map[1][1] * tau_f_test
-                  - leg->output.force_map[0][1] * tau_b_test) / leg->output.force_det;
-    torque_test = (-leg->output.force_map[1][0] * tau_f_test
-                  + leg->output.force_map[0][0] * tau_b_test) / leg->output.force_det;
-    leg->output.force_test_error = fmaxf(fabsf(force_test - 1.0f),
-                                         fabsf(torque_test - 0.5f));
 }
 
 /* 虚拟力/力矩 → 电机力矩 */
@@ -262,40 +243,4 @@ uint8_t Leg_Solve(leg_state_t *leg)
     Leg_Solve_Force_Map(leg);
     leg->output.valid = 1u;
     return 1u;
-}
-
-/* Leg2_v1 Leg_Position 原样移植 (杆长写死), 只出腿长, 供 VOFA 对照 */
-float Leg_Position_Leg2(float phi1, float phi4)
-{
-    float a;
-    float b_a;
-    float t2;
-    float t3;
-    float t4;
-    float t5;
-    float t6;
-    float t8;
-    float t12;
-    float t13;
-    float root;
-
-    t2   = LEG_COSF(phi1);
-    t3   = LEG_COSF(phi4);
-    t4   = LEG_SINF(phi1);
-    t5   = LEG_SINF(phi4);
-    t6   = t2 * 0.13087f;
-    t8   = t4 * 0.13087f;
-    t12  = t2 * 0.0398891754f;
-    t13  = t3 * 0.0398891754f;
-    t2   = t6 - t3 * 0.13087f;
-    t3   = t8 - t5 * 0.13087f;
-    a    = t12 - t13;
-    b_a  = t4 * 0.0398891754f - t5 * 0.0398891754f;
-    t3   = t2 * t2 + t3 * t3;
-    root = Leg_Sqrtf((a * a + b_a * b_a) - t3 * t3);
-    t2   = atan2f((t5 * 0.0398891754f - t4 * 0.0398891754f) + root,
-                  (t13 - t12) + t3) * 2.0f;
-    t3   = t8 + LEG_SINF(t2) * 0.1524f;
-    t2   = t6 + LEG_COSF(t2) * 0.1524f;
-    return Leg_Sqrtf(t3 * t3 + t2 * t2);
 }

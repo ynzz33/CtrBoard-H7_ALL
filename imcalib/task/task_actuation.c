@@ -3,9 +3,6 @@
 #include "dm.h"
 #include "dji.h"
 #include "tim.h"
-#if 0   /* 测试模式暂不接入仲裁 (sysid_mode.c 自带 Dm_Send_*, 接入时改走 output_dispatch) */
-#include "../Sysid/sysid_mode.h"
-#endif
 
 /*
  * 输出任务三层结构 (作者 2026-09-22 定: 解算只算, 分发唯一):
@@ -16,12 +13,9 @@
  */
 
 static uint8_t lqr_running;     /* 已投入 */
-static uint8_t lqr_manual;      /* 手动腿测 */
 static uint8_t rl_engaged;      /* RL 已投入 */
 volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
 volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
-
-#define LQR_YAW_ONLY_TEST 0u    /* 0: 完整 LQR; 1: 仅偏航测试 */
 
 /* 输出初始化 */
 void output_task_init(void)
@@ -29,7 +23,7 @@ void output_task_init(void)
     HAL_TIM_Base_Start_IT(&htim6);
 }
 
-/* LQR / 手动腿测是否已投入 (供 VOFA) */
+/* LQR 是否已投入 */
 uint8_t output_task_lqr_engaged(void)
 {
     return lqr_running;
@@ -89,19 +83,13 @@ static ctrl_strategy_t strategy_from_remote(const rc_command_t *cmd)
     }
 }
 
-/* LQR / 手动腿测投入锁存: 前提齐全时使能沿锁腿长投入, 前提丢失退出; 返回是否已投入 */
-static uint8_t lqr_engage_update(uint8_t manual)
+/* LQR 投入锁存 */
+static uint8_t lqr_engage_update(void)
 {
     uint8_t ready;
 
-    if (manual != lqr_manual)
-    {
-        lqr_running = 0u;   /* 模式切换 */
-        lqr_manual = manual;
-    }
-
     ready = (uint8_t)(robot_state.motor_enabled
-                      && (manual || imu_state.online)
+                      && imu_state.online
                       && leg_l.output.valid && leg_r.output.valid);
     if (!ready)
     {
@@ -110,7 +98,7 @@ static uint8_t lqr_engage_update(uint8_t manual)
     else if (!lqr_running)
     {
         /* 使能沿: 锁腿长目标 (不查实测腿长, 同 Leg2) */
-        lqr_running = LQR_Enable_Latch(&lqr_state, &leg_l, &leg_r, manual);
+        lqr_running = LQR_Enable_Latch(&lqr_state, &leg_l, &leg_r);
         if (lqr_running)
         {
             Leg_Balance_Reset(&leg_balance);
@@ -130,31 +118,14 @@ static void lqr_idle(void)
 /* LQR 平衡: 目标 → 状态反馈 → 腿部力控 */
 static void solve_lqr(torque_output_t *torque)
 {
-    (void)LQR_Target_Update(&lqr_state, &rc_command, CTRL_DT, 0u);
+    (void)LQR_Target_Update(&lqr_state, &rc_command, CTRL_DT);
     if (!lqr_state.valid)
     {
         return;
     }
-#if LQR_YAW_ONLY_TEST
-    LQR_Control_Update_Yaw_Only(&lqr_state);
-    torque->dji[DJI_MOTOR_WHEEL_LFT] = lqr_debug.wheel_enable
-        ? lqr_state.u[LQR_U_WL] : 0.0f;
-    torque->dji[DJI_MOTOR_WHEEL_RGT] = lqr_debug.wheel_enable
-        ? lqr_state.u[LQR_U_WR] : 0.0f;
-    torque->valid = 1u;
-#else
     LQR_Control_Update(&lqr_state);
     torque->valid = Leg_Balance_Compute(&leg_balance, &lqr_state, &leg_l, &leg_r,
                                         CTRL_DT, torque);
-#endif
-}
-
-/* 手动腿测: 摇杆 → 腿长/摆角目标 → PID → 力域映射 (轮零) */
-static void solve_lqr_manual(torque_output_t *torque)
-{
-    (void)LQR_Target_Update(&lqr_state, &rc_command, CTRL_DT, 1u);
-    torque->valid = Leg_Balance_Manual(&leg_balance, &lqr_state, &leg_l, &leg_r,
-                                       CTRL_DT, torque);
 }
 
 /* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 动作可用 (手动基准已锁 / 推理就绪) */
@@ -198,27 +169,11 @@ void output_task_body(void)
 
     switch (strategy)
     {
-#if 0   /* 测试模式暂不接入仲裁 */
-    case CTRL_STRATEGY_SYSID:
-        lqr_running = 0u;
-        Sysid_Mode_Run();
-        return;                     /* sysid 自己下发, 不走 dispatch */
-#endif
-
     case CTRL_STRATEGY_LQR:
-    case CTRL_STRATEGY_LQR_MANUAL:
     {
-        uint8_t manual = (uint8_t)(strategy == CTRL_STRATEGY_LQR_MANUAL);
-        if (rc_command.s2 == DR16_SW_MID && lqr_engage_update(manual))
+        if (rc_command.s2 == DR16_SW_MID && lqr_engage_update())
         {
-            if (manual)
-            {
-                solve_lqr_manual(&torque);
-            }
-            else
-            {
-                solve_lqr(&torque);
-            }
+            solve_lqr(&torque);
         }
         else
         {

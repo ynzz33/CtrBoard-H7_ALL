@@ -21,7 +21,7 @@ switch CFG.machine
     case 'local'
         %    位移   速度  偏航角     左摆角         右摆角       pitch
         %      s     ds   phi  dphi th_ll dth_ll th_lr dth_lr th_b  dth_b
-        q = [16000, 1200, 1000, 870, 3500,  365,  3500,  365, 2000, 1500];   % Leg2 mlx 生效组 = 板上现表
+        q = [16000, 1200, 1000, 870, 11000,  250,  11000,  250, 7000, 500];   % Leg2 mlx 生效组 = 板上现表
         r = [5480, 5480, 650, 650];                                          % T_wl T_wr T_bl T_br
     case 'chuanliantui'
         q = [600, 1000, 5000, 80, 15, 2, 15, 2, 90000, 500];                 % 旧脚本 lqr_numeric.m, 未上过板

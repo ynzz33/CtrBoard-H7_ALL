@@ -41,7 +41,6 @@ enum {
 #define LQR_RC_VEL_MAX      1.2f    /* m/s */
 #define LQR_RC_YAW_MAX      5.0f    /* rad/s */
 #define LQR_RC_LEN_RATE     0.3f    /* m/s */
-#define LQR_RC_ANG_MAX      0.5f    /* rad, 手动腿测满杆 */
 
 typedef struct {
     float   vel_leg_comp_sign; /* 速度补偿 */
@@ -52,7 +51,6 @@ typedef struct {
     float   vel_ramp;          /* 速度目标斜坡 m/s^2 (0 = 不斜坡, 阶跃) */
     float   acc_fwd_sign;      /* 前向加速度符号 */
     float   pitch_comp_sign;   /* 轮速补偿俯仰项符号 */
-    float   pitch_off;         /* 俯仰零偏 rad */
     float   pos_arm_vel;       /* 松杆后车速低于此才积位移 m/s (0 = 立即) */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
@@ -71,20 +69,17 @@ typedef struct {
     float len_eval[2];              /* 上次增益求值腿长 */
     float whl[2];                   /* 轮对地角速度 (调试) */
     uint8_t valid;                  /* 状态估计有效 */
-    float ds_alt;                   /* 补偿符号取反的速度估计 (台架对照, 定后删) */
     float ds_raw;                   /* 运动学速度 (未滤波) */
     float ds_lpf;                   /* 低通速度 */
     float ds_kf;                    /* 卡尔曼速度 */
     float a_fwd;                    /* 前向加速度 m/s² */
     float leg_len_tgt[2];           /* 腿长目标 */
-    float leg_ang_tgt[2];           /* 腿摆角目标 (手动腿测) */
     float pos;                      /* 位移积分 */
     uint8_t pos_armed;              /* 位移积分已启动 */
     float yaw_tgt;                  /* 偏航角目标 */
     float vel_tgt;                  /* 速度目标 (斜坡后) */
     float roll;                     /* 机体横滚角 */
     lowpass1d_t lpf_vel;            /* 速度低通 */
-    lowpass1d_t lpf_vel_alt;        /* 对照速度低通 */
     lowpass1d_t lpf_omg_pitch;      /* 俯仰角速度低通 */
     lowpass1d_t lpf_omg_yaw;        /* 偏航角速度低通 */
     kalman_accel_t kf_vel;          /* 速度卡尔曼 */
@@ -94,13 +89,11 @@ extern lqr_debug_t lqr_debug;
 
 void    LQR_Init(lqr_state_t *st);
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
-                         const leg_state_t *leg_r, uint8_t manual);
-uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt,
-                          uint8_t manual);
+                         const leg_state_t *leg_r);
+uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt);
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt);
 void    LQR_Control_Update(lqr_state_t *st);
-void    LQR_Control_Update_Yaw_Only(lqr_state_t *st);
 
 #endif

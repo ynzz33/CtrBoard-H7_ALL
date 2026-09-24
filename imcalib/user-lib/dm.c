@@ -1,9 +1,5 @@
 #include "dm.h"
 #include "machine_config.h"
-#include "sysid_config.h"
-#if SYSID_ENABLE
-#include "mono_ns.h"
-#endif
 #include <string.h>
 #include <math.h>
 
@@ -94,9 +90,6 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
     }
     (void)id;
 
-#if SYSID_ENABLE
-    feedback->rx_ns = Mono_Ns_Get();    /* 到达时刻 */
-#endif
 
     for (uint8_t i = 0; i < 8u; i++)
     {

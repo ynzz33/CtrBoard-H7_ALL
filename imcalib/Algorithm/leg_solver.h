@@ -47,7 +47,6 @@ typedef struct {
     float leg_jac[2][2];            /* 腿雅可比 */
     float force_map[2][2];          /* 力矩映射 */
     float force_det;
-    float force_test_error;
     uint8_t force_valid;
     uint8_t valid;
 } leg_output_t;
@@ -77,6 +76,5 @@ void Leg_Init(leg_state_t *leg);
 uint8_t Leg_Solve(leg_state_t *leg);
 uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
                               float torque, float output[2]);
-float   Leg_Position_Leg2(float phi1, float phi4);
 
 #endif

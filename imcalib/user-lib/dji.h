@@ -48,7 +48,6 @@ typedef struct {
     volatile uint8_t raw_pending;
     uint8_t          angle_pending;
     volatile uint32_t last_rx_tick;
-    uint64_t         rx_ns;             /* 到达时刻 */
 } dji_motor_feedback_t;
 
 extern const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM];

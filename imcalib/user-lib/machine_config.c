@@ -3,7 +3,7 @@
 /* 两份电机配置表: 换机器改 machine_config.h 的 MACHINE_DEFAULT */
 const machine_cfg_t machine_table[MACHINE_NUM] = {
     [MACHINE_ID_CHUANLIANTUI] = {
-        .name           = "chuanliantui",
+        .name           = "big-wheelleg",
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = 15.5f,                       /* 转子→轮子总减速比 */
         .dji_trq_clamp  = 3.9f,                        /* 对齐训练侧轮关节力矩限幅 */
@@ -47,7 +47,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         },
     },
     [MACHINE_ID_LOCAL] = {
-        .name           = "local-m2006-j4310",
+        .name           = "little-wheelleg",
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,
         .dji_trq_clamp  = 1.8f,                        /* 满限幅 = 0.18 Nm/A × 10A */

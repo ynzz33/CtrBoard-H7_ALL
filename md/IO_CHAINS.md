@@ -1,5 +1,7 @@
 # 输入输出链路总览
 
+> 2026-09-24：Sysid、手动腿测、仅偏航测试已删除。下文若有旧测试阶段描述，以当前代码为准。
+
 > 最后更新：2026-09-21
 > 本文档记录各传感器/执行器的完整数据链路，从硬件到消费端。
 
@@ -270,10 +272,6 @@ task_policy.c (手动遥操, 左拨杆上位):
   wheel  → shank 偏移 (×4.0 叠加 base_action)
   ch1    → wheel 速度 (×4.0 直接赋值, 宽死区100)
 
-lqr_balance.c (手动腿测, 左拨杆中位 + 右拨杆非中位):
-  ch3    → 虚拟腿摆角目标 (±0.5 rad, 直接给)
-  wheel  → 腿长目标 (0.3 m/s 积分, 机器区间)
-
 lqr_balance.c (LQR, 左拨杆中位 + 右拨杆中位):
   ch1    → 前后速度, ch0 → 偏航角速度 (两偏航列默认不参与, 变更 83), wheel → 腿长目标 (机器区间 ∩ K 表域)
 ```
@@ -288,7 +286,7 @@ lqr_balance.c (LQR, 左拨杆中位 + 右拨杆中位):
 | ch3 | 摇杆左Y | ±660 | 前进/后退 |
 | wheel | 左侧拨轮 | ±660 | 高度/大腿偏移 |
 | s1 | 左拨杆 | 1/2/3 | 使能控制 |
-| s2 | 右拨杆 | 1/2/3 | 左中位时选 LQR / 手动腿测 |
+| s2 | 右拨杆 | 1/2/3 | 中位投入当前模式；其他位零力矩 |
 | mx/my/mz | 鼠标 | int16 | (未用) |
 | ml/mr | 鼠标键 | 0/1 | (未用) |
 | key | 键盘 | uint16 | (未用) |
@@ -301,7 +299,7 @@ lqr_balance.c (LQR, 左拨杆中位 + 右拨杆中位):
 | s1 DOWN | 2 | 失能 (rc_enable=0) |
 | s1 MID | 3 | 使能 |
 | s1 UP | 1 | 使能 |
-| s2 | — | 右拨杆：左拨杆中位时，中位 = LQR、其余 = 手动腿测；`SYSID_ENABLE=1` 时左上 + 右中 = 测试模式 |
+| s2 | — | 中位投入当前模式；其他位零力矩 |
 
 **关键函数:**
 
@@ -572,7 +570,7 @@ rl_observation_state_t:
 
 ## 8. LQR 平衡链路（task_actuation 内，@1kHz）
 
-左拨杆中位 = 选 LQR，右拨杆中位 = 投入出力（其他位零力矩）；**手动腿测**当前无遥控入口（同一套腿长 PID + 力域映射，Tp 来自摆角 PD，轮零、IMU 仅观测，见 [LQR_PLAN.md](LQR_PLAN.md) §2.7）。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
+左拨杆中位 = 选 LQR，右拨杆中位 = 投入出力（其他位零力矩）。全部计算在 `actuationTask` 里完成，只读其它任务的共享状态。
 
 ```
 imu_state (pitch/roll/yaw/gyro)    leg_l / leg_r (Leg_Solve 输出)
@@ -594,7 +592,7 @@ motor_state.dji.vel_rad_s          rc_command (commTask 已解算)
                        │
                        ▼
               Leg_Balance_Compute()
-              腿长PID + 防劈叉PID + 横滚PID → 足端力 F
+              腿长PID + 横滚PID → 足端力 F；LQR 髋扭矩取反得到 Tp
               Leg_Force_Map_Forward(&leg, F, Tp) → 前/后髋力矩
               lqr_debug 通道门 + 限幅 → torque_output_t
                        │
@@ -605,7 +603,7 @@ motor_state.dji.vel_rad_s          rc_command (commTask 已解算)
 **分层**（作者 2026-09-21 定）：解算与估计每拍都算（同 RL 观测），控制律只在对应挡位算，出力只在使能 + 解算有效 + 投入时发；投入瞬间只清位移积分，低通滤波器常跑不复位。
 
 **状态索引**：`[s, ds, φ, dφ, θ_ll, dθ_ll, θ_lr, dθ_lr, θ_b, dθ_b]`，与数学建模一致；φ / dφ / s 三列由 `lqr_debug.yaw_hold / yaw_rate_hold / pos_hold` 开关。
-**俯仰零偏**：`pitch = euler[PITCH] − lqr_debug.pitch_off`（变更 96，默认 0），同一 pitch 进 θ_b 与两腿世界系摆角。
+**俯仰角**：`pitch = euler[PITCH]`，同一 pitch 进 θ_b 与两腿世界系摆角；当前无额外 `pitch_off`。
 **位移积分**：速度目标非 0 清零撤防；目标回 0 且 |ds| < `lqr_debug.pos_arm_vel` 才启动（默认 0 = 立即），`lqr_state.pos_armed` 可看。
 **腿摆角世界系**：`−virtual_leg_angle + pitch`；**角速度**同理 `−d_virtual_leg_angle + omg_pitch`。
 （本工程解算腿角前摆为正，数学模型 θ_ll 前摆为负，**整体取反后再加 pitch**；髋扭矩同步取反，详见 [LQR_PLAN.md](LQR_PLAN.md) §3.1）
