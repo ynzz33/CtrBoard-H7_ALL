@@ -39,7 +39,7 @@ void Action_State_Clear(void)
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
-    torque_output_enabled = 1u;   /* dispatch 仍只放行 RL 投入路径 */
+    torque_output_enabled = 1u;
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
@@ -66,7 +66,7 @@ void Robot_Control_Init(void)
     RL_Policy_Reset(&rl_control.policy);
     RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
     RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
-    rl_control.infer_enable = 1u;   /* RL 推理: 0 手动遥操 1 推理 (开之前先把总输出置 0 看方向) */
+    rl_control.infer_enable = 0u;   /* RL 推理: 0 手动遥操 1 推理 */
     rl_control.infer_phase = 0u;
     Action_State_Clear();
 

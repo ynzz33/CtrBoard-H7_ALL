@@ -18,7 +18,7 @@
 
 /* 站立目标 */
 #define LQR_POS_TARGET      (-0.0f)
-#define LQR_LEG_ANG_TARGET  (-0.0f)
+#define LQR_LEG_ANG_TARGET  (0.09f)
 #define LQR_LEG_LEN_INIT    0.14f    /* 投入腿长目标 */
 
 

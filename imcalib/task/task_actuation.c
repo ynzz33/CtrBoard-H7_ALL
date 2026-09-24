@@ -21,7 +21,7 @@ static uint8_t rl_engaged;      /* RL 已投入 */
 volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
 volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
 
-#define LQR_YAW_ONLY_TEST 1u    /* 临时隔离测试: 仅 yaw 反馈驱动轮子 */
+#define LQR_YAW_ONLY_TEST 0u    /* 0: 完整 LQR; 1: 仅偏航测试 */
 
 /* 输出初始化 */
 void output_task_init(void)
@@ -45,12 +45,7 @@ uint8_t output_task_rl_engaged(void)
 /* valid=0 或总输出关 → 零力矩; 否则原样下发 (各路限幅已在控制器内做, 极性在驱动边界做) */
 static void output_dispatch(const torque_output_t *torque)
 {
-    if (!torque->valid || !torque_output_enabled
-        || ctrl_strategy != CTRL_STRATEGY_MANUAL
-        || !rl_control.infer_enable
-        || !action_state.rl_ready
-        || !output_task_rl_engaged()
-       )
+    if (!torque->valid || !torque_output_enabled)
     {
         output_debug_dm_sent = 0u;
         output_debug_dji_sent = 0u;

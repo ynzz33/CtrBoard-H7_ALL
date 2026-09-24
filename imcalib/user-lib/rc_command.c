@@ -32,7 +32,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc)
         return;
     }
     cmd->vel = Rc_Axis(rc->ch1, RC_DEADBAND_VEL);
-    cmd->yaw = Rc_Axis(rc->ch0, RC_DEADBAND_YAW);
+    cmd->yaw = -Rc_Axis(rc->ch0, RC_DEADBAND_YAW);
     cmd->len = Rc_Axis(rc->wheel, RC_DEADBAND_LEN);
     cmd->ang = Rc_Axis(rc->ch3, RC_DEADBAND_ANG);
     cmd->s1 = rc->s1;

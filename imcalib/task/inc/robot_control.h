@@ -14,7 +14,7 @@
 #include "lqr_balance.h"
 #include "leg_balance.h"
 
-#define CTRL_DT 0.002f   /* actuationTask 500 Hz (TIM6), 同训练 PD 内环 */
+#define CTRL_DT 0.001f   /* actuationTask 1 kHz (TIM6) */
 
 /* 控制策略 */
 typedef enum {

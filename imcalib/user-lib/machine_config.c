@@ -74,8 +74,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* IMU */
         .imu = {
             .eul_src   = {1, 0, 2},
-            .eul_sign  = {-1,-1, +1},
-            .gyr_sign  = {-1,-1, +1},
+            .eul_sign  = {-1,-1, -1},
+            .gyr_sign  = {-1,-1, -1},
             .acc_sign  = {-1, 1, -1},
             .quat_src  = {0, 1, 2},
             .quat_sign = {-1, 1, -1},

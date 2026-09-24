@@ -213,10 +213,10 @@ CtrBoard-H7_ALL/
 ## 关键约束
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
-- **控制频率**：actuationTask **500 Hz**（TIM6 Prescaler=274 / Period=1999，`CTRL_DT=0.002f`；变更 96 为对齐训练 PD 内环从 1 kHz 改回）。LQR、手动遥操、RL 共用该节拍
+- **控制频率**：actuationTask **1 kHz**（TIM6 Prescaler=274 / Period=999，`CTRL_DT=0.001f`；2026-09-24 切回小机器）。LQR、手动遥操、RL 共用该节拍
 - **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集，只夹拨轮目标；投入不查实测腿长（同 Leg2，变更 92），趴地投入靠腿长 PID 撑起
 - **LQR 辅助 PID**：腿长/防劈叉/横滚 KP/KD 与 Leg2_v1 同值（1000/50000、30/500、500/100，按 1 kHz 照抄；变更 96 节拍改 500 Hz 后 D 项等效翻倍，再上 LQR 时待作者定：TIM6 回 1 kHz 或 KD 折半）；投入时会清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
-- **FDCAN**：1Mbps = Prescaler=12, Seg1=17, Seg2=2
+- **FDCAN**：HSE 24 MHz，仲裁段 1 Mbps = Prescaler=3, Seg1=5, Seg2=2；当前发送经典 CAN 帧
 - **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换；取轴与符号来自机器表 `machine->imu`（`task_imu.c` 应用），驱动 `hi229.c/h` 只出原始值
 - **标定**：500ms (200ms 暖机 + 300ms 采样)
