@@ -6,19 +6,7 @@
 
 #include <string.h>
 
-/*
- * 策略任务两条路径 (rl_control.infer_enable 切换, 默认 0):
- *   0 手动遥操: 摇杆偏移当动作 (旧路径, 对照用)
- *   1 推理:     RL 投入 (左上 + 右中 + 使能) → 预热 RL_WARMUP_STEPS 步零动作 (PD + 历史照跑)
- *               → networkzn1 推理; 未投入 / 观测无效 / 推理失败 → 零动作且 rl_ready=0 (零力矩)
- * 观测关节 = 固件角经机器表 .rl 映射到训练关节; 发布的动作 = 训练动作乘同一 sign 回固件关节
- */
-
-#define MANUAL_ACTION_SCALE 4.0f
-
-static uint8_t base_locked;
-static uint8_t was_enabled;
-static float base_action[RL_ACTION_SIZE];
+/* 选中 RL 后预热，再运行 networkzn1 推理；观测无效时发布零动作。 */
 static uint16_t warmup_cnt;     /* 预热计数 */
 
 /* 检查电机 */
@@ -108,82 +96,12 @@ static void RL_Observation_Preview(const float command[3])
 }
 
 /* 发布动作 (固件关节空间) */
-static void RL_Action_Publish(const float action[RL_ACTION_SIZE],
-                              uint8_t manual_locked, uint8_t rl_ready)
+static void RL_Action_Publish(const float action[RL_ACTION_SIZE], uint8_t rl_ready)
 {
     memcpy(action_state.a, action, sizeof(action_state.a));
     action_state.updated = 1u;
     action_state.last_ok_tick = HAL_GetTick();
-    action_state.base_action_locked = manual_locked;
     action_state.rl_ready = rl_ready;
-}
-
-/*
- * 使能边沿立刻锁存当前角度作为 base_action
- * 不再等待200ms，因为锁存前不输出力矩，腿不会偏移
- */
-static void Manual_Lock_On_Enable(void)
-{
-    const rl_torque_param_t *param;
-
-    if (robot_state.motor_enabled && !was_enabled)
-    {
-        if (leg_l.output.valid && leg_r.output.valid)
-        {
-            param = &rl_control.torque_param[rl_control.policy.selected_model];
-            base_action[0] = (leg_l.input.hip_f - param->dof_pos[0]) * 2.0f;
-            base_action[1] = (leg_l.output.virtual_shank_angle - param->dof_pos[1]) * 2.0f;
-            base_action[2] = 0.0f;
-            base_action[3] = (leg_r.input.hip_f - param->dof_pos[3]) * 2.0f;
-            base_action[4] = (leg_r.output.virtual_shank_angle - param->dof_pos[4]) * 2.0f;
-            base_action[5] = 0.0f;
-            base_locked = 1u;
-        }
-        else
-        {
-            base_locked = 0u;
-        }
-    }
-    else if (!robot_state.motor_enabled)
-    {
-        base_locked = 0u;
-    }
-    was_enabled = robot_state.motor_enabled;
-}
-
-/*
- * 统一遥控处理: 更新 input_command + 手动偏移叠加
- * 指令由 commTask 的 Rc_Command_Update() 解算, 此处只读
- */
-static void Remote_Command_Apply(float action[RL_ACTION_SIZE])
-{
-    float stick_thigh;
-    float stick_shank;
-    float stick_wheel;
-
-    if (!rc_command.online)
-    {
-        return;
-    }
-
-    /* RL obs 指令 */
-    input_command.vx_cmd     = rc_command.vel * REMOTE_COMMAND_SCALE;
-    input_command.yaw_cmd    = rc_command.yaw * REMOTE_COMMAND_SCALE;
-    input_command.height_cmd = rc_command.len * REMOTE_COMMAND_SCALE;
-
-    /* 手动偏移叠加 */
-    if (base_locked)
-    {
-        stick_thigh = rc_command.ang * MANUAL_ACTION_SCALE;
-        stick_shank = rc_command.len * MANUAL_ACTION_SCALE;
-        stick_wheel = rc_command.vel * MANUAL_ACTION_SCALE;
-        action[0] = base_action[0] + stick_thigh;
-        action[1] = base_action[1] + stick_shank;
-        action[2] = stick_wheel;
-        action[3] = base_action[3] + stick_thigh;
-        action[4] = base_action[4] + stick_shank;
-        action[5] = stick_wheel;
-    }
 }
 
 /* 遥控 → 策略指令: 前进 / 转向 / 高度 (范围 RL_CMD_*; 转向右推为负, 同 LQR) */
@@ -227,9 +145,8 @@ static void RL_Infer_Body(void)
     if (!output_task_rl_engaged())
     {
         warmup_cnt = 0u;
-        rl_control.infer_phase = 0u;
         RL_Observation_Preview(command);
-        RL_Action_Publish(action, 0u, 0u);
+        RL_Action_Publish(action, 0u);
         return;
     }
 
@@ -237,22 +154,19 @@ static void RL_Infer_Body(void)
     {
         /* 观测无效: 重新预热, 零力矩 */
         warmup_cnt = 0u;
-        rl_control.infer_phase = 0u;
-        RL_Action_Publish(action, 0u, 0u);
+        RL_Action_Publish(action, 0u);
         return;
     }
 
     if (warmup_cnt < RL_WARMUP_STEPS)
     {
         warmup_cnt++;
-        rl_control.infer_phase = 1u;
     }
     else
     {
-        rl_control.infer_phase = 2u;
         if (!RL_Policy_Run(&rl_control.policy, &rl_control.observation, action_t))
         {
-            RL_Action_Publish(action, 0u, 0u);   /* 推理失败 */
+            RL_Action_Publish(action, 0u);   /* 推理失败 */
             return;
         }
         RL_Action_Clip(action_t);
@@ -263,7 +177,7 @@ static void RL_Infer_Body(void)
     {
         action[i] = (float)map->sign[i] * action_t[i];   /* 训练 → 固件 */
     }
-    RL_Action_Publish(action, 0u, 1u);
+    RL_Action_Publish(action, 1u);
 }
 
 /* 策略初始化 */
@@ -275,22 +189,5 @@ void ctrl_task_init(void)
 /* 策略单周期 */
 void ctrl_task_body(void)
 {
-    float action[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-    float command[3];
-
-    if (rl_control.infer_enable)
-    {
-        RL_Infer_Body();
-        return;
-    }
-
-    /* 手动遥操 (旧路径) */
-    Manual_Lock_On_Enable();
-    Remote_Command_Apply(action);
-    command[0] = input_command.vx_cmd;
-    command[1] = input_command.yaw_cmd;
-    command[2] = input_command.height_cmd;
-    (void)RL_Control_Update_Observation(command);
-    RL_Observation_Set_Last_Action(&rl_control.observation, action);
-    RL_Action_Publish(action, base_locked, 0u);
+    RL_Infer_Body();
 }

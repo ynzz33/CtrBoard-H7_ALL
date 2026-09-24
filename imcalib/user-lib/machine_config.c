@@ -82,9 +82,9 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         },
         /* RL 关节映射: 模型对应大机器, 小机器未配置 */
         .rl = {
-            .sign       = {0, 0, 0, 0, 0, 0},
-            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
-            .configured = 0u,
+            .sign       = {-1, -1, -1, 1, 1, 1},
+            .zero       = {2.476872f, 3.086386f, 2.476872f, 3.086386f},
+            .configured = 1u,
         },
     },
 };

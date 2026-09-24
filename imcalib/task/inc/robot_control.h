@@ -13,12 +13,13 @@
 #include "rl_torque.h"
 #include "lqr_balance.h"
 #include "leg_balance.h"
+#include "machine_config.h"
 
-#define CTRL_DT 0.001f   /* actuationTask 1 kHz (TIM6) */
+#define CTRL_DT MACHINE_CTRL_DT
 
 /* 控制策略 */
 typedef enum {
-    CTRL_STRATEGY_MANUAL = 0,   /* 手动遥操 / RL */
+    CTRL_STRATEGY_RL = 0,       /* RL 推理 */
     CTRL_STRATEGY_LQR,          /* LQR 平衡 */
     CTRL_STRATEGY_DISABLE,      /* 左下 / 离线 */
 } ctrl_strategy_t;
@@ -52,7 +53,6 @@ typedef struct {
     float a[RL_ACTION_SIZE];
     uint32_t last_ok_tick;
     uint8_t updated;
-    uint8_t base_action_locked;     /* 手动基准已锁 */
     uint8_t rl_ready;               /* 推理动作可用 */
 } action_state_t;
 
@@ -74,8 +74,6 @@ typedef struct {
     rl_policy_t policy;
     rl_torque_param_t torque_param[RL_MODEL_COUNT];
     rl_torque_state_t torque_state;
-    uint8_t infer_enable;           /* 0 手动遥操 1 推理 */
-    uint8_t infer_phase;            /* 0 未投入 1 预热 2 推理 */
 } rl_control_state_t;
 
 typedef struct {

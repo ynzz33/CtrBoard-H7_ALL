@@ -31,7 +31,6 @@ void Action_State_Clear(void)
     memset(action_state.a, 0, sizeof(action_state.a));
     action_state.last_ok_tick = 0u;
     action_state.updated = 0u;
-    action_state.base_action_locked = 0u;
     action_state.rl_ready = 0u;
 }
 
@@ -66,13 +65,11 @@ void Robot_Control_Init(void)
     RL_Policy_Reset(&rl_control.policy);
     RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
     RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
-    rl_control.infer_enable = 0u;   /* RL 推理: 0 手动遥操 1 推理 */
-    rl_control.infer_phase = 0u;
     Action_State_Clear();
 
     LQR_Init(&lqr_state);
     Leg_Balance_Init(&leg_balance);
-    ctrl_strategy = CTRL_STRATEGY_MANUAL;
+    ctrl_strategy = CTRL_STRATEGY_RL;
 }
 
 /* 切换模型 */

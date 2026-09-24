@@ -21,7 +21,7 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
-
+#include "machine_config.h"
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim1;
@@ -207,7 +207,7 @@ void MX_TIM6_Init(void)
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 274;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 999;
+  htim6.Init.Period = 1999;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
@@ -220,7 +220,8 @@ void MX_TIM6_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM6_Init 2 */
-
+  htim6.Init.Period = MACHINE_TIM6_PERIOD;
+  __HAL_TIM_SET_AUTORELOAD(&htim6, htim6.Init.Period);
   /* USER CODE END TIM6_Init 2 */
 
 }

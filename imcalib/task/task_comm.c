@@ -216,7 +216,6 @@ static void Robot_Control_Send_Vofa(void)
     rl_bits |= rl_control.observation.history_ready ? 0x02u : 0x00u;
     rl_bits |= action_state.rl_ready ? 0x04u : 0x00u;
     rl_bits |= output_task_rl_engaged() ? 0x08u : 0x00u;
-    rl_bits |= (uint32_t)rl_control.infer_phase << 4;
     rl_bits |= rl_control.observation.valid ? 0x40u : 0x00u;
     rl_bits |= machine->rl.configured ? 0x80u : 0x00u;
     rl_bits |= (rl_control.policy.run_fail & 0xFFu) << 8;

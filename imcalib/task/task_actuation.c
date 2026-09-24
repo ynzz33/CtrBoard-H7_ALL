@@ -65,7 +65,7 @@ static void output_dispatch(const torque_output_t *torque)
 }
 
 /* ================= 模式与投入 ================= */
-/* 左拨杆 → 模式: 上 = RL, 中 = LQR, 下 / 离线 = 失能 (右拨杆中位 = 投入, 在 output_task_body 判) */
+/* 左拨杆选模式，上 = RL 推理，中 = LQR；右拨杆中位才投入 */
 static ctrl_strategy_t strategy_from_remote(const rc_command_t *cmd)
 {
     if (!cmd->online)
@@ -77,7 +77,7 @@ static ctrl_strategy_t strategy_from_remote(const rc_command_t *cmd)
     case DR16_SW_MID:
         return CTRL_STRATEGY_LQR;
     case DR16_SW_UP:
-        return CTRL_STRATEGY_MANUAL;
+        return CTRL_STRATEGY_RL;
     default:
         return CTRL_STRATEGY_DISABLE;
     }
@@ -128,14 +128,14 @@ static void solve_lqr(torque_output_t *torque)
                                         CTRL_DT, torque);
 }
 
-/* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 动作可用 (手动基准已锁 / 推理就绪) */
+/* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 推理动作可用 */
 static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
 {
     float wheel_vel_rl[2];
 
     if (!(robot_state.rc_enable && robot_state.motor_enabled
           && leg_l.output.valid && leg_r.output.valid
-          && (action_state.base_action_locked || action_state.rl_ready)))
+          && action_state.rl_ready))
     {
         return;
     }
@@ -182,7 +182,7 @@ void output_task_body(void)
         break;
     }
 
-    case CTRL_STRATEGY_MANUAL:
+    case CTRL_STRATEGY_RL:
         lqr_running = 0u;
         rl_engaged = (uint8_t)(rc_command.s2 == DR16_SW_MID && robot_state.motor_enabled);
         if (rl_engaged)

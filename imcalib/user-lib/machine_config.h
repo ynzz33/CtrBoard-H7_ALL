@@ -12,8 +12,22 @@
 #define MACHINE_LEG_NUM           4u
 #define MACHINE_WHEEL_NUM         2u
 
-/* 上电默认机器: 换机器改这一行 */
+/* 上电默认机器: 切换大/小轮腿只改这一行 */
+#ifndef MACHINE_DEFAULT
 #define MACHINE_DEFAULT           MACHINE_ID_LOCAL
+#endif
+
+#if MACHINE_DEFAULT == MACHINE_ID_CHUANLIANTUI
+#define MACHINE_TIM6_PERIOD       1999u   /* 500 Hz */
+#define MACHINE_CTRL_DT           0.002f
+#define MACHINE_VOFA_PORT         1u      /* USART1 */
+#elif MACHINE_DEFAULT == MACHINE_ID_LOCAL
+#define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
+#define MACHINE_CTRL_DT           0.001f
+#define MACHINE_VOFA_PORT         8u      /* UART8 */
+#else
+#error "Unsupported MACHINE_DEFAULT"
+#endif
 
 /* 一路电机的极性 */
 typedef struct {

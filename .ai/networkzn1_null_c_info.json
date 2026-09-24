@@ -800,44 +800,44 @@
   ],
   "environment": {
     "generated_model": {
-      "generated_time": "2026-09-23T19:10:39+0800",
+      "generated_time": "2026-09-24T22:15:29+0800",
       "model_files": [
         {
           "name": "networkzn1_data_params.h",
-          "signature": "0xfbede390460310b0429a7c58cf172d86"
+          "signature": "0x9927690274fc6c76c14312bceccdeff8"
         },
         {
           "name": "networkzn1_data_params.c",
-          "signature": "0xe6d35d57ac9cb76b7c10057c314afbaf"
+          "signature": "0x5dea9ef06ae110bf2d54f06534a3d7ca"
         },
         {
           "name": "networkzn1_data.h",
-          "signature": "0x64df836b0f1b3f7e588bb325b387b875"
+          "signature": "0xbe87a665a282c5e02d0a774e2195d6e2"
         },
         {
           "name": "networkzn1_data.c",
-          "signature": "0x0ee1617b2d5092d66ad4629da5ffd3a4"
+          "signature": "0xd64e6fa614ef5e9712701a485b9c4edc"
         },
         {
           "name": "networkzn1_config.h",
-          "signature": "0xe7aaf0a3f47c8e6cd05eecba5bd8cd5c"
+          "signature": "0x86c7c5d08858faccdd63a2b9ffd4f9bf"
         },
         {
           "name": "networkzn1.h",
-          "signature": "0x4884c3ee3af808284d66a9ad05754195"
+          "signature": "0x29983d26a8ada2391f5da801dab2180f"
         },
         {
           "name": "networkzn1.c",
-          "signature": "0x75ce7fbda1aebc4a9dfbef2a010906f9"
+          "signature": "0x67375f65846e9e3ab3b85be441b3a293"
         }
       ],
       "name": "networkzn1"
     },
-    "network_signature": "0x208d18f33e4f747c",
+    "network_signature": "0x6f137f46d9e4d8c9",
     "test_name": "",
     "tools": [
       {
-        "arguments": "generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_6000_h723.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace3178321996700012303232318703482973 --output C:/Users/ynz/.stm32cubemx/networkzn1_output",
+        "arguments": "generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_6000_h723.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace2121350388890011174544106542541047 --output C:/Users/ynz/.stm32cubemx/networkzn1_output",
         "environment": [
           "STATS_TYPE=X-CUBE-AI"
         ],

@@ -6,8 +6,6 @@
 #include "rl_observation.h"
 #include "ai_platform.h"
 
-#define REMOTE_COMMAND_SCALE 3.0f   /* 手动遥操: obs 指令缩放 (旧路径) */
-
 /* 推理路径: 遥控 → 策略指令的训练侧范围 (chuanliantui_standup_config: vx/yaw 恒 0, 高度 0.20 m) */
 #define RL_CMD_VX_MAX       0.0f    /* m/s, 起立策略训练域 [0, 0] */
 #define RL_CMD_YAW_MAX      0.0f    /* rad/s, 训练域 [0, 0] */
