@@ -71,27 +71,27 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
-{
-  if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER
-      || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1
-      || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
-  {
-    handle->Init.DataPrescaler = MACHINE_FDCAN13_DATA_PRESCALER;
-    handle->Init.DataTimeSeg1 = MACHINE_FDCAN13_DATA_SEG1;
-    handle->Init.DataTimeSeg2 = MACHINE_FDCAN13_DATA_SEG2;
-    if (HAL_FDCAN_Init(handle) != HAL_OK)
-    {
-      Error_Handler();
-    }
-  }
-}
+// static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
+// {
+//   if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER
+//       || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1
+//       || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
+//   {
+//     handle->Init.DataPrescaler = MACHINE_FDCAN13_DATA_PRESCALER;
+//     handle->Init.DataTimeSeg1 = MACHINE_FDCAN13_DATA_SEG1;
+//     handle->Init.DataTimeSeg2 = MACHINE_FDCAN13_DATA_SEG2;
+//     if (HAL_FDCAN_Init(handle) != HAL_OK)
+//     {
+//       Error_Handler();
+//     }
+//   }
+// }
 
-static void Machine_Apply_Fdcan_Data_Timing_By_Profile(void)
-{
-  Machine_Apply_Fdcan_Data_Timing(&hfdcan1);
-  Machine_Apply_Fdcan_Data_Timing(&hfdcan3);
-}
+// static void Machine_Apply_Fdcan_Data_Timing_By_Profile(void)
+// {
+//   Machine_Apply_Fdcan_Data_Timing(&hfdcan1);
+//   Machine_Apply_Fdcan_Data_Timing(&hfdcan3);
+// }
 /* USER CODE END 0 */
 
 /**
@@ -148,7 +148,6 @@ int main(void)
   MX_TIM6_Init();
   MX_UART8_Init();
   /* USER CODE BEGIN 2 */
-  Machine_Apply_Fdcan_Data_Timing_By_Profile();
   Mono_Ns_Init();   /* 单调 ns 时钟 */
   DR16_Init();
   HI229_Init();

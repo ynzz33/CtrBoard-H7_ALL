@@ -240,41 +240,41 @@ static void Robot_Control_Send_Vofa(void)
     rl_bits |= output_debug_dji_sent ? 0x00020000u : 0x00u;
     dbg[2] = (float)rl_bits;
 
-    for (i = 0u; i < 10u; i++)
-    {
-        dbg[3+i]  = lqr_state.x[i];
-        dbg[13+i] = lqr_state.target[i];
-    }
-    for (i = 0u; i < 2u; i++)
-    {
-        dbg[23+i] = lqr_state.len[i];
-        dbg[25+i] = lqr_state.leg_len_tgt[i];
-    }
-    for (i = 0u; i < 4u; i++)
-    {
-        dbg[27+i] = lqr_state.u[i];
-    }
+    // for (i = 0u; i < 10u; i++)
+    // {
+    //     dbg[3+i]  = lqr_state.x[i];
+    //     dbg[13+i] = lqr_state.target[i];
+    // }
+    // for (i = 0u; i < 2u; i++)
+    // {
+    //     dbg[23+i] = lqr_state.len[i];
+    //     dbg[25+i] = lqr_state.leg_len_tgt[i];
+    // }
+    // for (i = 0u; i < 4u; i++)
+    // {
+    //     dbg[27+i] = lqr_state.u[i];
+    // }
 
 
-    // for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
-    // {
-    //     dbg[3u + i] = rl_output_dm_cmd_nm[i];
-    //     dbg[9u + i] = motor_state.dm.trq_nm[i];
-    //     dbg[13u + i] = rl_control.observation.obs[RL_OBS_L_THIGH + i];
-    // }
-    // dbg[7] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT];
-    // dbg[8] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT];
-    // for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
-    // {
-    //     dbg[29u + i] = motor_state.dji.current_raw[
-    //         (i == DJI_MOTOR_WHEEL_LFT) ? DJI_MOTOR_WHEEL_RGT : DJI_MOTOR_WHEEL_LFT];
-    // }
-    // for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
-    // {
-    //     dbg[17u + i] = rl_control.observation.obs[RL_OBS_L_THIGH_VEL + i];
-    //     dbg[23u + i] = rl_control.observation.obs[RL_OBS_LAST_ACTION + i];
-    // }
-    // dbg[31] = (float)rl_control.policy.run_us;
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        dbg[3u + i] = rl_output_dm_cmd_nm[i];
+        dbg[9u + i] = motor_state.dm.trq_nm[i];
+        dbg[13u + i] = rl_control.observation.obs[RL_OBS_L_THIGH + i];
+    }
+    dbg[7] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT];
+    dbg[8] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT];
+    for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
+    {
+        dbg[29u + i] = motor_state.dji.current_raw[
+            (i == DJI_MOTOR_WHEEL_LFT) ? DJI_MOTOR_WHEEL_RGT : DJI_MOTOR_WHEEL_LFT];
+    }
+    for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
+    {
+        dbg[17u + i] = rl_control.observation.obs[RL_OBS_L_THIGH_VEL + i];
+        dbg[23u + i] = rl_control.observation.obs[RL_OBS_LAST_ACTION + i];
+    }
+    dbg[31] = (float)rl_control.policy.run_us;
 
     dbg[31] = (float)ctrl_fault;
     Vofa_Send(dbg, 32u);

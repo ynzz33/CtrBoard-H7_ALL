@@ -16,7 +16,7 @@
  * LQR 增益表仅针对小轮腿，RL 模型仅针对大轮腿；控制器不能仅靠本宏互换。
  * FDCAN1/3 的数据阶段时序随机器切换；FDCAN2 保持 CubeMX 设置。 */
 #ifndef MACHINE_DEFAULT
-#define MACHINE_DEFAULT           MACHINE_ID_SMALL_WHEELLEG
+#define MACHINE_DEFAULT           MACHINE_ID_BIG_WHEELLEG
 #endif
 
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG

@@ -8,9 +8,9 @@
 
 > 参考开源：`Leg2_v1`（上交轮腿 LQR，机械构造与本机一致）
 > 增益来源：`lqr_gain_table.h`（参考上车表）+ `leg_matlab_script`（自研脚本，待重跑对齐）
-> 最后更新：2026-09-25（切回小机器软件配置，待台架验证；已按当前代码同步文档）
+> 最后更新：2026-09-26（默认机器已切大机器，变更 100；LQR 在大机器上不可用，要在小机器上跑 LQR 先切回小机器）
 
-当前机器表显示名：小机器 `small_wheelleg`，大机器 `big_wheelleg`（`machine_config.c:6/53`）；机器 ID 与选型宏见 `MACHINE_ID_SMALL_WHEELLEG` / `MACHINE_DEFAULT`（`machine_config.h:8/19`）。当前小机器配置：TIM6 1 kHz、`CTRL_DT=0.001f`（频率随机器表，见 §五）；FDCAN 仲裁段 1 Mbps，数据段参数恢复小机器基线。LQR 已恢复完整求解和输出分发；RL 门控字段 `infer_enable` 已不存在（现查 `action_state.rl_ready`，小机器 `.rl` 未配置）。软件阻断已排除并通过关键源文件编译；站立、偏航及左右轮反馈/下发映射仍待台架验证。下文数值和测试结论含历史快照，以当前代码为准。
+当前机器表显示名：小机器 `small_wheelleg`，大机器 `big_wheelleg`（`machine_config.c:6/53`）；机器 ID 与选型宏见 `MACHINE_ID_SMALL_WHEELLEG` / `MACHINE_DEFAULT`（`machine_config.h:8/19`）。**当前默认已切大机器**（2026-09-26，变更 100）：TIM6 500 Hz（`CTRL_DT=0.002f`，频率随机器表，见 §五）；大机器 `lqr_configured=0`，左拨杆中位直接判失能 —— **要在小机器上跑 LQR 必须先切回 `MACHINE_ID_SMALL_WHEELLEG`**（小机器：TIM6 1 kHz、`CTRL_DT=0.001f`、`lqr_configured=1`、`.rl` 未配置）。FDCAN 仲裁段 1 Mbps（三路一致），数据段时序随机器（`main.c` 启动时套用到 FDCAN1/3）。RL 门控字段 `infer_enable` 已不存在（现查 `action_state.rl_ready`）。软件阻断已排除并通过关键源文件编译；站立、偏航及左右轮反馈/下发映射仍待台架验证。下文数值和测试结论含历史快照，以当前代码为准。
 
 ---
 

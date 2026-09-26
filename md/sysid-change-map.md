@@ -2919,6 +2919,37 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 100 · 切大机器（作者 2026-09-26：「我要从小机器切换为大机器」→「你改」）
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/machine_config.h:19` | `MACHINE_DEFAULT`：`MACHINE_ID_SMALL_WHEELLEG` → `MACHINE_ID_BIG_WHEELLEG`。该行工作区里已由作者改好（mtime 15:42，AI 未重复改动），本批只做文档同步与编译核验 |
+| `md/AGENTS.md` | 关键约束「控制频率」：当前默认改注大机器 500 Hz；顺手去掉该行已不存在的「手动遥操」 |
+| `md/RL_OVERVIEW.md` | §一 频率行、§四 差异表注、§8.1 末段：默认机器改为大机器 |
+| `md/LQR_PLAN.md` | 头部「当前机器」段：默认已切大机器、`lqr_configured=0` → 左拨杆中位判失能，要跑 LQR 先切回小机器 |
+
+**行为变化（全部随机器表/宏自动切换，其余代码一行未动）**
+- 控制环：TIM6 Period 999 → 1999（1 kHz → **500 Hz**），`MACHINE_CTRL_DT` 0.001 → 0.002（`tim.c:223`、`robot_control.h:18`）。
+- VOFA 口：UART8 → **USART1**（`Vofa_send.h:16`）—— 上位机接线要跟着换。
+- ⚠ **更正（同批自查）**：FDCAN 数据段**不随机器切换**。`main.c:74-94` 的 `Machine_Apply_Fdcan_Data_Timing*` 整段注释、无调用点，`MACHINE_FDCAN13_DATA_*` 不生效；三路名义段一律取 `fdcan.c` 的 3/5/2（1 Mbps），FDCAN1 = FD_BRS、FDCAN2/3 = classic，固件只发经典帧。本条先前的"数据段 3/5/2 → 1/4/1"写法是 AI 误读，已更正；`md/AGENTS.md` 的 FDCAN 条目一并更正。
+- 电机/几何/量程/零点/IMU/`.rl` 全改读大机器表：J8009P ×4 全在 FDCAN1、M3508（15.5）在 FDCAN3、lu 0.21 / lg 0.25、腿长 0.14~0.34、`dm_trq_clamp` 40 / `dji_trq_clamp` 3.9。
+- 门控：`lqr_configured` 1 → 0（左拨杆中位 = 失能）；`.rl.configured` 0 → 1（RL 整链开，候选 A；左拨杆上位 + 右中位即进入推理路径）。
+- ⚠ `torque_output_enabled` 初值仍为 **1**（`robot_control.c:48`，作者定为有意设计）→ 上电后拨杆到 RL 挡 + 右中位就会出力。第一次台架建议先用调试器把它写 0（非 static 全局，直接 Watch 改，不落盘）。
+
+**输入 / 输出 / 调用链**：`machine_config.h:19 MACHINE_DEFAULT` → `machine_config.c:96 machine = &machine_table[MACHINE_DEFAULT]` → 全工程只读 `machine->`（频率 / 总线 / VOFA 口 / 量程限幅 / 腿几何 / `.imu` / `.rl`）；无运行时切换接口（`Machine_Id()` 只读）。
+
+**核对**：AC5 全量编译（按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条 armcc，`-o` 全部指到临时目录，作者 `.obj` 未动）：默认（大机器）**95 文件 0 fail / 0 warn**；追加 `-DMACHINE_DEFAULT=1`（小机器分支，附录 A 第 2 条）**95 文件 0 fail / 0 warn**。另：作者 eIDE 侧重新链接通过（`build/CtrBoard-H7_ALL/compiler.log`：Program Size Code=100112 / RO=159884 / RW=4328 / ZI=52472，`.axf` / `.hex` 已重出）。未下载、未上机。
+
+**未动物理量**：`.rl.sign/.zero`、`.imu`、`dm_sign`、`dji_sign`、`dm_zero`、`leg_off_phi0`、`dm_*_max`、`mirror`、`+LEG_PI` 一个数没动。另：工作区里 `machine_config.c` 大机器 `.eul_src` 行尾多一个空格（作者工作区改动），未处理。
+
+**待台架**
+① **IMU（优先）**：低头 30° 时 `euler_rad[0]` / `gyro_rad_s[1]` 响应、`obs[3]` 应 ≈ +0.5。AI 离线枚举（24 安装 × 24 模块四元数约定 × 2 方向 × 2 速率 = 2304；放宽到含镜像的 48×48×4 = 9216）**没有找到**能让当前 `.imu.quat_src={1,0,2}` 与 `.gyr_sign={1,1,-1}` 同时成立的物理解释，疑为多一次 X/Y 通道交换（去掉该交换后恰有唯一自洽解：绕 Z 180° 安装 + 模块共轭/速率取负约定，且同时解释表中三组 {1,1,−1} 符号）。**AI 未改任何物理量**，等台架读数定。
+② **`.rl` 候选 A 复核**：默认站姿 `thigh ≈ 2.54 / vs ≈ 2.99`（读成 ≈0.60 / 0.16 即候选 B，停下重填）。
+③ **acc 极性**：静止时看哪一轴 ≈ ±1 G（`.acc_sign` 的 x 与 gyro/euler 不同源）。
+④ **DM**：用达妙上位机读 J8009P 的 pos/vel/trq 与 `dm_*_max` 比对；CAN 超时保护 20~50 ms 逐台设（变更 76 遗留）。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

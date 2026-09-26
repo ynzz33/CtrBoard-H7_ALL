@@ -25,7 +25,7 @@
 2. **板端**（STM32H723 + CubeAI）实时推理，输出 6 维动作
 3. **执行层**把动作经 PD + 雅可比映射为 6 个电机力矩
 
-整个链路在 actuationTask 控制环里跑（频率随机器：当前 `MACHINE_DEFAULT` 小机 1 kHz，大机 500 Hz 与训练 PD 内环同频，见 `machine_config.h` 的 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT`，变更 96），RL 推理 100 Hz（policyTask 自己 10 ms 一拍，执行任务每拍复用最新动作）。
+整个链路在 actuationTask 控制环里跑（频率随机器：当前 `MACHINE_DEFAULT` 是大机，500 Hz 与训练 PD 内环同频；小机 1 kHz。见 `machine_config.h` 的 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT`，变更 96 / 100），RL 推理 100 Hz（policyTask 自己 10 ms 一拍，执行任务每拍复用最新动作）。
 
 **数据流一句话**：
 ```
@@ -300,7 +300,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 | D-Cache | 开启 + Clean 处理 | 已开启；VOFA DMA 发送前 Clean | 继续保持 DMA 缓冲一致性 |
 | FPU Error | 关闭 | 未确认 | 需在 CubeMX 中关闭 |
 
-注：上表按小机器（当前 `MACHINE_DEFAULT`）对比；RL 模型对应的大机器电机/减速比与参考实车同级，具体型号、刻度与减速比以 `machine_config.c` 为准、待台架复核。
+注：上表按小机器对比（写表时的默认机器；`MACHINE_DEFAULT` 自 2026-09-26 起已切大机器，变更 100）；RL 模型对应的大机器电机/减速比与参考实车同级，具体型号、刻度与减速比以 `machine_config.c` 为准、待台架复核。
 
 ---
 
@@ -405,7 +405,7 @@ Leg_Solve 当前已完成以下验证：
 - **左右归属（已处理，不必等 CAD）**：URDF 里 `lf0` 在 y = −0.179，候选 A 下 "lf" 是 URDF 的右侧腿。机器左右对称时，"右腿喂 lf 槽、IMU 原样"与"左腿喂 lf 槽、策略机体系绕 x-z 面镜像"是同一策略的镜像部署，效果等价。历史：固件曾取后者，由 `task_policy.c` 的 `RL_FRAME_MIRROR_Y = 1` 实现，推理路径把 gyro x/z、四元数 x/z、偏航指令取反，左腿仍进 lf 槽，VOFA 的"左"仍是左。**该宏已删除**：当前推理路径无帧镜像开关，左右/极性以机器表 `.rl` 的 `sign` 与 `machine_config.c` 为准、待作者台架复核（左右轮另有物理交叉取源/下发，见 `task_policy.c` / `task_actuation.c`）。CAD 答复只在机器明显不对称时才有意义。
 - 训练默认角左右反号只是因为右腿轴反向，物理姿态左右对称；映射后固件左右腿的 `dof_pos` 都是 thigh 2.5369 / vs 2.9864。
 
-模型对应大机器 chuanliantui（DM8009P + M3508），上机前 `MACHINE_DEFAULT` 要切到 `MACHINE_ID_BIG_WHEELLEG`（宏名以 `machine_config.h` 为准；当前默认是 `MACHINE_ID_SMALL_WHEELLEG`，RL 整链门控关）；小机器上跑这个策略没有意义。大机器 `.imu` 表仍是"照抄原宏、待实测"，②那一步一起看。
+`MACHINE_DEFAULT` 已于 2026-09-26 切到 `MACHINE_ID_BIG_WHEELLEG`（变更 100，宏名以 `machine_config.h` 为准），RL 整链门控随之打开；小机器上跑这个策略没有意义。大机器 `.imu` 的 `quat_src` 与角速度通道是否对应有未确认疑点，见变更 100「待台架 ①」。大机器 `.imu` 表仍是"照抄原宏、待实测"，②那一步一起看。
 
 ### 8.2 运行时开关（原"两个运行时开关"）
 
