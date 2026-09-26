@@ -186,9 +186,9 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
         bus->alive_cnt++;
         bus->last_rx_id = rx_header.Identifier;
+        /* FD 帧也放行 (达妙 FD 1M/4M 反馈) */
         if (rx_header.IdType != FDCAN_STANDARD_ID
             || rx_header.RxFrameType != FDCAN_DATA_FRAME
-            || rx_header.FDFormat != FDCAN_CLASSIC_CAN
             || rx_header.DataLength != FDCAN_DLC_BYTES_8)
         {
             continue;

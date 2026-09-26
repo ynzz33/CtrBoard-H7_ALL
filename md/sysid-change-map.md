@@ -2950,6 +2950,30 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 101 · 🐞 RX 放行 FD 帧：达妙离线 / 失能不了 的根因（作者 2026-09-26：跟最新分支 little-wheelleg 做比较，找出为什么那一份没办法正常失能电机、电机是离线状态的原因 →「我切换回这一份了，你直接修改」）
+
+**现象**：本分支上四台 DM 全离线（`online_mask` bit2~5 = 0，只有 IMU + 两轮在线），整车"失能不了"（电机保持最后状态，而 VOFA 显示未使能）。
+
+**根因（两分支对比可证）**：本分支的 `HAL_FDCAN_RxFifo0Callback()` 比 main 多一句 `rx_header.FDFormat != FDCAN_CLASSIC_CAN → continue`。达妙跑 **FD、1M 仲裁 / 4M 数据**，反馈帧就是 FD+BRS 帧 → 硬件收到（`alive_cnt` 照涨）但被这句丢掉 → `Dm_Read()` 不执行 → `rx_seen` 恒 0 → `Dm_Is_Online()` 恒 false → 四台全离线。连带效应：`Dm_Disable_Watchdog()` 只对"在线且 err_raw==1"重发（离线直接跳过，失能帧丢了没有兜底），`Dm_Is_Enabled()` 又加了"离线一律显示未使能"，于是"失能不了"在界面上根本看不出来。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/can_bus.c` | RX 校验去掉 `FDFormat != FDCAN_CLASSIC_CAN` 一条，保留 标准帧 / 数据帧 / 8 字节 三条；加一行注释（FD 帧也放行）。RX FIFO 元素本来就是 8 字节，FD 帧 DLC=8 编码与经典帧一致，不必改 |
+| `md/AGENTS.md` | FDCAN 条目补一句"收不挑帧格式（经典 + FD 都收），只发是经典帧" |
+
+**输入 / 输出 / 调用链**：`HAL_FDCAN_RxFifo0Callback()` → 校验 → 路由按 ID 匹配 → `Dm_Read()` → `dm_motor_feedback[i]`（`rx_seen = 1`、`raw_pending = 1`）→ `Dm_Parse()`（commTask）→ `motor_state.dm.*` → VOFA 在线掩码 / `Dm_Is_Online()` / 使能与失能看门狗。
+
+**核对**：AC5 按 `build/CtrBoard-H7_ALL/compile_commands.json` 全量编译 **92 文件 0 fail / 1 warn**（`-o` 全部到临时目录，作者 `.obj` 未动）；唯一告警是 `task_comm.c:198` 的 `uint8_t i; 声明未使用`——本分支既有、与本次改动无关，未动。未链接、未下载、未上机。
+
+**未动物理量**：`.imu` / `.rl` / `dm_sign` / `dji_sign` / `dm_zero` / 量程 / 镜像一律未动；**发送模板也没动**（`FDFormat = FDCAN_CLASSIC_CAN`、`BRS_OFF`，仍是经典帧发出去）。
+
+**待台架**
+① `online_mask` bit2~5 应变 1；`Can_Bus_Rx_Count(1)` 在涨、`Can_Bus_Last_Rx_Id(1)` = 0x11/0x13/0x12/0x14。
+② 拨杆上→中使能、下→失能：DM 应能正常使能/失能。若"失能不了"仍在 → 去达妙上位机给四台设 CAN TIMEOUT 20~50 ms（变更 76 遗留，主控被拔/发不出去时靠它兜底）。
+③ **若 ① 仍是 0**（电机压根不回）→ 说明电机不认经典帧，下一步才是把 FDCAN1 的发送模板改成 FD+BRS（`FDFormat = FDCAN_FD_CAN`、`BitRateSwitch = FDCAN_BRS_ON`，要**按总线**区分，DJI 那条 FDCAN3 保持经典）；那属于第二个变量，等作者点头再动。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。
