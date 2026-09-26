@@ -284,16 +284,20 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
 void LQR_Control_Update(lqr_state_t *st)
 {
     float K_sym[40];
+    float len_l;
+    float len_r;
     float sum;
     float term;
     uint8_t i;
     uint8_t j;
 
-    /* 腿长变化超阈值才重算: 静态腿长时 40 项多项式是白算 */
-    if (fabsf(st->len[0] - st->len_eval[0]) > LQR_K_RECALC_THRESH
-        || fabsf(st->len[1] - st->len_eval[1]) > LQR_K_RECALC_THRESH)
+    /* 增益多项式只在生成网格内有效，实测腿长越界时取边界增益。 */
+    len_l = clampf(st->len[0], LQR_K_LEN_MIN, LQR_K_LEN_MAX);
+    len_r = clampf(st->len[1], LQR_K_LEN_MIN, LQR_K_LEN_MAX);
+    if (fabsf(len_l - st->len_eval[0]) > LQR_K_RECALC_THRESH
+        || fabsf(len_r - st->len_eval[1]) > LQR_K_RECALC_THRESH)
     {
-        LQR_K_WBR(st->len[0], st->len[1], K_sym);
+        LQR_K_WBR(len_l, len_r, K_sym);
         for (i = 0u; i < LQR_U_NUM; i++)
         {
             for (j = 0u; j < LQR_X_NUM; j++)
@@ -301,8 +305,8 @@ void LQR_Control_Update(lqr_state_t *st)
                 st->K[i][j] = K_sym[j * LQR_U_NUM + i];
             }
         }
-        st->len_eval[0] = st->len[0];
-        st->len_eval[1] = st->len[1];
+        st->len_eval[0] = len_l;
+        st->len_eval[1] = len_r;
     }
 
     for (i = 0u; i < LQR_U_NUM; i++)

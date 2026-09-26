@@ -37,9 +37,9 @@ typedef struct {
 /* 每条总线运行时 */
 typedef struct {
     can_route_t           route[CAN_BUS_ROUTE_MAX];
-    uint32_t              route_cnt;
+    volatile uint32_t     route_cnt;
     FDCAN_TxHeaderTypeDef tx_template;
-    can_bus_state_t       state;
+    volatile can_bus_state_t state;
     volatile uint32_t     alive_cnt;
     volatile uint32_t     last_rx_id;    /* 最近收到帧的 CAN ID */
     volatile uint32_t     last_tx_tick;

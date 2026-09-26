@@ -9,6 +9,16 @@
 /* 选中 RL 后预热，再运行 networkzn1 推理；观测无效时发布零动作。 */
 static uint16_t warmup_cnt;     /* 预热计数 */
 
+static imu_state_t RL_IMU_Snapshot(void)
+{
+    imu_state_t snapshot;
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    snapshot = imu_state;
+    __set_PRIMASK(primask);
+    return snapshot;
+}
+
 /* 检查电机 */
 static uint8_t RL_Motors_Online(void)
 {
@@ -60,15 +70,16 @@ static uint8_t RL_Joint_Map(float joint_pos[4], float joint_vel[6])
 /* 构建观测 + 推历史; 源无效或映射未配置 → 观测清零返回 0 */
 static uint8_t RL_Control_Update_Observation(const float command[3])
 {
+    imu_state_t imu = RL_IMU_Snapshot();
     float joint_pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float joint_vel[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     uint8_t source_valid;
 
-    source_valid = (uint8_t)(imu_state.online && leg_l.output.valid
+    source_valid = (uint8_t)(imu.online && leg_l.output.valid
         && leg_r.output.valid && RL_Motors_Online()
         && RL_Joint_Map(joint_pos, joint_vel));
     if (!RL_Observation_Build(&rl_control.observation, &rl_control.param,
-        imu_state.gyro_rad_s, imu_state.quat, command,
+        imu.gyro_rad_s, imu.quat, command,
         joint_pos, joint_vel, source_valid))
     {
         return 0u;
@@ -80,28 +91,29 @@ static uint8_t RL_Control_Update_Observation(const float command[3])
 /* 未投入时的观测预览: 只供 VOFA, 不推历史 */
 static void RL_Observation_Preview(const float command[3])
 {
+    imu_state_t imu = RL_IMU_Snapshot();
     float joint_pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float joint_vel[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     uint8_t source_valid;
 
-    source_valid = (uint8_t)(imu_state.online && leg_l.output.valid && leg_r.output.valid);
-    if (source_valid)
-    {
-        (void)RL_Joint_Map(joint_pos, joint_vel);
-    }
+    source_valid = (uint8_t)(imu.online && leg_l.output.valid
+        && leg_r.output.valid && RL_Joint_Map(joint_pos, joint_vel));
     RL_Observation_Reset(&rl_control.observation);
     (void)RL_Observation_Build(&rl_control.observation, &rl_control.param,
-        imu_state.gyro_rad_s, imu_state.quat, command,
+        imu.gyro_rad_s, imu.quat, command,
         joint_pos, joint_vel, source_valid);
 }
 
 /* 发布动作 (固件关节空间) */
 static void RL_Action_Publish(const float action[RL_ACTION_SIZE], uint8_t rl_ready)
 {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     memcpy(action_state.a, action, sizeof(action_state.a));
     action_state.updated = 1u;
     action_state.last_ok_tick = HAL_GetTick();
     action_state.rl_ready = rl_ready;
+    __set_PRIMASK(primask);
 }
 
 /* 遥控 → 策略指令: 前进 / 转向 / 高度 (范围 RL_CMD_*; 转向右推为负, 同 LQR) */
@@ -166,6 +178,7 @@ static void RL_Infer_Body(void)
     {
         if (!RL_Policy_Run(&rl_control.policy, &rl_control.observation, action_t))
         {
+            RL_Observation_Set_Last_Action(&rl_control.observation, action_t);   /* 失败: 记录零动作 */
             RL_Action_Publish(action, 0u);   /* 推理失败 */
             return;
         }
@@ -183,11 +196,17 @@ static void RL_Infer_Body(void)
 /* 策略初始化 */
 void ctrl_task_init(void)
 {
-    (void)RL_Policy_Init(&rl_control.policy);
+    if (machine->rl.configured)
+    {
+        (void)RL_Policy_Init(&rl_control.policy);
+    }
 }
 
 /* 策略单周期 */
 void ctrl_task_body(void)
 {
-    RL_Infer_Body();
+    if (machine->rl.configured)
+    {
+        RL_Infer_Body();
+    }
 }

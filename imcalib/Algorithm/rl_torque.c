@@ -7,6 +7,7 @@
 
 #define RL_TQ_POS_SCALE        0.5f     /* 训练侧: 腿目标 = act × 0.5 + 默认角 */
 #define RL_TQ_WHEEL_VEL_SCALE  10.0f    /* 训练侧: 轮目标速度 = act × 10 */
+#define RL_TQ_WHEEL_VEL_MAX    20.0f    /* 轮目标速度限幅 */
 #define RL_TQ_LEG_TRQ_MAX      40.0f    /* 训练侧: 虚拟腿关节力矩上限 (映射前裁) */
 #define RL_TQ_WHEEL_TRQ_MAX    3.9f     /* 训练侧: 轮力矩上限 */
 #define RL_TQ_VSHANK_MIN       2.277f
@@ -223,8 +224,10 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     pos_ref[VJ_L_SHANK] = action[VJ_L_SHANK] * RL_TQ_POS_SCALE;
     pos_ref[VJ_R_THIGH] = action[VJ_R_THIGH] * RL_TQ_POS_SCALE;
     pos_ref[VJ_R_SHANK] = action[VJ_R_SHANK] * RL_TQ_POS_SCALE;
-    vel_ref[VJ_L_WHEEL] = action[VJ_L_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
-    vel_ref[VJ_R_WHEEL] = action[VJ_R_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
+    vel_ref[VJ_L_WHEEL] = clampf(action[VJ_L_WHEEL] * RL_TQ_WHEEL_VEL_SCALE,
+        -RL_TQ_WHEEL_VEL_MAX, RL_TQ_WHEEL_VEL_MAX);
+    vel_ref[VJ_R_WHEEL] = clampf(action[VJ_R_WHEEL] * RL_TQ_WHEEL_VEL_SCALE,
+        -RL_TQ_WHEEL_VEL_MAX, RL_TQ_WHEEL_VEL_MAX);
 
     /* 虚拟关节 PD: 腿 Kp·wrap(目标 − q) − Kd·q̇, 轮 Kp·(v_ref − v) */
     for (uint32_t i = 0u; i < VJ_NUM; i++)

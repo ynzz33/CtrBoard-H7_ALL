@@ -2,8 +2,10 @@
 
 /* 两份电机配置表: 换机器改 machine_config.h 的 MACHINE_DEFAULT */
 const machine_cfg_t machine_table[MACHINE_NUM] = {
-    [MACHINE_ID_CHUANLIANTUI] = {
-        .name           = "big-wheelleg",
+    [MACHINE_ID_BIG_WHEELLEG] = {
+        .name           = "big_wheelleg",
+        /* TODO: 为大轮腿生成并接入专用 LQR 增益表，当前增益只针对小轮腿。 */
+        .lqr_configured = 0u,
         .dji_type       = 1u,                          /* M3508 + C620 */
         .dji_gear_ratio = 15.5f,                       /* 转子→轮子总减速比 */
         .dji_trq_clamp  = 3.9f,                        /* 对齐训练侧轮关节力矩限幅 */
@@ -46,8 +48,10 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .configured = 1u,
         },
     },
-    [MACHINE_ID_LOCAL] = {
-        .name           = "little-wheelleg",
+    [MACHINE_ID_SMALL_WHEELLEG] = {
+        .name           = "small_wheelleg",
+        /* 小轮腿目前只使用 LQR。TODO: 训练小轮腿 RL 模型后再配置关节映射并启用。 */
+        .lqr_configured = 1u,
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,
         .dji_trq_clamp  = 1.8f,                        /* 满限幅 = 0.18 Nm/A × 10A */
@@ -82,23 +86,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         },
         /* RL 关节映射: 模型对应大机器, 小机器未配置 */
         .rl = {
-            .sign       = {-1, -1, -1, 1, 1, 1},
-            .zero       = {2.476872f, 3.086386f, 2.476872f, 3.086386f},
-            .configured = 1u,
+            .sign       = {0, 0, 0, 0, 0, 0},
+            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
+            .configured = 0u,
         },
     },
 };
 
-const machine_cfg_t *machine = &machine_table[MACHINE_DEFAULT];
-
-/* 换机器 */
-void Machine_Select(uint8_t id)
-{
-    if (id < MACHINE_NUM)
-    {
-        machine = &machine_table[id];
-    }
-}
+const machine_cfg_t *const machine = &machine_table[MACHINE_DEFAULT];
 
 /* 当前机器号 */
 uint8_t Machine_Id(void)

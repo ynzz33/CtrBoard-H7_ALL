@@ -20,7 +20,10 @@ volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
 /* 输出初始化 */
 void output_task_init(void)
 {
-    HAL_TIM_Base_Start_IT(&htim6);
+    if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 /* LQR 是否已投入 */
@@ -65,22 +68,40 @@ static void output_dispatch(const torque_output_t *torque)
 }
 
 /* ================= 模式与投入 ================= */
-/* 左拨杆选模式，上 = RL 推理，中 = LQR；右拨杆中位才投入 */
+/* 遥控使能判定 (全机唯一): online + 左中(需 LQR 表) / 左上(需 RL 表) */
+uint8_t strategy_rc_enable(const rc_command_t *cmd)
+{
+    if (cmd == NULL || !cmd->online)
+    {
+        return 0u; 
+    }
+    if (cmd->s1 == DR16_SW_MID)
+    {
+        return machine->lqr_configured ? 1u : 0u;
+    }
+    if (cmd->s1 == DR16_SW_UP)
+    {
+        return machine->rl.configured ? 1u : 0u;
+    }
+    return 0u;
+}
+
+/* 左拨杆选模式: 先看 rc_enable(唯一判定), 再按挡位给策略 */
 static ctrl_strategy_t strategy_from_remote(const rc_command_t *cmd)
 {
-    if (!cmd->online)
+    if (!robot_state.rc_enable)
     {
         return CTRL_STRATEGY_DISABLE;
     }
-    switch (cmd->s1)
+    if (cmd->s1 == DR16_SW_MID)
     {
-    case DR16_SW_MID:
         return CTRL_STRATEGY_LQR;
-    case DR16_SW_UP:
-        return CTRL_STRATEGY_RL;
-    default:
-        return CTRL_STRATEGY_DISABLE;
     }
+    if (cmd->s1 == DR16_SW_UP)
+    {
+        return CTRL_STRATEGY_RL;
+    }
+    return CTRL_STRATEGY_DISABLE;
 }
 
 /* LQR 投入锁存 */
@@ -142,9 +163,14 @@ static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
     /* RL 输入核对确认左右轮反馈源交叉，PD 轮速也按物理侧重排。 */
     wheel_vel_rl[DJI_MOTOR_WHEEL_LFT] = wheel_vel[DJI_MOTOR_WHEEL_RGT];
     wheel_vel_rl[DJI_MOTOR_WHEEL_RGT] = wheel_vel[DJI_MOTOR_WHEEL_LFT];
-    (void)RL_Torque_Compute(&leg_l, &leg_r,
+    if (RL_Torque_Compute(&leg_l, &leg_r,
         &rl_control.torque_param[rl_control.policy.selected_model],
-        wheel_vel_rl, action_state.a, &rl_control.torque_state, torque);
+        wheel_vel_rl, action_state.a, &rl_control.torque_state, torque) == 0u)
+    {
+        /* 失败: 零力矩 */
+        torque->valid = 0u;
+        return;
+    }
     torque->valid = 1u;
 }
 
@@ -159,7 +185,10 @@ void output_task_body(void)
     wheel_vel[1] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
 
     /* 1 估计: 每拍必算 (同 RL 观测) */
-    (void)LQR_State_Update(&lqr_state, &imu_state, &leg_l, &leg_r, wheel_vel, CTRL_DT);
+    if (machine->lqr_configured)
+    {
+        (void)LQR_State_Update(&lqr_state, &imu_state, &leg_l, &leg_r, wheel_vel, CTRL_DT);
+    }
 
     /* 2 求解: torque 默认全零 valid=0, 只有走通的分支才置 valid */
     Torque_Output_Clear(&torque);

@@ -204,7 +204,7 @@ void imuTask_Entry(void const * argument)
   for(;;)
   {
     imu_task_body();
-    osDelay(2);
+    osDelay(1);
   }
   /* USER CODE END imuTask_Entry */
 }

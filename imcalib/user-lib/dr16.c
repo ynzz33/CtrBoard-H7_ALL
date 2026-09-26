@@ -70,15 +70,8 @@ void DR16_Init(void)
 /* 接收处理 */
 void DR16_Process(void)
 {
-    if (dbus_rx.flag == 0) 
-    {
-        return;
-    }
-    dbus_rx.flag = 0;
-
     uint8_t buf[DBUS_BUF_SIZE];
-    uint16_t len = dbus_rx.isr_len;
-    memcpy(buf, dbus_rx.isr_buf, len);
+    uint16_t len = UART_Rx_Take(&dbus_rx, buf, sizeof(buf));
 
     /* 允许尾部带下一帧的字节; 帧长不足才丢弃 */
     if (len >= DR16_FRAME_LEN)

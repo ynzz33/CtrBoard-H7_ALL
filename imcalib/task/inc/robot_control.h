@@ -125,6 +125,8 @@ void output_task_init(void);
 void output_task_body(void);
 uint8_t output_task_lqr_engaged(void);
 uint8_t output_task_rl_engaged(void);
+/* 遥控使能唯一判定 */
+uint8_t strategy_rc_enable(const rc_command_t *cmd);
 void comm_task_body(void);
 
 #endif

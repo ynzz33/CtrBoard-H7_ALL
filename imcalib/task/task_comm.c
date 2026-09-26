@@ -71,13 +71,14 @@ static void Remote_Control_Update(void)
     DR16_Process();
     remote = DR16_Snapshot();
     Rc_Command_Update(&rc_command, &remote);
-    robot_state.rc_enable = (uint8_t)(remote.online && remote.s1 != DR16_SW_DOWN);
+    robot_state.rc_enable = strategy_rc_enable(&rc_command);
     input_command.mode = remote.online ? remote.s1 : 0u;
 }
 
 /* 更新故障状态 */
 static void Robot_Fault_Update(void)
 {
+    static uint32_t rl_ready_lost_tick;
     uint32_t fault;
     uint8_t motors_ok;
 
@@ -113,10 +114,26 @@ static void Robot_Fault_Update(void)
     {
         fault |= FAULT_MOTOR;
     }
-    if (robot_state.rc_enable
+    if (ctrl_strategy == CTRL_STRATEGY_RL
         && (!action_state.updated || HAL_GetTick() - action_state.last_ok_tick >= 100u))
     {
         fault |= FAULT_ACTION;
+    }
+    /* 动作持续不可用 */
+    if (output_task_rl_engaged() && action_state.rl_ready == 0)
+    {
+        if (rl_ready_lost_tick == 0u)
+        {
+            rl_ready_lost_tick = HAL_GetTick();
+        }
+        else if (HAL_GetTick() - rl_ready_lost_tick >= 100u)
+        {
+            fault |= FAULT_ACTION;
+        }
+    }
+    else
+    {
+        rl_ready_lost_tick = 0u;
     }
     ctrl_fault = fault;
 }
@@ -171,7 +188,7 @@ static void Robot_Enable_Update(void)
  * ch0 在线掩码；ch1 状态位；ch2 RL 状态位。
  * ch3~12 LQR 状态 x[0..9]；ch13~22 目标 target[0..9]。
  * ch23~24 实测腿长；ch25~26 腿长目标；ch27~30 LQR 输出 u[0..3]。
- * ch31 未使用；每两次 commTask 周期发送一次。
+ * ch31 故障位 ctrl_fault；每两次 commTask 周期发送一次。
  */
 static void Robot_Control_Send_Vofa(void)
 {
@@ -259,6 +276,7 @@ static void Robot_Control_Send_Vofa(void)
     // }
     // dbg[31] = (float)rl_control.policy.run_us;
 
+    dbg[31] = (float)ctrl_fault;
     Vofa_Send(dbg, 32u);
 }
 

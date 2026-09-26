@@ -101,6 +101,7 @@ static void Dji_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
     }
     feedback->raw_pending = 1u;
     feedback->last_rx_tick = HAL_GetTick();
+    feedback->rx_seen = 1u;
 }
 
 /* 注册表 */
@@ -265,6 +266,7 @@ bool Dji_Is_Online(uint8_t index)
     {
         return false;
     }
-    return (HAL_GetTick() - dji_motor_feedback[index].last_rx_tick)
+    return dji_motor_feedback[index].rx_seen
+        && (HAL_GetTick() - dji_motor_feedback[index].last_rx_tick)
            <= DJI_OFFLINE_MS;
 }

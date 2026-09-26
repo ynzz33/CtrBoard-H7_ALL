@@ -21,52 +21,68 @@ UART9 RX → DMA → dbus_rx.dma_buf (Circular)
 UART7 RX → DMA → hi229_rx.dma_buf (Circular)
     ↓ IDLE 中断 (一帧结束)
 UART_Idle_Isr
-    ↓ 清错误 → 快照 → 置 flag
+    ↓ 清错误 → 按 dma_pos 推进环形位置 → 快照拷入 isr_buf → 置 isr_len/flag
 dbus_rx.flag = 1 / hi229_rx.flag = 1
     ↓ 任务层调用 XXX_Process()
-判断 flag → 拷贝 → 解析
+UART_Rx_Take（PRIMASK 临界区）取走 isr_buf 并清 flag → 校验 → 解析
 ```
+
+ISR 侧细节见 `uart_idle.c` 的 `UART_Idle_Isr()`：先清 PE/FE/NE/ORE 与 ErrorCode，再按 DMA 剩余计数算出本段长度（相对 `dma_pos` 环形推进，回绕时两段拷贝），拷贝前做 D-cache invalidate（`Dma_Cache_Invalidate_Rx`）。快照完成后只置 `isr_len`/`flag`，不在 ISR 里解析。
 
 ---
 
 ## 3. 底层 API (uart_idle.c/h)
 
 ```c
-/* 结构体 */
+/* 结构体（与 uart_idle.h 对齐） */
 typedef struct {
     UART_HandleTypeDef *huart;
     DMA_HandleTypeDef  *hdma_rx;
-    uint8_t  dma_buf[DEBUG_BUF_SIZE];
+    uint8_t  dma_buf[DEBUG_BUF_SIZE] __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
     uint8_t  isr_buf[DEBUG_BUF_SIZE];
     volatile uint16_t isr_len;
     volatile uint8_t  flag;
     uint16_t buf_size;
-    UART_Parse_cb parse;
+    volatile uint16_t dma_pos;   /* 环形缓冲消费位置 */
+    UART_Parse_cb parse;         /* 未使用：框架从不调用 */
 } UART_Rx_t;
 
-/* 初始化 */
-UART_Rx_Init(&dbus_rx, DBUS_HUART, DBUS_DMA_RX, DBUS_BUF_SIZE, DBUS_Parse);
+/* 实例：dbus_rx、hi229_rx 在用；debug_rx 未使用（仅定义，未 Init/未进 ISR） */
 
-/* ISR */
-UART_Idle_Isr(&huart1, &dbus_rx);
+/* 初始化（第 5 参 parse 当前不会被调用，传 NULL 或桩函数） */
+UART_Rx_Init(&dbus_rx, &huart9, &hdma_uart9_rx, DBUS_BUF_SIZE, DR16_Rx_Cb);
+UART_Rx_Init(&hi229_rx, &huart7, &hdma_uart7_rx, HI229_BUF_SIZE, NULL);
+
+/* ISR（stm32h7xx_it.c 的 UARTn_IRQHandler 里调用） */
+UART_Idle_Isr(&huart9, &dbus_rx);
+UART_Idle_Isr(&huart7, &hi229_rx);
+
+/* 任务侧取快照：PRIMASK 临界区内拷贝 isr_buf → dst 并清 flag，返回长度 */
+uint16_t UART_Rx_Take(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity);
 ```
+
+（历史：`UART_Parse_cb parse` 回调机制从未被调用，仅在 `UART_Rx_Init` 里保存；解析一律在任务侧 `XXX_Process` 内完成。早期文档初始化示例写作 `DBUS_Parse` + `&huart1`，已按当前代码更正为 UART9/UART7。）
 
 ---
 
-## 4. 设备层 API（dr16.c/h）
+## 4. 设备层 API（dr16.c/h / hi229.c/h）
 
 ```c
 /* 任务里只需要调这个 */
 DR16_Process();
 
-/* 内部实现 */
+/* 内部实现（dr16.c） */
 void DR16_Process(void) {
-    if (!dbus_rx.flag) return;   ← 判断是否收到一帧
-    dbus_rx.flag = 0;
-    memcpy(buf, dbus_rx.isr_buf, len);  ← 拷贝
-    DR16_Parse(buf);                     ← 解析
+    uint8_t buf[DBUS_BUF_SIZE];
+    uint16_t len = UART_Rx_Take(&dbus_rx, buf, sizeof(buf));
+                         ← PRIMASK 临界区取走 isr_buf 并清 flag，返回长度
+    if (len >= DR16_FRAME_LEN) {
+        DR16_Parse(buf); ← 解析（校验不过直接丢弃）
+    }
 }
 ```
+
+HI229 同构：`HI229_Process()` 调 `UART_Rx_Take(&hi229_rx, ...)` 取快照后，在块内扫描完整帧（帧头 + 长度 + CRC16 校验）再解析，见 `hi229.c`。两者分别在 `task_comm.c` / `task_imu.c` 每拍调用。
 
 ---
 
@@ -100,9 +116,8 @@ HAL 默认的 `HAL_UART_Receive_DMA()` 会开启 DMA 的半传输(HT)和全传�
 
 ## 9. 扩展新设备
 
-1. 写一个 `XXX_Parse(data, len)` 回调
-2. 声明 `UART_Rx_t xxx_rx` + 宏定义
-3. `UART_Rx_Init(&xxx_rx, ...)` 初始化
-4. 中断里加 `UART_Idle_Isr(&huartN, &xxx_rx)`
-5. 写 `XXX_Process()` 封装判断+拷贝+解析
-6. 任务里调 `XXX_Process()`
+1. 声明 `UART_Rx_t xxx_rx`（加进 `uart_idle.c/h` 的实例列表）+ 各自 BUF_SIZE 宏
+2. `UART_Rx_Init(&xxx_rx, &huartN, &hdma_uartN_rx, XXX_BUF_SIZE, NULL)` 初始化（末参 parse 可传 NULL——该回调当前不被调用）
+3. 对应 `UARTn_IRQHandler` 里加 `UART_Idle_Isr(&huartN, &xxx_rx)`（`Core/Src/stm32h7xx_it.c`）
+4. 写 `XXX_Process()`：`UART_Rx_Take()` 临界区取快照 → 校验 → 解析
+5. 任务里每拍调 `XXX_Process()`

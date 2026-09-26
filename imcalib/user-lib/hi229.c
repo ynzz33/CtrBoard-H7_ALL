@@ -8,6 +8,21 @@
  * ==========================================================================*/
 hi229_data_t hi229_data = {0};
 
+static uint16_t HI229_Crc16(uint16_t crc, const uint8_t *data, uint16_t len)
+{
+    while (len-- > 0u)
+    {
+        crc ^= (uint16_t)(*data++) << 8;
+        for (uint8_t i = 0u; i < 8u; i++)
+        {
+            crc = (crc & 0x8000u)
+                ? (uint16_t)((crc << 1) ^ 0x1021u)
+                : (uint16_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+
 /* ============================================================================
  * 初始化 — UART7 + DMA + IDLE 接收
  * ==========================================================================*/
@@ -21,10 +36,8 @@ void HI229_Init(void)
  * ==========================================================================*/
 void HI229_Process(void)
 {
-    if (!hi229_rx.flag) return;
-    hi229_rx.flag = 0;
-
-    uint16_t len = hi229_rx.isr_len;
+    uint8_t buf[HI229_BUF_SIZE];
+    uint16_t len = UART_Rx_Take(&hi229_rx, buf, sizeof(buf));
     const hi229_frame_t *raw = NULL;
 
     /* IDLE 边界不等于协议帧边界：搜索块内的完整 HI229 帧。 */
@@ -32,16 +45,23 @@ void HI229_Process(void)
     {
         uint16_t data_len;
 
-        if (hi229_rx.isr_buf[offset] != HI229_HEADER_0
-            || hi229_rx.isr_buf[offset + 1u] != HI229_HEADER_1)
+        if (buf[offset] != HI229_HEADER_0
+            || buf[offset + 1u] != HI229_HEADER_1)
             continue;
 
-        data_len = (uint16_t)hi229_rx.isr_buf[offset + 2u]
-                 | ((uint16_t)hi229_rx.isr_buf[offset + 3u] << 8);
+        data_len = (uint16_t)buf[offset + 2u]
+                 | ((uint16_t)buf[offset + 3u] << 8);
         if (data_len != HI229_PAYLOAD_LEN)
             continue;
 
-        raw = (const hi229_frame_t *)&hi229_rx.isr_buf[offset + 6u];
+        uint16_t crc = HI229_Crc16(0u, &buf[offset], 4u);
+        crc = HI229_Crc16(crc, &buf[offset + 6u], HI229_PAYLOAD_LEN);
+        uint16_t received_crc = (uint16_t)buf[offset + 4u]
+                              | ((uint16_t)buf[offset + 5u] << 8);
+        if (crc != received_crc)
+            continue;
+
+        raw = (const hi229_frame_t *)&buf[offset + 6u];
         break;
     }
     if (raw == NULL) return;

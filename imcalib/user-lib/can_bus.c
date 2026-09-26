@@ -1,4 +1,6 @@
 #include "can_bus.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 static can_bus_t can_bus[CAN_BUS_NUM];
 
@@ -53,7 +55,7 @@ static void Can_Bus_Stop(uint32_t idx)
 }
 
 /* 配置滤波器 + 启动 + 开中断 */
-static void Can_Bus_Start(uint32_t idx)
+static bool Can_Bus_Start(uint32_t idx)
 {
     FDCAN_HandleTypeDef *hfdcan = handles[idx];
 
@@ -64,12 +66,19 @@ static void Can_Bus_Start(uint32_t idx)
     filter.FilterID1    = 0x000;
     filter.FilterID2    = 0x000;
     filter.FilterIndex = 0;
-    HAL_FDCAN_ConfigFilter(hfdcan, &filter);
-
-    HAL_FDCAN_Start(hfdcan);
-    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
-    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0);
-    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0);
+    if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK
+        || HAL_FDCAN_Start(hfdcan) != HAL_OK)
+    {
+        return false;
+    }
+    if (HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK
+        || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0) != HAL_OK
+        || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0) != HAL_OK)
+    {
+        (void)HAL_FDCAN_Stop(hfdcan);
+        return false;
+    }
+    return true;
 }
 
 /* 初始化 */
@@ -98,7 +107,7 @@ void Can_Bus_Init(void)
         bus->reinit_tick  = HAL_GetTick();
 
 
-        Can_Bus_Start(i);
+        bus->state = Can_Bus_Start(i) ? CAN_BUS_STATE_ACTIVE : CAN_BUS_STATE_DEAD;
     }
 }
 
@@ -115,10 +124,13 @@ bool Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     for (uint32_t i = 0; i < bus->route_cnt; i++)
         if (bus->route[i].can_id == can_id) return false;
 
-    can_route_t *r = &bus->route[bus->route_cnt++];
+    uint32_t slot = bus->route_cnt;
+    can_route_t *r = &bus->route[slot];
     r->can_id = can_id;
     r->parse  = fn;
     r->ctx    = ctx;
+    __DMB();
+    bus->route_cnt = slot + 1u;
     return true;
 }
 
@@ -135,8 +147,11 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     {
         return HAL_ERROR;
     }
+    /* 发送临界 */
+    taskENTER_CRITICAL();
     if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) == 0u)
     {
+        taskEXIT_CRITICAL();
         return HAL_ERROR;
     }
     tx_header = can_bus[idx].tx_template;
@@ -147,6 +162,7 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     {
         can_bus[idx].last_tx_tick = HAL_GetTick();
     }
+    taskEXIT_CRITICAL();
     return status;
 }
 
@@ -161,7 +177,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
     can_bus_t *bus = &can_bus[idx];
     FDCAN_RxHeaderTypeDef rx_header;
-    uint8_t data[8];
+    uint8_t data[64];
 
     while (HAL_FDCAN_GetRxFifoFillLevel(hfdcan, FDCAN_RX_FIFO0) > 0)
     {
@@ -170,6 +186,13 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
         bus->alive_cnt++;
         bus->last_rx_id = rx_header.Identifier;
+        if (rx_header.IdType != FDCAN_STANDARD_ID
+            || rx_header.RxFrameType != FDCAN_DATA_FRAME
+            || rx_header.FDFormat != FDCAN_CLASSIC_CAN
+            || rx_header.DataLength != FDCAN_DLC_BYTES_8)
+        {
+            continue;
+        }
 
         for (uint32_t i = 0; i < bus->route_cnt; i++)
         {
@@ -226,7 +249,7 @@ bool Can_Bus_Online(bool expect_traffic)
             && now - bus->reinit_tick >= CAN_BUS_REINIT_MS)
         {
             Can_Bus_Stop(i);
-            Can_Bus_Start(i);
+            (void)Can_Bus_Start(i);
             bus->reinit_tick = now;
         }
 

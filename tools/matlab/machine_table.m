@@ -1,11 +1,11 @@
 function m = machine_table(name)
 %MACHINE_TABLE 机器参数表 — 与 machine_config.c 两份表对应, 不常改
-%   m = machine_table('local') | machine_table('chuanliantui')
+%   m = machine_table('small_wheelleg') | machine_table('big_wheelleg')
 % 板上 machine_config.c 改了轮径 / 杆长 / 腿长区间 / 限幅, 这里要手动跟着改 (比对脚本已删)。
 % status: 实测 / Leg2 / 旧脚本 / 待实测 ('待实测' 会打进导出 C 的文件头)
 switch name
-    case 'local'   % ---------- 小机器 local-m2006-j4310 = machine_config.c [MACHINE_ID_LOCAL] ----------
-        m.name = 'local';  m.c_id = 'MACHINE_ID_LOCAL';
+    case 'small_wheelleg'   % ---------- 小轮腿 M2006/J4310 = machine_config.c [MACHINE_ID_SMALL_WHEELLEG] ----------
+        m.name = 'small_wheelleg';  m.c_id = 'MACHINE_ID_SMALL_WHEELLEG';
         % 机体 (Leg2 WBR_modeling.mlx 生效组, 板上现表就是这组生成的)
         m.body.g          = 9.81;
         m.body.wheel_r    = 0.04;           % 驱动轮半径 [m]          = .wheel_r
@@ -48,8 +48,8 @@ switch name
             'leg.data_newton15', '待实测 (阶段 2 前作者定)';
             'ctrl.*',            'machine_config.c / lqr_balance.h' };
 
-    case 'chuanliantui'   % ---------- 大机器 = machine_config.c [MACHINE_ID_CHUANLIANTUI]; 机体全是旧脚本值, 只作预研 ----------
-        m.name = 'chuanliantui';  m.c_id = 'MACHINE_ID_CHUANLIANTUI';
+    case 'big_wheelleg'   % ---------- 大轮腿 = machine_config.c [MACHINE_ID_BIG_WHEELLEG]; 机体全是旧脚本值, 只作预研 ----------
+        m.name = 'big_wheelleg';  m.c_id = 'MACHINE_ID_BIG_WHEELLEG';
         m.body.g          = 9.81;
         m.body.wheel_r    = 0.04;                     % 板上占位 (旧脚本 0.06) — 待实测
         m.body.half_track = 0.221;
@@ -82,7 +82,7 @@ switch name
             'ctrl.grid',         '待实测 (区间实测后定)' };
 
     otherwise
-        error('machine_table:unknown', '未知机器 "%s" (local / chuanliantui)', name);
+        error('machine_table:unknown', '未知机器 "%s" (small_wheelleg / big_wheelleg)', name);
 end
 
 % 自检 + 待实测清单

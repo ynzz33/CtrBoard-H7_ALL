@@ -1,6 +1,6 @@
 # AI 协作规范 — 轮腿平衡步兵 RL 部署
 
-> 最后更新：2026-09-21
+> 最后更新：2026-09-25
 > 适用：Claude / Cursor / Copilot / Codex / Gemini / Kimi Code 等任何 AI 助手。
 > 接手本仓库前**先读完这一篇**，再动手。
 
@@ -117,7 +117,7 @@
 ```
 CtrBoard-H7_ALL/
 ├── Core/Src/
-│   ├── main.c              ← 初始化 (DR16/HI229/CAN/DM/DJI) + FreeRTOS 启动
+│   ├── main.c              ← 初始化 (mono_ns/DR16/HI229/CAN/DM/DJI + FDCAN 数据段套用) + FreeRTOS 启动
 │   ├── freertos.c          ← 5 任务创建 (comm/imu/policy/actuation/default)
 │   └── ...                 ← 其余 CubeMX 生成
 ├── imcalib/
@@ -147,13 +147,17 @@ CtrBoard-H7_ALL/
 │       ├── can_bus.c/h            ← FDCAN 总线管理
 │       ├── dm.c/h                 ← 达妙电机 (MIT)
 │       ├── dji.c/h                ← DJI 轮电机
-│       ├── machine_config.c/h     ← 两份电机配置表 + 运行时选择
-│       ├── mono_ns.c/h            ← 单调 ns 时钟 (DWT)
+│       ├── machine_config.c/h     ← 两份电机配置表 + 编译期选择 (MACHINE_DEFAULT)
+│       ├── mono_ns.c/h            ← 单调 ns 时钟 (DWT + TIM6 扩展)
 │       ├── simple-function.c/h   ← 简单函数库 (一阶低通 Lowpass_* / 斜坡 Ramp_*)
 │       ├── kalman.c/h            ← 带加速度输入的一维卡尔曼 (速度估计, 同 Leg2_v1)
+│       ├── pid.c/h               ← 通用 PID (腿长/横滚/轮速环共用)
+│       ├── dma_cache.h           ← D-Cache 清理/失效 (DMA 收发配套)
+│       ├── ws2812.c/h            ← 板载 WS2812 (SPI6), commTask 周期闪烁
+│       ├── BMI088driver.c/h / BMI088Middleware.c/h / BMI088reg.h ← 板载 BMI088 (SPI2, 当前未接入)
 │       ├── arm_sin_f32.c / arm_cos_f32.c / arm_sin_table_f32.c ← CMSIS-DSP 1.6.0 查表 sin/cos 源码 (leg_solver 用)
 │       └── Vofa_send.c/h          ← Vofa+ 调试发送
-├── X-CUBE-AI/App/          ← X-CUBE-AI 生成的 networkzn1 (chuanliantui 起立策略, 2026-09-22)
+├── X-CUBE-AI/App/          ← X-CUBE-AI 生成的 networkzn1 (chuanliantui 起立策略, 2026-09-22; networkzn1.c/h + config/data/data_params)
 └── md/
     ├── AGENTS.md            ← 本文件 (AI 协作规范)
     ├── CLAUDE.md            ← Claude Code 薄指针
@@ -186,16 +190,16 @@ CtrBoard-H7_ALL/
 | Vofa 调试发送 | Vofa_send.c/h | ✅ 完成，32 通道（上限 32）JustFloat DMA；通道表见 `task_comm.c` 的 `Robot_Control_Send_Vofa()` 上方注释 |
 | FDCAN 总线 | can_bus.c/h | ✅ 完成 |
 | DM 电机 | dm.c/h | ✅ 完成 |
-| 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT + TIM6 扩展；供 CAN 收发时间戳用（步 3 接入） |
-| 机器配置表 | machine_config.c/h | ✅ 新增，**两份表 + 运行时切换**（`Machine_Select`） |
+| 单调 ns 时钟 | mono_ns.c/h | ✅ 新增，DWT + TIM6 扩展；`Mono_Ns_Get()` 当前仅 `rl_policy.c` 用于推理耗时计量（CAN 收发时间戳是早期 sysid 规划，已随 sysid 模块移除） |
+| 机器配置表 | machine_config.c/h | ✅ 新增，**两份表 + 编译期选择**（`machine_config.h` 的 `MACHINE_DEFAULT`，`Machine_Id()` 只读查询；无运行时切换接口） |
 | DJI 轮电机 | dji.c/h | ✅ 完成，减速比已修正 |
 | 五连杆 | leg_solver.c/h | ✅ 完成，thigh_angle 根因修复已验证；三角函数走 CMSIS-DSP 查表（`LEG_TRIG_LIBM=1` 退回 libm） |
-| RL 观测 | rl_observation.c/h | ✅ 缩放/默认角已按训练侧填；🟡 关节映射 `.rl` 待训练侧 + 台架 |
-| CubeAI 推理 | rl_policy.c/h | ✅ 单模型 networkzn1，已接进 policyTask（`rl_control.infer_enable`，默认 0）；🟡 待台架 |
+| RL 观测 | rl_observation.c/h | ✅ 缩放/默认角已按训练侧填；🟡 大机器 `.rl` 候选 A 已填且 `configured=1`（`machine_config.c` 大机器表，数值以代码为准、待台架），小机器 `.rl` 未配置（`configured=0`） |
+| CubeAI 推理 | rl_policy.c/h | ✅ 单模型 networkzn1，已接进 policyTask（`ctrl_task_body()` 按 `machine->rl.configured` 门控，无 `infer_enable` 字段；投入后另有 `RL_WARMUP_STEPS` 预热）；🟡 待台架 |
 | 力矩执行层 | rl_torque.c/h | ✅ 完成，DM/DJI 分离输出 + 轮子 PID |
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 完成，已上机验证 |
 | 遥控指令 | user-lib/rc_command.c/h | ✅ 四轴归一化 + 拨杆，commTask 填、其余只读；ch1 死区 10 |
-| LQR 增益表 | lqr_gain_table.c/h | ✅ 参考上车表已移植；🟡 自研表待重跑对齐 |
+| LQR 增益表 | lqr_gain_table.c/h | ✅ 由 `tools/matlab/run_all.m` 管线生成物（勿手改），当前板上表为小机器 sjtu5 模型输出（表号/日期/Q/R 见 `lqr_gain_table.c` 头注释）；🟡 大机器表未接入（`machine_config.c` 大机器 `lqr_configured=0`）；历史：早期为参考上车表移植，已被 MATLAB 管线输出覆盖 |
 | LQR 状态估计与控制律 | lqr_balance.c/h | ✅ 编译通过，含 `lqr_debug` 运行时通道/限幅 A/B；🟡 **待台架** |
 | 腿部力控与下发 | leg_balance.c/h | ✅ 编译通过；🟡 **待台架** |
 | 策略仲裁 | task_actuation.c | ✅ 编译通过（左拨杆 中=LQR / 上=RL / 下=失能；右拨杆中位=投入，其他=零力矩）；🟡 待台架 |
@@ -207,15 +211,15 @@ CtrBoard-H7_ALL/
 ## 关键约束
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
-- **控制频率**：actuationTask **1 kHz**（TIM6 Prescaler=274 / Period=999，`CTRL_DT=0.001f`；2026-09-24 切回小机器）。LQR、手动遥操、RL 共用该节拍
+- **控制频率**：actuationTask 由 TIM6 信号量驱动，频率随机器表编译期切换（`machine_config.h` 的 `MACHINE_TIM6_PERIOD`/`MACHINE_CTRL_DT`，`tim.c` USER CODE 2 里套用）：小机器 Period=999 → **1 kHz**（`CTRL_DT=0.001f`，当前 `MACHINE_DEFAULT`），大机器 Period=1999 → **500 Hz**（`CTRL_DT=0.002f`）。两者 Prescaler 均 274。LQR、手动遥操、RL 共用该节拍
 - **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集，只夹拨轮目标；投入不查实测腿长（同 Leg2，变更 92），趴地投入靠腿长 PID 撑起
-- **LQR 辅助 PID**：当前保留左右腿长 PID 和横滚 PID；防劈叉 PID 已移除。参数以 `leg_balance.h` 为准，投入时清 PID 历史。腿长区间与投入下限按本机自标，不照抄 Leg2
-- **FDCAN**：HSE 24 MHz，仲裁段 1 Mbps = Prescaler=3, Seg1=5, Seg2=2；当前发送经典 CAN 帧
-- **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换
+- **LQR 辅助 PID**：当前保留左右腿长 PID 和横滚 PID；防劈叉 PID 已移除。参数以 `leg_balance.h` 为准，投入时清 PID 历史。腿长区间按本机自标，不照抄 Leg2（投入已不查实测腿长，无"投入下限"门槛）
+- **FDCAN**：HSE 24 MHz，仲裁段 1 Mbps = NominalPrescaler=3 / Seg1=5 / Seg2=2（`fdcan.c` 三路一致；仅经典 CAN 帧，只走仲裁段）。数据段参数随机器表切换（`machine_config.h` 的 `MACHINE_FDCAN13_DATA_*`，`main.c` 启动时套用到 FDCAN1/3），经典帧下不起作用
+- **BMI088**：SPI 通信，驱动输出已是 rad/s 和 g，不要重复转换（单位换算以 `BMI088driver.h` 为准，待作者确认）。**当前未接入**：`main.c:160` `IMU_Init()` 已注释（"暂不使用"），驱动文件保留在 `imcalib/user-lib/`
 - **HI229 姿态**：直接使用模块输出的四元数 + 欧拉角，Attitude_Algorithm 只做归一化和单位转换；取轴与符号来自机器表 `machine->imu`（`task_imu.c` 应用），驱动 `hi229.c/h` 只出原始值
-- **标定**：500ms (200ms 暖机 + 300ms 采样)
+- **标定**：500ms (200ms 暖机 + 300ms 采样)（历史记录：当前代码中已找不到对应标定/暖机流程，`imcalib`/`Core` 无相关实现；疑属已移除的 sysid/标定模块。作者 2026-09-25 确认：按现状保留为历史说明）
 - **串口接收**：IDLE+DMA Circular，不使用 Resync，任务层校验
-- **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz；当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准
+- **VOFA 调试**：正常控制为 32 通道 JustFloat、500Hz（`commTask` 1 kHz 周期内 `send_div` 每 2 拍发一次，`task_comm.c::Robot_Control_Send_Vofa()`）；当前布局以上方注释为准
 - **DJI 力矩常数**：`per_raw` 按型号满电流堵转力矩 / 满 raw × (`machine->dji_gear_ratio` / 标准减速比) 缩放，见 `dji.c` 的 `Dji_Torque_To_Current()`；**Kt 绝对值仍待台架实测**
 - **机器切换**：改 `imcalib/user-lib/machine_config.h` 的 `MACHINE_DEFAULT`（两份表在 `machine_config.c`，含刻度、满量程、限幅、**极性**，以及 **IMU 取轴与符号 `.imu`**、**RL 关节映射 `.rl`**）；DM 的 PMAX/VMAX/TMAX 以电机实际配置为准，用达妙上位机读一次与配置表比对
 - **CMSIS-DSP**：CubeMX 的 X-CUBE-ALGOBUILD 只生成头文件 `Middlewares/ST/ARM/DSP/Inc/arm_math.h`（1.7.0），**不挂库、不加源**。本工程用源码方式：`imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（照抄 `Drivers/CMSIS/DSP/Source` 1.6.0）+ `arm_sin_table_f32.c`（只截 513 点 `sinTable_f32`），头文件走相对路径 `#include "../../Drivers/CMSIS/DSP/Include/arm_math.h"`；两套工程都不需要改包含目录，eIDE 靠 `srcDirs` 自动扫到，Keil 已登记进 `imcalib/user-lib` 组。**不要把 `arm_common_tables.c` 整个当源文件编**（armcc 不拆数据段，700 KB 表整段进 flash），**也不要挂 `Drivers/CMSIS/DSP/Lib/ARM` 下的 .lib**：目录里 19 个库只有 `arm_cortexM7lfdp_math.lib` 对应本机，多挂时 armlink 不报错、静默取第一个（软浮点）；eIDE 开着时手改 `eide.yml` 几秒内被覆盖。再要用别的 DSP 函数，照同样办法把对应源文件抄进 user-lib

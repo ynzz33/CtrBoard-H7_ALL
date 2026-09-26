@@ -81,16 +81,18 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 | 字段 | 解析位置 | 范围 | 用途 |
 |------|:--------:|:----:|------|
-| ch0 | buf[0..1] | ±660 | yaw 指令 |
-| ch1 | buf[1..2] | ±660 | 轮子速度 (手动遥操) |
-| ch2 | buf[2..4] | ±660 | (未用) |
-| ch3 | buf[4..5] | ±660 | 前进/后退 + 大腿偏移 |
-| wheel | buf[16..17] | ±660 | 高度 + 小腿偏移 |
-| s1 | buf[5]>>4 | 1/2/3 | 使能控制 |
-| s2 | buf[5]>>4 | 1/2/3 | 模式选择 (未接线) |
+| ch0 | buf[0..1] | ±660 | yaw 指令 → `rc_command.yaw`（LQR 偏航 / RL `command[1]`） |
+| ch1 | buf[1..2] | ±660 | 前进速度 → `rc_command.vel`（LQR 速度 / RL `command[0]`） |
+| ch2 | buf[2..4] | ±660 | **无消费**（仅解析 + 范围校验） |
+| ch3 | buf[4..5] | ±660 | → `rc_command.ang`（**当前无消费**） |
+| wheel | buf[16..17] | ±660 | 腿长 / 高度 → `rc_command.len`（LQR 腿长积分 / RL `command[2]`） |
+| s1 | (buf[5]>>6)&3 | 1/2/3 | 挡位选择 + 使能（§6） |
+| s2 | (buf[5]>>4)&3 | 1/2/3 | 投入出力（§6） |
 | mx/my/mz | buf[6..11] | int16 | (未用) |
 | ml/mr | buf[12..13] | 0/1 | (未用) |
 | key | buf[14..15] | uint16 | (未用) |
+
+> 各通道取位与符号细节以 `dr16.c:28-45` 为准。
 
 ---
 
@@ -98,36 +100,49 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 | 拨杆 | 值 | 宏 | 作用 |
 |:----:|:--:|:--:|------|
-| s1 DOWN | 2 | `DR16_SW_LEFT_DOWN` | 失能 |
-| s1 MID | 3 | `DR16_SW_LEFT_MID` | 使能 |
-| s1 UP | 1 | `DR16_SW_LEFT_UP` | 使能 |
-| s2 | — | — | 模式选择 (未接线) |
+| s1 DOWN | 2 | `DR16_SW_LEFT_DOWN` | 失能 → `CTRL_STRATEGY_DISABLE`（`task_actuation.c:84-85`） |
+| s1 MID | 3 | `DR16_SW_LEFT_MID` | 选 LQR（需 `machine->lqr_configured`，`task_actuation.c:80-81`）；计入 `rc_enable`（`strategy_rc_enable()`，`task_actuation.c`） |
+| s1 UP | 1 | `DR16_SW_LEFT_UP` | 选 RL（需 `machine->rl.configured`，`task_actuation.c:82-83`）；计入 `rc_enable`（`strategy_rc_enable()`，`task_actuation.c`）；RL 挡（`ctrl_strategy == CTRL_STRATEGY_RL`）动作过期或已投入但动作持续不可用（`rl_ready` 持续 0）≥100ms → `FAULT_ACTION`（`Robot_Fault_Update()`，2026-09-25） |
+| s2 MID | 3 | `DR16_SW_RIGHT_MID` | 投入出力（LQR：`task_actuation.c:180`；RL：`task_actuation.c:193`） |
+| s2 UP/DOWN | 1/2 | `DR16_SW_RIGHT_UP/DOWN` | 已选模式但零力矩（不投入） |
+
+> 离线 / 使能判定为 0（`strategy_rc_enable()`）→ `CTRL_STRATEGY_DISABLE`（`strategy_from_remote()` 先判 `robot_state.rc_enable`，`task_actuation.c`）；LQR 投入还依赖电机使能 + IMU 在线 + 两腿有效（`task_actuation.c:94-96`）。
 
 ---
 
 ## 7. 遥控指令映射
 
-摇杆只在一处解算：`commTask` → `Remote_Control_Update()` → `Rc_Command_Update()` (`user-lib/rc_command.c`) 填全局 `rc_command`，各链路只读。
+摇杆只在一处解算：`commTask` → `Remote_Control_Update()` (`task_comm.c:67`) → `Rc_Command_Update()` (`user-lib/rc_command.c`) 填全局 `rc_command`，各链路只读。
 
-**`rc_command_t`** (死区 + 限幅 ±660 → [-1, 1]):
+**`rc_command_t`** (死区 + 限幅 ±660 → [-1, 1], `rc_command.c:4-18`):
 
 | 字段 | 通道 | 死区 | 含义 |
 |------|------|:----:|------|
 | `vel` | ch1 右摇杆 Y | 10 | 前进 |
 | `yaw` | ch0 右摇杆 X | 20 | 转向 |
 | `len` | wheel 拨轮 | 20 | 腿长 / 高度 |
-| `ang` | ch3 左摇杆 Y | 20 | 摆角 / 大腿 |
+| `ang` | ch3 左摇杆 Y | 20 | 摆角 / 大腿（**当前无消费**） |
 | `s1` / `s2` / `online` | 拨杆 / 在线 | — | 仲裁用 |
 
-**消费端**:
+死区常量 `RC_DEADBAND_VEL/YAW/LEN/ANG` 见 `rc_command.h:7-10`。
+
+**消费端**（当前）:
 
 | 链路 | 位置 | 用法 |
 |------|------|------|
-| LQR / 手动腿测 | `lqr_balance.c::LQR_Target_Update()` | `vel × 1.2 m/s`、`−yaw × 5 rad/s`、`len × 0.3 m/s` 积分成腿长目标、手动时 `ang × 0.5 rad` 摆角 |
-| RL 观测 | `task_policy.c::Remote_Command_Apply()` | `vx_cmd ← vel`、`yaw_cmd ← yaw`、`height_cmd ← len`，各 × `REMOTE_COMMAND_SCALE` |
-| RL 推理路径（`infer_enable=1`） | `task_policy.c::RL_Command_From_Rc()` | `vx ← vel × RL_CMD_VX_MAX`、`yaw_rate ← −yaw × RL_CMD_YAW_MAX`（右推为负，同 LQR）、`height ← len` 线性到 `[RL_CMD_HEIGHT_MIN, MAX]`；宏在 `rl_policy.h`，待训练侧 |
-| RL 手动偏移 | 同上 | `thigh ← ang × 4`、`shank ← len × 4`、`wheel ← vel × 4` |
-| 挡位 | `task_actuation.c` | `s1`：中 = LQR、上 = RL、下 / 离线 = 失能 → `ctrl_strategy`；`s2` 中位 = 投入出力 |
+| LQR | `lqr_balance.c:141` `LQR_Target_Update()`（`task_actuation.c:124` 调用） | `vel × LQR_RC_VEL_MAX` 速度目标（`lqr_balance.h:41`，现值 1.2 m/s，可再经 `lqr_debug.vel_ramp` 斜坡）；`−yaw × LQR_RC_YAW_MAX` 偏航角速度目标 + 摇杆有输入时锁当前朝向（`lqr_balance.h:42`，现值 5 rad/s）；`len × LQR_RC_LEN_RATE × dt` 积分成腿长目标、夹在腿长工作区间（`lqr_balance.h:43`，现值 0.3 m/s）；`ang` 无消费 |
+| RL 推理指令 | `task_policy.c:120` `RL_Command_From_Rc()`（`RL_Infer_Body()` 每拍调用，`task_policy.c:154`） | `command[0] ← vel × RL_CMD_VX_MAX`、`command[1] ← −yaw × RL_CMD_YAW_MAX`（右推为负，同 LQR）、`command[2] ← len` 线性到 `[RL_CMD_HEIGHT_MIN, RL_CMD_HEIGHT_MAX]`；宏在 `rl_policy.h:10-13`，数值以代码为准、待训练侧（代码注释标注为起立策略训练域，拨轮暂无效） |
+| RL 观测 | `task_policy.c:71/92` → `rl_observation.c::RL_Observation_Build()` | `command[3]` 进观测，再乘 `RL_OBS_CMD_*_SCALE`（`rl_observation.h:13-15`） |
+| 挡位 / 投入 | `task_actuation.c:72` `strategy_from_remote()` + `:176-204` | `s1`：中 = LQR、上 = RL、下 / 离线 = 失能 → `ctrl_strategy`；`s2` 中位 = 投入出力（LQR `:180`、RL `:193`），其他位 = 已选模式但零力矩 |
+| 使能 / 故障 | `strategy_rc_enable()`（`task_actuation.c`） | online + 左中且 `lqr_configured` / 左上且 `rl.configured` → `robot_state.rc_enable`（`task_comm.c`）；RL 挡（`ctrl_strategy == CTRL_STRATEGY_RL`）动作过期或已投入但动作持续不可用（`rl_ready` 持续 0）≥100ms → `FAULT_ACTION`（`Robot_Fault_Update()`，2026-09-25 收敛为唯一函数） |
+
+**历史 / 已移除**（旧路径，当前代码已无）:
+
+| 链路 | 位置 | 用法 |
+|------|------|------|
+| ~~RL 观测（旧）~~ | ~~`task_policy.c::Remote_Command_Apply()`~~ | `vx_cmd ← vel`、`yaw_cmd ← yaw`、`height_cmd ← len`，各 × `REMOTE_COMMAND_SCALE`（旧手动遥操路径，git `3a943aa` 及以前） |
+| ~~RL 手动偏移（旧）~~ | 同上 | `thigh ← ang × 4`、`shank ← len × 4`、`wheel ← vel × 4` 叠加 base action（`MANUAL_ACTION_SCALE`，git `3a943aa`） |
+| ~~LQR 手动腿测（旧）~~ | — | 曾记"手动时 `ang × 0.5 rad` 摆角"；当前 `ang` 仅在 `rc_command.c` 赋值，无任何消费（与早期文档记录不同，待作者确认） |
 
 ---
 
@@ -135,13 +150,13 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 | 常量 | 值 | 说明 |
 |------|:--:|------|
-| `DR16_FRAME_LEN` | 18 | 帧长度 |
-| `DR16_OFFLINE_MS` | 100 | 超时 (ms) |
-| `DR16_CH_LIMIT` | 660 | 通道最大绝对值 |
-| `DR16_SW_UP` | 1 | 拨杆上位 |
-| `DR16_SW_MID` | 3 | 拨杆中位 |
-| `DR16_SW_DOWN` | 2 | 拨杆下位 |
-| `REMOTE_COMMAND_SCALE` | 3.0f | RL 指令缩放 |
+| `DR16_FRAME_LEN` | 18 | 帧长度（`dr16.h:7`） |
+| `DR16_OFFLINE_MS` | 50 | 超时 (ms)（`dr16.h:8`） |
+| `DR16_CH_LIMIT` | 660 | 通道最大绝对值（`dr16.h:9`） |
+| `DR16_SW_UP` | 1 | 拨杆上位（`dr16.h:11`） |
+| `DR16_SW_MID` | 3 | 拨杆中位（`dr16.h:12`） |
+| `DR16_SW_DOWN` | 2 | 拨杆下位（`dr16.h:13`） |
+| `REMOTE_COMMAND_SCALE` | 3.0f | **历史 / 已移除**：RL 指令缩放（旧 `rl_policy.h`，git `3a943aa`）；当前代码无此宏，RL 缩放改用 `RL_CMD_*`（`rl_policy.h:10-13`） |
 
 ---
 
@@ -149,8 +164,8 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 | 函数 | 作用 |
 |------|------|
-| `DR16_Init()` | UART9+DMA 启动 |
-| `DR16_Process()` | 解析一帧写入 dr16 |
-| `DR16_Online()` | 100ms 超时检测 |
-| `DR16_Deadline()` | 死区滤波 |
-| `DR16_Snapshot()` | 返回 dr16 副本 (避免跨帧) |
+| `DR16_Init()` | UART9+DMA 启动（`dr16.c:65`，`main.c:157` 调用） |
+| `DR16_Process()` | 解析一帧写入 dr16（`dr16.c:71`，`task_comm.c:71` 每拍调用） |
+| `DR16_Online()` | 50ms 超时检测，超时清零 `dr16`（`dr16.c:84`；`task_comm.c:106/195`） |
+| `DR16_Deadline()` | 死区滤波（`dr16.c:98`；唯一调用点 `rc_command.c:8` 归一化死区） |
+| `DR16_Snapshot()` | 返回 dr16 副本（`dr16.c:106`；唯一使用点 `task_comm.c:72`）。LQR/RL/仲裁不得自行调用；注释称"正在接收则跳过"，当前实现两分支均直接返回（与注释意图不同，待作者确认） |

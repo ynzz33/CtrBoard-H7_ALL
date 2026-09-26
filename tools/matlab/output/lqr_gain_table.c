@@ -5,7 +5,7 @@
  *
  * 表号   : local-sjtu5-20260924-2009
  * 生成   : 2026-09-24 20:09   git 3c0af01
- * 机器   : local (MACHINE_ID_LOCAL)
+ * 机器   : small_wheelleg (MACHINE_ID_SMALL_WHEELLEG)
  * 模型   : sjtu5
  * Q      : diag([16000   1200   1000    870  11000    250  11000    250   7000    500])
  * R      : diag([5480  5480   650   650])

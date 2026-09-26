@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 #define DR16_FRAME_LEN   18
-#define DR16_OFFLINE_MS  100u
+#define DR16_OFFLINE_MS  50u
 #define DR16_CH_LIMIT    660
 
 #define DR16_SW_UP       1

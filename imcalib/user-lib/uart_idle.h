@@ -30,5 +30,6 @@ void UART_Rx_Init(UART_Rx_t *rx, UART_HandleTypeDef *huart,
                   DMA_HandleTypeDef *hdma_rx, uint16_t size,
                   UART_Parse_cb parse);
 void UART_Idle_Isr(UART_HandleTypeDef *huart, UART_Rx_t *rx);
+uint16_t UART_Rx_Take(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity);
 
 #endif

@@ -4,27 +4,35 @@
 #include <stdint.h>
 
 /* 机器编号 */
-#define MACHINE_ID_CHUANLIANTUI   0u
-#define MACHINE_ID_LOCAL          1u
+#define MACHINE_ID_BIG_WHEELLEG    0u
+#define MACHINE_ID_SMALL_WHEELLEG  1u
 #define MACHINE_NUM               2u
 
 /* 电机数量 (须与 dm.c / dji.c 的枚举一致) */
 #define MACHINE_LEG_NUM           4u
 #define MACHINE_WHEEL_NUM         2u
 
-/* 上电默认机器: 切换大/小轮腿只改这一行 */
+/* 上电默认机器: 底层机型参数只改这一行。
+ * LQR 增益表仅针对小轮腿，RL 模型仅针对大轮腿；控制器不能仅靠本宏互换。
+ * FDCAN1/3 的数据阶段时序随机器切换；FDCAN2 保持 CubeMX 设置。 */
 #ifndef MACHINE_DEFAULT
-#define MACHINE_DEFAULT           MACHINE_ID_LOCAL
+#define MACHINE_DEFAULT           MACHINE_ID_SMALL_WHEELLEG
 #endif
 
-#if MACHINE_DEFAULT == MACHINE_ID_CHUANLIANTUI
+#if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
 #define MACHINE_TIM6_PERIOD       1999u   /* 500 Hz */
 #define MACHINE_CTRL_DT           0.002f
 #define MACHINE_VOFA_PORT         1u      /* USART1 */
-#elif MACHINE_DEFAULT == MACHINE_ID_LOCAL
+#define MACHINE_FDCAN13_DATA_PRESCALER  1u
+#define MACHINE_FDCAN13_DATA_SEG1       4u
+#define MACHINE_FDCAN13_DATA_SEG2       1u
+#elif MACHINE_DEFAULT == MACHINE_ID_SMALL_WHEELLEG
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_CTRL_DT           0.001f
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
+#define MACHINE_FDCAN13_DATA_PRESCALER  3u
+#define MACHINE_FDCAN13_DATA_SEG1       5u
+#define MACHINE_FDCAN13_DATA_SEG2       2u
 #else
 #error "Unsupported MACHINE_DEFAULT"
 #endif
@@ -56,6 +64,7 @@ typedef struct {
 /* 一台机器的全部参数 */
 typedef struct {
     const char *name;
+    uint8_t     lqr_configured;     /* 此机器有匹配的 LQR 增益表 */
     /* 轮: 型号(0=M2006, 1=M3508) + 总传动比 + 满限幅力矩(Nm) */
     uint8_t     dji_type;
     float       dji_gear_ratio;
@@ -89,9 +98,8 @@ typedef struct {
 } machine_cfg_t;
 
 extern const machine_cfg_t machine_table[MACHINE_NUM];
-extern const machine_cfg_t *machine;     /* 当前生效的机器 */
+extern const machine_cfg_t *const machine; /* 编译期选定的机器 */
 
-void    Machine_Select(uint8_t id);
 uint8_t Machine_Id(void);
 
 #endif

@@ -2,6 +2,66 @@
 
 > 2026-09-24：本文是历史变更记录。固件 Sysid 测试模块及相关入口已清理；下文提到的测试符号和编译配置不代表当前代码。
 
+## 2026-09-25 · imuTask 轮询改 1kHz
+
+- 输入：作者 2026-09-25 决定：imuTask 轮询 500Hz→1kHz，与控制节拍对齐（作者改 `Core/Src/freertos.c:207` `osDelay(2)`→`osDelay(1)`）。
+- 输出：`imu_state` 更新延迟由 ≤2ms 收到 ≤1ms；HI229 去重（`ts`）保证同帧不重复处理；UART 接收缓冲取走频率翻倍。
+- 调用链：`imuTask → HI229_Process → Attitude_Update → imu_state`（LQR/RL/comm 只读）。
+- 核对：armcc 编译 `freertos.c` 0 错 0 警（-o 指向临时目录）；未链接、未上机。
+- 备注：HI229 模块实际输出率与 128B 接收缓冲余量仍待台架复核。
+
+## 2026-09-25 · 使能判定收敛为唯一函数（等价重构）
+
+- 输入：作者 2026-09-25 批准：一个函数确定 `rc_enable`、后续复用；纠正方向——先判 `rc_enable` 再入后续。
+- 输出：`imcalib/task/task_actuation.c` 新增 `strategy_rc_enable()`；`strategy_from_remote()` 改为消费 `robot_state.rc_enable` + s1；`imcalib/task/task_comm.c:74-76` 改调该函数；`task_comm.c:119-120` FAULT_ACTION 首判据改为 `ctrl_strategy == CTRL_STRATEGY_RL`（`robot_control.h:22`）；`robot_control.h` 新增声明。
+- 调用链：comm 使能机 / actuation 策略仲裁 / 故障判定。
+- 核对：armcc 编译 task_actuation / task_comm / robot_control，以并行任务结果为准，0 错 0 警；未链接、未上机。
+- 备注：行为与改前严格等价；建议台架逐档回归：左下/中/上 × 配置组合验证使能与策略一致。
+
+## 2026-09-25 · CAN 发送临界区 + FAULT_ACTION 不可用判据
+
+- 输入：作者 2026-09-25 授权：第 2 点 CAN 发送竞态修复；第 3 点 FAULT_ACTION 增判据。
+- 输出①：`imcalib/user-lib/can_bus.c` 的 `Can_Bus_Transmit`（`can_bus.c:136`）把空闲检查→HAL 调用→`last_tx_tick` 更新用 `taskENTER_CRITICAL`/`taskEXIT_CRITICAL` 包住，消除与中断/高优先级任务发送的交错窗口（窗口 <2 µs）。
+- 输出②：`imcalib/task/task_comm.c::Robot_Fault_Update`（`task_comm.c:81`）新增判据：`output_task_rl_engaged()` 且 `action_state.rl_ready==0` 持续 ≥100 ms → `FAULT_ACTION`（函数内 static 计时，未投入/恢复即清零；warmup 期 `rl_ready=1` 不误报）。
+- 调用链：actuation/comm 发送链；comm 故障判定链（`Robot_Fault_Update` → `ctrl_fault` → 使能门禁）。
+- 核对：armcc 编译 can_bus / task_comm / dm / dji / task_actuation 五个文件，以并行任务结果为准，0 错 0 警；未链接、未上机。
+- 备注：第 1 点 IMU ts 冻结洞按作者决定仅作排查提示、未改代码。
+
+## 2026-09-25 · RC 离线阈值 50ms + 推理失败 last_action 修正
+
+- 输入：作者决定：第 5 点 RC 离线 100→50 ms 实施；第 7 点失败 last_action 修正加入；第 4 点保持现状、第 6 点不做。
+- 输出①：`imcalib/user-lib/dr16.h:8` `DR16_OFFLINE_MS` 100u→50u，`DR16_Online()`（`dr16.c:84`）与 `FAULT_RC` 判定随之提前。
+- 输出②：`imcalib/task/task_policy.c` 推理失败分支补 `RL_Observation_Set_Last_Action(..., action_t)`（`RL_Policy_Run` 已清零 `action_t`，`rl_policy.c:147`），obs 19-24（`RL_OBS_LAST_ACTION`，`rl_observation.h:44`）与实际执行的零力矩一致。
+- 调用链：comm 遥控链 / policy 观测链。
+- 核对：armcc 编译 dr16 / rc_command / task_comm / task_actuation / task_policy 五个文件，以并行任务结果为准，0 错 0 警；未链接、未上机。
+- 备注：`FAULT_ACTION`（`robot_control.h:93`）与 DM 使能/失能看门狗 100 ms 未变；接收链丢帧（第 6 点）按决定不做。
+
+## 2026-09-25 · RL 轮目标速度加 ±20 rad/s 限幅
+
+- 输入：作者授权：轮目标速度按 ±20 rad/s 限幅；其余待确认项按现状为准。
+- 输出：`imcalib/Algorithm/rl_torque.c` 新增 `RL_TQ_WHEEL_VEL_MAX 20.0f`（`rl_torque.c:10`）；`vel_ref[VJ_L_WHEEL]` / `vel_ref[VJ_R_WHEEL]` 两处 `clampf(..., ±RL_TQ_WHEEL_VEL_MAX)`（`rl_torque.c:227-230`）。
+- 调用链：`output_task_body → solve_rl → RL_Torque_Compute`。
+- 核对：armcc 单文件编译 0 错 0 警（`-o` 临时目录，未污染 `build/`）；未链接、未上机。
+- 备注：`|a_wheel|>2` 时目标饱和（act×10 折 ±20 rad/s）；`last_action` 仍记录未饱和动作，待训练侧确认。
+- 另：作者同时确认其余待确认项（辅助 PID、卡尔曼 Q、标定历史）按现状为准。
+
+## 2026-09-25 · RL 力矩失败语义修复 + ADC1/OCTOSPI2 死链移除
+
+- 输入：作者 2026-09-25 授权两件事：①RL 力矩计算失败要「标注错误并发零力矩」；②删除未使用的 ADC1 与 OCTOSPI2（外置闪存）死链，BMI088 与 WS2812 保留。
+- 输出①：`imcalib/task/task_actuation.c` 的 `solve_rl()`（148-156 行）接住 `RL_Torque_Compute` 返回值，失败（0u）→ `torque->valid = 0u` 并 return，由 `output_dispatch()`（`task_actuation.c:43`）走零力矩路径（`Dm_Send_Zero` + `Dji_All_Stop`）；成功才 `valid = 1u`。
+- 输出②：删除 `Core/Src/adc.c`、`Core/Inc/adc.h`、`Core/Src/octospi.c`、`Core/Inc/octospi.h`；引用清理 `Core/Src/main.c`（去 `#include "adc.h"/"octospi.h"` 与 `MX_ADC1_Init()/MX_OCTOSPI2_Init()` 调用）、`Core/Src/dma.c`（去 DMA1_Stream0 NVIC 配置块）、`Core/Src/stm32h7xx_it.c`（去 `extern hdma_adc1` 与 `DMA1_Stream0_IRQHandler`）、`Core/Inc/stm32h7xx_it.h`（去对应声明）；`MDK-ARM/CtrBoard-H7_ALL.uvprojx`、`MDK-ARM/CtrBoard-H7_ALL.uvoptx` 移除对应文件条目。保留：BMI088、WS2812、HAL 库条目（`stm32h7xx_hal_adc.c` / `stm32h7xx_hal_ospi.c` 仍在）。
+- 调用链：`output_task_body → solve_rl → RL_Torque_Compute`；删除项原本零调用、无调用链。
+- 核对结论：改动文件（task_actuation / main / dma / stm32h7xx_it）Keil AC5 armcc 编译 0 错 0 警（`-o` 指向临时目录，未污染 `build/`）；uvprojx/uvoptx 经 XML 解析合法；`Core/Src`、`imcalib` 全量 grep 无 `hadc1/hdma_adc1/hospi2/MX_ADC1_Init/MX_OCTOSPI2_Init` 残留。**未链接、未下载、未上机**。
+- 备注：`.eide/eide.yml` 的 `Core/Src/adc.c`/`octospi.c` 条目**两次手工移除均被 VS Code/eIDE 进程回写**（16:37、16:46 各一次），当前 eide.yml 仍列这两条；处置：需在 eIDE 界面里移除这两个文件条目，或关闭 VS Code 后再改（同变更 84 情形）；CubeMX `.ioc` 未动，重新 generate 会把 adc/octospi 生成回来（彻底移除应在 CubeMX 里删）；`build/` 下 `compile_commands.json` 仍列旧文件，属构建产物、下次构建自然刷新。本批未触及任何极性/零点/轴向/量程等物理量数值。
+- 另：作者同时确认 RL/LQR 若干「待作者确认」参数标注为有意设计（详见各 md 的 2026-09-25 标注）。
+
+## 2026-09-25 · 文档同步（md 对齐当前代码，未改代码）
+
+- 输入：作者授权"把项目 md 更新到与当前代码一致"；当前工作区代码（含未提交改动）为唯一事实来源。
+- 输出：本次同步 6 份 md 的修正主题——`md/AGENTS.md`（协作规范、文件树、关键约束）、`md/RL_OVERVIEW.md`（RL 链路与待实测清单）、`md/LQR_PLAN.md`（LQR 计划、参数与遗留项）、`md/IO_CHAINS.md`（IMU/DM/DJI/遥控 I/O 链路）、`md/DBUS.md`（DR16 解析）、`md/UART_IDLE_DMA.md`（UART IDLE+DMA 接收框架）；描述修到与当前代码一致，历史段落保留并标注。
+- 调用链：不涉及代码——纯文档同步，固件调用链与配置未动。
+- 核对结论：未改任何 `.c/.h`；物理量（极性/零点/轴向/量程/符号项）数值一律未改、不新增，与代码不一致处只加"以代码为准、待台架复核"标注；可调参数以代码为准。本账本历史条目未改。
+
 ## 2026-09-24 · 测试代码清理
 
 - 输入：当前仲裁只支持左中 LQR、左上 RL、左下失能；Sysid、手动腿测、仅偏航测试均无当前入口。
@@ -12,7 +72,7 @@
 > 用途：把每次改动的 **输入 / 输出 / 调用链 / 核对结论** 记下来，方便回退与查错。
 > 维护规则：一次改动 = 一节；先写链路，再写"已核对"与"待台架"。
 > 配套：设计见 `md/sysid/sysid-lower-machine-plan.md`；I/O 总览见 `md/IO_CHAINS.md`。
-> 最后更新：2026-09-21
+> 最后更新：2026-09-25
 
 ---
 

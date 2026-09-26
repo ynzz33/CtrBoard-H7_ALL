@@ -96,6 +96,7 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
         feedback->raw_data[i] = data[i];
     }
     feedback->last_rx_tick = HAL_GetTick();
+    feedback->rx_seen = 1u;
     feedback->raw_pending = 1u;
 }
 
@@ -177,7 +178,8 @@ bool Dm_Is_Online(uint8_t index)
     {
         return false;
     }
-    return (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick)
+    return dm_motor_feedback[index].rx_seen
+        && (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick)
            <= DM_OFFLINE_MS;
 }
 

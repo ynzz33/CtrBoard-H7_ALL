@@ -50,6 +50,7 @@ typedef struct {
     float             vel_rad_s;
     float             trq_nm;
     volatile uint8_t  raw_pending;
+    volatile uint8_t  rx_seen;
     volatile uint32_t last_rx_tick;
 } dm_motor_feedback_t;
 

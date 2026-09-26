@@ -19,10 +19,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-#include "adc.h"
 #include "dma.h"
 #include "fdcan.h"
-#include "octospi.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -73,6 +71,27 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
+{
+  if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER
+      || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1
+      || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
+  {
+    handle->Init.DataPrescaler = MACHINE_FDCAN13_DATA_PRESCALER;
+    handle->Init.DataTimeSeg1 = MACHINE_FDCAN13_DATA_SEG1;
+    handle->Init.DataTimeSeg2 = MACHINE_FDCAN13_DATA_SEG2;
+    if (HAL_FDCAN_Init(handle) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
+}
+
+static void Machine_Apply_Fdcan_Data_Timing_By_Profile(void)
+{
+  Machine_Apply_Fdcan_Data_Timing(&hfdcan1);
+  Machine_Apply_Fdcan_Data_Timing(&hfdcan3);
+}
 /* USER CODE END 0 */
 
 /**
@@ -113,7 +132,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ADC1_Init();
   MX_TIM12_Init();
   MX_SPI1_Init();
   MX_SPI6_Init();
@@ -126,12 +144,11 @@ int main(void)
   MX_FDCAN3_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
-  MX_OCTOSPI2_Init();
   MX_UART9_Init();
   MX_TIM6_Init();
   MX_UART8_Init();
   /* USER CODE BEGIN 2 */
-  Machine_Select(MACHINE_DEFAULT);  /* 机器: 见 machine_config.h */
+  Machine_Apply_Fdcan_Data_Timing_By_Profile();
   Mono_Ns_Init();   /* 单调 ns 时钟 */
   DR16_Init();
   HI229_Init();

@@ -61,3 +61,29 @@ void UART_Idle_Isr(UART_HandleTypeDef *huart, UART_Rx_t *rx)
     rx->isr_len = len;
     rx->flag    = 1;
 }
+
+/* 在短临界区内取完整快照，避免 ISR 覆盖任务正在解析的缓冲区。 */
+uint16_t UART_Rx_Take(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity)
+{
+    uint32_t primask;
+    uint16_t len;
+
+    if (rx == NULL || dst == NULL || capacity == 0u)
+    {
+        return 0u;
+    }
+    primask = __get_PRIMASK();
+    __disable_irq();
+    len = rx->flag ? rx->isr_len : 0u;
+    if (len > capacity)
+    {
+        len = 0u;
+    }
+    if (len > 0u)
+    {
+        memcpy(dst, rx->isr_buf, len);
+    }
+    rx->flag = 0u;
+    __set_PRIMASK(primask);
+    return len;
+}

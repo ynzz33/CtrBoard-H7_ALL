@@ -46,6 +46,7 @@ typedef struct {
     float            angle_total_rad;
     float            vel_rad_s;
     volatile uint8_t raw_pending;
+    volatile uint8_t rx_seen;
     uint8_t          angle_pending;
     volatile uint32_t last_rx_tick;
 } dji_motor_feedback_t;

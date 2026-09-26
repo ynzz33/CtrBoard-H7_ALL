@@ -28,16 +28,23 @@ osSemaphoreId ctrl_tick_sem_handle = NULL;
 /* 清空动作 */
 void Action_State_Clear(void)
 {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
     memset(action_state.a, 0, sizeof(action_state.a));
     action_state.last_ok_tick = 0u;
     action_state.updated = 0u;
     action_state.rl_ready = 0u;
+    __set_PRIMASK(primask);
 }
 
 /* 控制初始化 */
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
+    if (ctrl_tick_sem_handle == NULL)
+    {
+        Error_Handler();
+    }
     torque_output_enabled = 1u;
 
     Leg_Init(&leg_l);
@@ -60,21 +67,31 @@ void Robot_Control_Init(void)
     leg_map_r.dm_rear = DM_MOTOR_LEG_B_RGT;
     leg_map_r.configured = 1u;
 
-    RL_Observation_Init(&rl_control.observation);
-    RL_Observation_Param_Init(&rl_control.param);
-    RL_Policy_Reset(&rl_control.policy);
-    RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
-    RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
+    if (machine->rl.configured)
+    {
+        RL_Observation_Init(&rl_control.observation);
+        RL_Observation_Param_Init(&rl_control.param);
+        RL_Policy_Reset(&rl_control.policy);
+        RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
+        RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
+    }
     Action_State_Clear();
 
-    LQR_Init(&lqr_state);
-    Leg_Balance_Init(&leg_balance);
-    ctrl_strategy = CTRL_STRATEGY_RL;
+    if (machine->lqr_configured)
+    {
+        LQR_Init(&lqr_state);
+        Leg_Balance_Init(&leg_balance);
+    }
+    ctrl_strategy = CTRL_STRATEGY_DISABLE;
 }
 
 /* 切换模型 */
 uint8_t RL_Control_Select_Model(rl_model_t model)
 {
+    if (!machine->rl.configured)
+    {
+        return 0u;
+    }
     if (!RL_Policy_Select(&rl_control.policy, model))
     {
         return 0u;
