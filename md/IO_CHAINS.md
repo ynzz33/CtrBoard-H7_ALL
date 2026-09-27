@@ -639,3 +639,25 @@ motor_state.dji.vel_rad_s          rc_command (commTask 已解算)
 **腿长限制**：机器表工作区间与 K 表拟合域 0.13~0.23 m 的交集（`LQR_Len_Range`，只夹拨轮目标）；文中"小机器为 0.13~0.21 m"为早期记录，与当前 `machine_config.c` 小机器腿长区间不一致——以代码为准、待作者台架复核，数值本文不改。
 **调试门**：`lqr_debug` 可分别关闭轮、髋、腿长 PID 的最终输出并调整限幅；关闭通道时 PID 仍持续计算。
 **符号责任**：反馈极性按 `dm_sign/dji_sign` 的 `.fb` 在驱动解码时统一到机体坐标；输出极性按 `.out` 在驱动下发时统一处理（`dm.c` / `dji.c`），调用方不要取反。详见 [LQR_PLAN.md](LQR_PLAN.md)。
+
+---
+
+## 2026-09-27：整机诊断遥测 (S2R1, gap 测试)
+
+`imcalib/Telemetry/` 是**自包含模块**：只读既有全局量，不改任何现有结构体；任务层只有一个挂点。协议布局见 [sim2real_serial_protocol.md](sim2real_serial_protocol.md)，接线/采集/验收见 [sim2real_serial_capture.md](sim2real_serial_capture.md)。
+
+```
+imuTask    → imu_state / hi229_data          ─┐
+policyTask → rl_control.observation/policy    │  只读
+             action_state / input_command     ├─► s2r_source.c  (采样 + 变化检测)
+actuationTask → rl_control.torque_state       │        │
+                rl_output_dm/wheel_cmd_nm     ─┘        ▼
+commTask → S2R_Pump() ─► s2r_telemetry.c (成帧/CRC/队列) ─► VOFA_UART DMA 1152000 8N1
+             └ 返回 0 时才发旧 32 路 VOFA (s2r_diagnostic_requested=0 且失能、无会话)
+```
+
+- **采样层 `s2r_source.c`**：`policy.run_ok+run_fail` 变化 → 一次推理；`hi229_data.ts`/`last_rx_tick` 变化 → IMU 新帧；`dm/dji_motor_feedback[].last_rx_tick` 变化 → 电机新帧。序号（`state/imu/policy/control`）与时间戳全部由模块自维护。
+- **成帧层 `s2r_telemetry.c`**：POLICY 每次推理、CONTROL 100 Hz（10 ms 抽样）、IMU 最快 50 Hz、HISTORY 2 Hz、HEALTH 10 Hz、META 分片限速 300 ms；队列 24 槽，控制侧不等串口。
+- **链路口径**（本分支未插桩处一律写 NaN/0，不伪造）：`action_raw`、`tau_virtual_raw_fw`、`gas_tau_shank_fw`、`tau_motor_unclipped`、`current_motor` = NaN；`motor_send_ok_mask`/`can_enqueue_us` = 0；`*_rx_us` 是 commTask 首次见到新帧的时刻（1 ms 量化）；`motor_clamp_or_mask` 由请求饱和推导。META 的 `unavailable` / `derived` 两栏即这份清单。
+- **回退**：调试器写 `s2r_diagnostic_requested=0`（或把 `s2r_telemetry.h` 的 `S2R_DIAGNOSTIC_DEFAULT` 改成 0 重编译），只有失能、无会话、UART 就绪时才切回旧 VOFA；切回后 ch0/ch1/ch2 是状态位，ch3~31 是 RL 布局（下发力矩/实测力矩/观测/上次动作/轮电流），ch31 = `ctrl_fault`。`s2r_init_error` bit0 = 启动 RNG/boot_id 失败，bit1 = META 缓冲溢出。
+- **构建**：两份工程都已登记 `imcalib/Telemetry`；`.sct` 把 `.s2r_dma` 固定在 AXI SRAM（当前 `dma_buffer` @ `0x24001100`）。改源码后先 `python tools/s2r_build_info.py` 再编译。

@@ -8,6 +8,7 @@
 #include "Vofa_send.h"
 #include "ws2812.h"
 #include "task.h"
+#include "../Telemetry/s2r_telemetry.h"
 
 #include <math.h>
 
@@ -186,9 +187,11 @@ static void Robot_Enable_Update(void)
 /*
  * VOFA 观测帧 (JustFloat, 32 通道)
  * ch0 在线掩码；ch1 状态位；ch2 RL 状态位。
- * ch3~12 LQR 状态 x[0..9]；ch13~22 目标 target[0..9]。
- * ch23~24 实测腿长；ch25~26 腿长目标；ch27~30 LQR 输出 u[0..3]。
- * ch31 故障位 ctrl_fault；每两次 commTask 周期发送一次。
+ * ch3~6 下发力矩 rl_output_dm_cmd_nm；ch7/8 轮力矩指令；
+ * ch9~12 实测 DM 力矩；ch13~16 观测四腿角(训练空间)；
+ * ch17~22 观测六关节速度；ch23~28 上次动作；ch29/30 轮电流 raw(交叉源)；
+ * ch31 故障位 ctrl_fault。每两次 commTask 周期发送一次。
+ * LQR 布局(状态 x/target/腿长/u)在下方注释里备查。
  */
 static void Robot_Control_Send_Vofa(void)
 {
@@ -240,44 +243,45 @@ static void Robot_Control_Send_Vofa(void)
     rl_bits |= output_debug_dji_sent ? 0x00020000u : 0x00u;
     dbg[2] = (float)rl_bits;
 
-    
-    // for (i = 0u; i < 10u; i++)
-    // {
-    //     dbg[3+i]  = lqr_state.x[i];
-    //     dbg[13+i] = lqr_state.target[i];
-    // }
-    // for (i = 0u; i < 2u; i++)
-    // {
-    //     dbg[23+i] = lqr_state.len[i];
-    //     dbg[25+i] = lqr_state.leg_len_tgt[i];
-    // }
-    // for (i = 0u; i < 4u; i++)
-    // {
-    //     dbg[27+i] = lqr_state.u[i];
-    // }
+    /* RL 观测/出力布局 (a824da1 曾注释, 2026-09-27 恢复) */
+    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        dbg[3u + i] = rl_output_dm_cmd_nm[i];
+        dbg[9u + i] = motor_state.dm.trq_nm[i];
+        dbg[13u + i] = rl_control.observation.obs[RL_OBS_L_THIGH + i];
+    }
+    dbg[7] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT];
+    dbg[8] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT];
+    for (i = 0u; i < DJI_MOTOR_NUM; i++)
+    {
+        dbg[29u + i] = motor_state.dji.current_raw[
+            (i == DJI_MOTOR_WHEEL_LFT) ? DJI_MOTOR_WHEEL_RGT : DJI_MOTOR_WHEEL_LFT];
+    }
+    for (i = 0u; i < RL_ACTION_SIZE; i++)
+    {
+        dbg[17u + i] = rl_control.observation.obs[RL_OBS_L_THIGH_VEL + i];
+        dbg[23u + i] = rl_control.observation.obs[RL_OBS_LAST_ACTION + i];
+    }
+    dbg[31] = (float)ctrl_fault;   /* 0x10 = FAULT_ACTION */
 
-
-    // for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
-    // {
-    //     dbg[3u + i] = rl_output_dm_cmd_nm[i];
-    //     dbg[9u + i] = motor_state.dm.trq_nm[i];
-    //     dbg[13u + i] = rl_control.observation.obs[RL_OBS_L_THIGH + i];
-    // }
-    // dbg[7] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT];
-    // dbg[8] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT];
-    // for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
-    // {
-    //     dbg[29u + i] = motor_state.dji.current_raw[
-    //         (i == DJI_MOTOR_WHEEL_LFT) ? DJI_MOTOR_WHEEL_RGT : DJI_MOTOR_WHEEL_LFT];
-    // }
-    // for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
-    // {
-    //     dbg[17u + i] = rl_control.observation.obs[RL_OBS_L_THIGH_VEL + i];
-    //     dbg[23u + i] = rl_control.observation.obs[RL_OBS_LAST_ACTION + i];
-    // }
     // dbg[31] = (float)rl_control.policy.run_us;
 
-    // dbg[31] = (float)ctrl_fault;
+    /* LQR 布局备查 (要用就整段换回)
+    for (i = 0u; i < 10u; i++)
+    {
+        dbg[3+i]  = lqr_state.x[i];
+        dbg[13+i] = lqr_state.target[i];
+    }
+    for (i = 0u; i < 2u; i++)
+    {
+        dbg[23+i] = lqr_state.len[i];
+        dbg[25+i] = lqr_state.leg_len_tgt[i];
+    }
+    for (i = 0u; i < 4u; i++)
+    {
+        dbg[27+i] = lqr_state.u[i];
+    }
+    */
     Vofa_Send(dbg, 32u);
 }
 
@@ -293,5 +297,9 @@ void comm_task_body(void)
     Robot_Fallen_Update();
     Robot_Fault_Update();
     Robot_Enable_Update();
-    Robot_Control_Send_Vofa();
+    /* S2R1 诊断遥测占口时不再发旧 VOFA (见 imcalib/Telemetry) */
+    if (!S2R_Pump())
+    {
+        Robot_Control_Send_Vofa();
+    }
 }

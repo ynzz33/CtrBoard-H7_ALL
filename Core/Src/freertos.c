@@ -224,7 +224,7 @@ void policyTask_Entry(void const * argument)
   {
     osSemaphoreWait(policy_tick_sem_handle, osWaitForever);   /* TIM6 分频节拍 */
     ctrl_task_body();
-/  }
+  }
   /* USER CODE END policyTask_Entry */
 }
 

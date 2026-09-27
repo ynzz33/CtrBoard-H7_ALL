@@ -74,7 +74,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 | `actuationTask` | 小机 1kHz / 大机 500Hz | TIM6 信号量（硬实时） | 策略仲裁（LQR / RL）→ 力矩计算 → CAN 下发 |
 | `policyTask` | 100Hz | TIM6 节拍 `MACHINE_POLICY_DIV` 分频信号量（变更 103） | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 1kHz | osDelay(1ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
-| `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA |
+| `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA（或 S2R1 诊断遥测 `S2R_Pump()`，二者同口互斥） |
 | `defaultTask` | - | - | USB 初始化（保留） |
 
 **单写者模型**：每个共享状态只有一个任务写，32bit 对齐 float 在 M7 上读写原子，无需锁。

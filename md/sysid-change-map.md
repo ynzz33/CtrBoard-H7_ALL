@@ -3020,6 +3020,63 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 104 · 移植整机诊断遥测 S2R1（gap 测试）：自包含 `imcalib/Telemetry/`（作者 2026-09-27：「以不耦合当前结构体、完全新建文件夹存放所有文件的形式来实现代码功能移植」）
+
+**来源**：`main-new` @ `fc9df2c`（`1614827` 新增协议 + `32ac274` + `fc9df2c` 改遥测口），本次只搬 S2R1 遥测链路，**不搬**机型表/极性（§0.1 红线）、不搬 fdcan/ioc/模型签名等无关改动。
+
+**设计（与上游实现的差别）**：上游把钩子插进 8 个任务文件、给 6 个既有结构体加字段（`imu_state.rx_us/seq`、`motor_state.*.rx_us`、`action_state.policy_seq/session`、`rl_torque_trace_t`、`dm/dji` 的 `decoded_rx_*`、`dm_last_submit_mask`）。本分支改为**去耦采样**：新目录只读既有全局量，自己维护序号与时间戳，事件用变化检测推断，现有代码只留 1 个挂点。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Telemetry/s2r_wire.c/h` | 新增（原样）：记录结构、24 槽优先队列、小端编码、CRC32 |
+| `imcalib/Telemetry/s2r_telemetry.c/h` | 新增：成帧（META/EVENT/POLICY/CONTROL/IMU/HEALTH/HISTORY）、会话与标志、事件去重、META JSON、健康统计、UART DMA 泵；`S2R_Pump()` 首次调用自初始化（不改 `main.c`） |
+| `imcalib/Telemetry/s2r_source.c/h` | 新增：采样适配层。只读 `imu_state`/`motor_state`/`leg_l/r`/`rl_control`/`action_state`/`input_command`/`robot_state`/`hi229_data`/`dm/dji_motor_feedback`/`machine`，用 `policy.run_ok+run_fail` 变化判推理、`hi229_data.ts`+`last_rx_tick` 判 IMU 新帧、`last_rx_tick` 判电机新帧；序号自维护 |
+| `imcalib/task/task_comm.c` | **唯一任务层挂点**：`comm_task_body()` 末尾 `if (!S2R_Pump()) { Robot_Control_Send_Vofa(); }`（+1 行相对路径 include） |
+| `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | 新增 `imcalib/Telemetry` 组（3 个 .c）+ 头文件搜索路径 |
+| `MDK-ARM/CtrBoard-H7_ALL.sct` | `RW_IRAM2` 固定 `* (.s2r_dma)`，DMA 缓冲不落 DTCM |
+| `.eide/eide.yml` | `srcDirs` 与包含路径加 `imcalib/Telemetry` |
+| `imcalib/Telemetry/s2r_build_info.h` | 由 `tools/s2r_build_info.py` 生成（源集 SHA256 + 基准 commit + 模型签名 + 机器表 SHA256） |
+| `tools/s2r_capture.py`、`tools/s2r_build_info.py` | 新增：被动接收/离线解码；构建指纹生成与 `--check` |
+| `tests/test_s2r.py`、`tests/s2r_wire_test.c`、`tests/s2r_host_test.c`、`tests/fixtures/s2r_frames.json` | 新增：8 项协议一致性测试 + C 编码器交叉解码 + 替身生命周期/DMA/META 测试 |
+| `md/sim2real_serial_protocol.md`、`md/sim2real_serial_capture.md` | 新增：协议布局与接线/采集/验收 |
+| `Core/Src/freertos.c` | 仅修 `policyTask_Entry` 里 `/  }` 语法错误（a824da1 遗留，1 字符；不修则整个工程编译不过） |
+
+**相对上游的字段降级（META 的 `unavailable`/`derived` 已声明，不伪造数据）**：
+
+| 字段 | 本分支取值 |
+| --- | --- |
+| `action_raw`、`tau_virtual_raw_fw`、`gas_tau_shank_fw`、`tau_motor_unclipped` | NaN（内部裁前量/补偿中间量不出 `rl_torque`） |
+| `motor_send_ok_mask`、`can_enqueue_us` | 0（驱动提交状态与入队时刻未暴露） |
+| `current_motor` | NaN（电流无反馈） |
+| `t_infer_start/end_us`、`control_exec_us` | 等于采样时刻 / 0（未插桩计时） |
+| `motor_rx_us`、`imu_rx_us` | 采样首次见到新帧的时刻（commTask 1 kHz 量化，不是 CAN/UART 到达时刻） |
+| `motor_clamp_or_mask` | 请求饱和推导（`|request| ≥ 0.999×限幅`），不是驱动内部限幅标志 |
+
+**输入 / 输出 / 调用链**：`TIM6 → ctrl_tick_sem → actuationTask`（写 `rl_control.torque_state`/`rl_output_*`）+ `policy_tick_sem → policyTask`（写 `rl_control.observation`/`policy`、`action_state`）+ `imuTask`（写 `imu_state`/`hi229_data`）→ 全部只读 ← `comm_task_body → S2R_Pump → S2R_Source_Tick`（采样/成帧）→ 队列 → `VOFA_UART` DMA（`MACHINE_VOFA_PORT`，大机 USART1 1152000 8N1）。同口不再发 32 路 VOFA；`s2r_diagnostic_requested=0` 且失能、无会话时才退回旧 VOFA。
+
+**核对**：Keil AC5（UV4 `-b`）全量编译 + 链接 **0 error**；告警 2 条均为既有（`ws2812.c` 文件末尾无换行、`task_comm.c` 未用变量 `i`）。尺寸 `Code=113132 RO=163408 RW=5420 ZI=93508`；`RW_IRAM1`(DTCM)=0、`RW_IRAM2`(AXI)=0x18270/0x50000；`dma_buffer` @ `0x24001100`（AXI SRAM）。三个新 .c 与 `tests/s2r_host_test.c`、`tests/s2r_wire_test.c` 单文件 armcc 编译 0 警告。`python tests/test_s2r.py` → 协议 8 项全过（`NativeChecks` 需主机 gcc，本机没有，未执行）。
+
+**待台架**：烧录后按 `md/sim2real_serial_capture.md` §3 采集；HEALTH 的实际周期/峰值、丢帧、DMA 忙计数、boot_id 复位改变、会话分段与 `used_policy_seq` 绑定待实测。
+
+**台架往返（2026-09-27）**：为查「左上+右中整机不动」临时把 `S2R_DIAGNOSTIC_DEFAULT` 置 `0`（上电发旧 VOFA），用 Vofa+ 读状态位定位到 **ch0 电机位（6 台电机全离线）→ `FAULT_MOTOR(0x04)` → 使能被拒 → `rl_engaged` 恒 0**（模型/机器表正常：ch2=193）。排查结束后**已改回 `1`**（上电由 S2R1 占口，开始 gap 采集），并重新生成指纹 + 双工程重建（Keil 0 error / 0 warning）。要看 VOFA 时临时改 `0` 重编译，或调试器写 `s2r_diagnostic_requested=0`（失能、无会话时生效）。
+
+**链路实测（同日，档 0 采 10 s）**：`"S2R1"` 帧头出现 1337 次/10 s（固件发送正常，≈134 帧/s），但只有 275 帧通过 CRC、`garbage_bytes` 278 kB、`seq_gaps` 1293；相邻帧头间距仅 192~326 B（CONTROL 完整应 496 B）→ **链路整块丢字节约一半**，吞吐 33.6 kB/s（固件侧待机需 ≈58 kB/s）。采集口是 **`PowerDebugger Tx Serial Port`（VID 303A, Espressif）**，属带内部转发的调试器/无线串口桥，不是直通 USB‑TTL；同一条桥在 VOFA 只有 ~6.25 kB/s 时数据干净、速率一升就丢，与实际一致。**结论：不是固件问题，是桥的吞吐天花板。** 为此在 `s2r_telemetry.h` 增加 `S2R_RATE_LOW` 档位（CONTROL/POLICY/IMU/HEALTH/HISTORY/META 周期全部改为档位宏；限流时该次推理不成帧（`policy_pending`），序号不推进以免污染 `seq_gaps`；META 增 `rate_profile`/`rates_hz`/`history_period_us` 并随档位变化）。
+
+**档位定稿（同日）**：档 1（≈9.5 kB/s）待机 40 s 实测零丢帧（`crc/format/seq_gaps` 全 0、`drop_total` 0、帧率 20.2/s 与档位吻合；`control_count` 与 `imu_age` 口径修正后分别为 2/窗口、~15 µs），但相对该桥天花板（6.25 kB/s 干净 / 33.6 kB/s 丢半）已无余量，投入段还要加 POLICY/HISTORY/事件。故重排档位并**默认改档 2（稳健，≈4.3 kB/s）**：0 = 原设定 58/85 kB/s；1 = 低速 9.5 kB/s；2 = 稳健 4.3 kB/s（CONTROL/POLICY 5 Hz、IMU 2 Hz、HEALTH 1 Hz、HISTORY 0.2 Hz、META 20 s）；3 = 极低 1.6 kB/s。波特率维持 1152000（两侧一致，降波特率只能缓解突发、不能提高吞吐，且牵动 CubeMX 与 Vofa+ 侧）。Keil 复核 **0 error / 0 warning**（`Code=113620`）。机器人尚不能起立站稳，本轮采集目标改为"链路 + 语义"（待机 / 投入 / 退出 段的 POLICY↔CONTROL 绑定、力矩方向、观测自洽），动力学对比留待能站立或换适配器后。
+
+**短窗录制（同日，按协议 §10 第一条实现）**：为在不换硬件的前提下拿到 md 速率的数据，新增"板端短窗录制 + 慢速导出"：调试器写 `s2r_record_requested=1` → 按 **md 的 100 Hz**（`S2R_RECORD_PERIOD_US`）从同一采样快照生成 **CONTROL 完整快照**（452 B 载荷 + 生成时刻/标志/会话）存进 192 KB 片内缓存（紧凑格式 `u16 len|u8 type|u8 rsv|u32 flags|u32 session|u64 t_us|payload`，**≈4.1 s / 417 帧**，满即停并报 EVENT(10,0)），随后按 `S2R_DUMP_PERIOD_US`=150 ms（≈3.1 kB/s）逐条回放导出；`s2r_replay_requested=1` 可把同一轮再回放一次补丢帧；`s2r_record_state`(0/1/2)、`s2r_record_frames` 只读可见。回放帧**沿用协议原布局**：序号/CRC 在入队时重新生成、`t_us` 保持录制时刻、flags 加 `REPLAYING(16384)`，故**上位机与解析脚本零改动**；只新增 EVENT 码 9/10/11 与两个 flags 位（协议文档 §8.2/§13.1 已补）。录制与回放期间**实时 CONTROL 暂停**（避免挤链路），POLICY/IMU/HEALTH/META 照常，总占用 ≈3.5~4 kB/s。
+
+**顺带修掉一个 DMA 隐患**：新增 192 KB 缓存后链接器把部分 .bss 挪进了 DTCM，`Vofa_send.o` 的 `buf`（UART TX DMA 读）落到 `0x2000aac0`（DTCM，H7 的 DMA 访问不到）→ 已由 `MDK-ARM/CtrBoard-H7_ALL.sct` 显式把 `* (.s2r_dma)`、`vofa_send.o (+RW +ZI)`、`uart_idle.o (+RW +ZI)` 固定在 RW_IRAM2(AXI)；复核 map：`dma_buffer`@0x240001c0、`buf`@0x24001d80、`dbus/debug/hi229_rx`@0x2400xxxx、`record_buffer`@0x2400b728(196608 B) 全部在 AXI，USB 缓冲（`dma_enable=DISABLE`，CPU 访问）留在 DTCM 无风险。内存占用：`RW_IRAM1`(DTCM)=50,720 B、`RW_IRAM2`(AXI)=247,384 / 327,680 B；**Keil 全量编译+链接 0 error / 0 warning**（`Code=114580 ZI=292616`），eIDE 侧同源重建通过。
+
+**全自动触发 + POLICY_ACTIVE 修复（同日）**：① 作者无法在线调试（怕调试器停 CPU 危险），故录制改为**默认全自动**：`S2R_RECORD_AUTO=1` 时"投入建会话"即开录，"失能"后再录 `S2R_RECORD_TAIL_US`(200 ms) 尾巴即停并自动回放导出，全程不需调试器；调试器变量保留为手动覆盖（手动/自动用 `record_manual` 区分，避免自动录制被"请求位为 0"误停）；新增 EVENT 9 reason 1(投入自动)/EVENT 10 reason 3(会话结束自动)。② 台架投入轮实测（16:32 版固件）暴露移植遗漏：CONTROL 帧的 `S2R_ACTIVE`(POLICY_ACTIVE) 从未置位 → 上位机 `valid_policy_segment` 恒 false；已按原实现补回（本拍 `rl_valid && used_policy_seq && STARTED && 输出使能 && 电机使能` 时置位，`status_flags()` 在故障/失能时自动清除）。同轮实测的有效结论：RL 投入成功（EVENT 1→2×3）、POLICY `policy_seq` 1…14 连续、CONTROL `used_policy_seq` = 1/4/8/12 与 POLICY 一一对应（**策略↔执行绑定成立**）、`tau_motor_request` 非零（13.3/−1.3/−7.7 Nm）；随后 `EVENT 4 detail=2 = FAULT_RC` 为作者"关遥控收尾"所致（非故障）。另发现 Keil 周期性刷新 Watch 会抢无线调试口带宽 → 同轮出现 7 CRC 错误 / 24 缺口（此前各轮均 0），已在文档建议关闭 View→Periodic Window Update。Keil 复核 **0 error / 0 warning**（`Code=114896`），hex 16:43，指纹 `83cc75e1…`。
+
+**自动录制首轮台架验证 + 两处修复（同日，16:50/16:52）**：首轮自动录制实测（`data/s2r_rec_05`）：投入 → `EVENT 9 reason 1` 自动开录 → 录满 `EVENT 10 reason 0 detail=416`（≈4.16 s / 100 Hz）✓，回放帧带 `ACTIVE`（`flags=18685`）、`used_policy_seq`=6/8/10/13 与 POLICY `policy_seq` 对应、`tau_motor_request` 非零 ✓ —— **机制可用**。但暴露两问题：① **录制窗口内混入 22 帧实时 CONTROL**（4.35 s ÷ 档 2 的 200 ms ≈ 21.7）：抑制条件写成"仅本拍要存缓存时不发"，其余拍仍按档位发 → 改为 `record_state != 0` 时一律不发实时 CONTROL；回放期间同时停 POLICY（那时 obs 是待机数据、无用且挤链路）。② **回放段丢 95%**（416 帧只收到 6 帧，`crc_errors 140`/`garbage 26.6 kB`/`seq_gaps 379`）：按原始字节切片统计，77.5 s 前**完全干净**（含机器人带电动作那 4 s，零错误），**78.7 s 开始导出那一刻起**垃圾/CRC/缺口才开始暴涨 → 判定为导出时帧间无空隙、队列积压时固件以线速连推多帧致串口桥缓冲溢出，而非电机干扰或持续带宽不足。修复：发送泵加**帧间强制空隙** `S2R_TX_GAP_US`(1500 µs，按帧长预估发完时刻后再等空隙，瞬时上限压到 ~85 kB/s)。两轮均 Keil 全量 0 error / 0 warning；hex 16:50(指纹 `ce9a862b…`)、16:52(指纹 `5bff26d4…`)。
+
+
+**同日追加（作者 2026-09-27：「直接把 vofa 通道替换回旧的看一下为什么」）**：恢复 `task_comm.c::Robot_Control_Send_Vofa()` 里被 a824da1 注释掉的 **RL 布局**（ch3~6 下发力矩、ch7/8 轮指令、ch9~12 实测 DM 力矩、ch13~16 观测四腿角、ch17~22 六关节速度、ch23~28 上次动作、ch29/30 轮电流 raw、ch31 `ctrl_fault`；LQR 布局整段留在注释里备查），函数上方通道注释同步更新，`task_comm.c` 的未用变量告警随之消失。另在 `s2r_telemetry.h` 增 `S2R_DIAGNOSTIC_DEFAULT`（默认 `1` = 上电由 S2R1 占口；改 `0` 重编译即上电发旧 VOFA，台架调试用），`s2r_diagnostic_requested` 初值改用它。Keil AC5 全量编译+链接复核：**0 error / 0 warning**（`Code=113488`）。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

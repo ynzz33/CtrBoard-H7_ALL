@@ -26,16 +26,12 @@ ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_dma_ex.
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_mdma.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_exti.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_cortex.h
-ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_adc.h
-ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_adc.h
-ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_adc_ex.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_fdcan.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_flash.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_flash_ex.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_hsem.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_i2c.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_i2c_ex.h
-ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_ospi.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pwr.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pwr_ex.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi.h
@@ -50,3 +46,4 @@ ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.
 ctrboard-h7_all\dji.o: ../imcalib/user-lib/can_bus.h
 ctrboard-h7_all\dji.o: ../Core/Inc/fdcan.h
 ctrboard-h7_all\dji.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+ctrboard-h7_all\dji.o: ../imcalib/user-lib/machine_config.h

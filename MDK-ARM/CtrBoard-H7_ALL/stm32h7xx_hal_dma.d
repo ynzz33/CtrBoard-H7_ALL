@@ -24,16 +24,12 @@ ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_mdma.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_exti.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_cortex.h
-ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_adc.h
-ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_adc.h
-ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_adc_ex.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_fdcan.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_flash.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_flash_ex.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_hsem.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_i2c.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_i2c_ex.h
-ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_ospi.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pwr.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pwr_ex.h
 ctrboard-h7_all\stm32h7xx_hal_dma.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_spi.h
