@@ -1,34 +1,34 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-09-26 17:05:38
-Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_6000_h723.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace10266138746280015315792499180065620 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
+Created date          : 2026-09-27 17:43:39
+Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_6000_h723.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace6513041652850012803216315417412096 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
 
 Exec/report summary (generate)
------------------------------------------------------------------------------------------------------------
-model file         :   C:\Users\ynz\Desktop\model_6000_h723.onnx                                           
-type               :   onnx                                                                                
-c_name             :   networkzn1                                                                          
-compression        :   none                                                                                
-options            :   allocate-inputs, allocate-outputs                                                   
-optimization       :   time                                                                                
-target/series      :   stm32h7                                                                             
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace10266138746280015315792499180065620   
-output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                         
-model_fmt          :   float                                                                               
-model_name         :   model_6000_h723                                                                     
-model_hash         :   0x4899195601babb22a7c0b46cc151ad84                                                  
-params #           :   38,825 items (151.66 KiB)                                                           
------------------------------------------------------------------------------------------------------------
-input 1/2          :   'observations', f32(1x25), 100 Bytes, activations                                   
-input 2/2          :   'observation_history', f32(1x125), 500 Bytes, activations                           
-inputs (total)     :   600 Bytes                                                                           
-output 1/2         :   'actions', f32(1x6), 24 Bytes, activations                                          
-output 2/2         :   'latent', f32(1x3), 12 Bytes, activations                                           
-outputs (total)    :   36 Bytes                                                                            
-macc               :   43,401                                                                              
-weights (ro)       :   155,300 B (151.66 KiB) (1 segment)                                                  
-activations (rw)   :   1,112 B (1.09 KiB) (1 segment) *                                                    
-ram (total)        :   1,112 B (1.09 KiB) = 1,112 + 0 + 0                                                  
------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
+model file         :   C:\Users\ynz\Desktop\model_6000_h723.onnx                                          
+type               :   onnx                                                                               
+c_name             :   networkzn1                                                                         
+compression        :   none                                                                               
+options            :   allocate-inputs, allocate-outputs                                                  
+optimization       :   time                                                                               
+target/series      :   stm32h7                                                                            
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace6513041652850012803216315417412096   
+output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                        
+model_fmt          :   float                                                                              
+model_name         :   model_6000_h723                                                                    
+model_hash         :   0x4899195601babb22a7c0b46cc151ad84                                                 
+params #           :   38,825 items (151.66 KiB)                                                          
+----------------------------------------------------------------------------------------------------------
+input 1/2          :   'observations', f32(1x25), 100 Bytes, activations                                  
+input 2/2          :   'observation_history', f32(1x125), 500 Bytes, activations                          
+inputs (total)     :   600 Bytes                                                                          
+output 1/2         :   'actions', f32(1x6), 24 Bytes, activations                                         
+output 2/2         :   'latent', f32(1x3), 12 Bytes, activations                                          
+outputs (total)    :   36 Bytes                                                                           
+macc               :   43,401                                                                             
+weights (ro)       :   155,300 B (151.66 KiB) (1 segment)                                                 
+activations (rw)   :   1,112 B (1.09 KiB) (1 segment) *                                                   
+ram (total)        :   1,112 B (1.09 KiB) = 1,112 + 0 + 0                                                 
+----------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
 Model name - model_6000_h723

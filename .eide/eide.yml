@@ -7,8 +7,8 @@ srcDirs:
   - imcalib/user-lib
   - imcalib/Algorithm
   - imcalib/task
-  - imcalib/Telemetry
   - imcalib/Sysid
+  - imcalib/Telemetry
   - X-CUBE-AI
 virtualFolder:
   name: <virtual_root>
@@ -29,8 +29,10 @@ virtualFolder:
                 - path: Core/Src/main.c
                 - path: Core/Src/gpio.c
                 - path: Core/Src/freertos.c
+                - path: Core/Src/adc.c
                 - path: Core/Src/dma.c
                 - path: Core/Src/fdcan.c
+                - path: Core/Src/octospi.c
                 - path: Core/Src/spi.c
                 - path: Core/Src/tim.c
                 - path: Core/Src/usart.c
@@ -191,8 +193,8 @@ targets:
         - imcalib/user-lib
         - imcalib/Algorithm
         - imcalib/task/inc
-        - imcalib/Telemetry
         - imcalib/Sysid
+        - imcalib/Telemetry
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
         - .cmsis/include
