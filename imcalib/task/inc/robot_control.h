@@ -113,9 +113,12 @@ extern volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
 extern volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
 extern uint8_t torque_output_enabled;
 extern osSemaphoreId ctrl_tick_sem_handle;
+extern osSemaphoreId policy_tick_sem_handle;
 
 void Robot_Control_Init(void);
 void Action_State_Clear(void);
+/* TIM6 节拍分频: 每 MACHINE_POLICY_DIV 拍释放策略节拍 (ISR 调用) */
+void Policy_Tick_Div(void);
 uint8_t RL_Control_Select_Model(rl_model_t model);
 void imu_task_init(void);
 void imu_task_body(void);

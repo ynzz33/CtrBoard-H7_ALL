@@ -263,6 +263,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
     Mono_Ns_Tick();   /* 周期扩展 */
     osSemaphoreRelease(ctrl_tick_sem_handle);   /* 按机型配置的 TIM6 周期唤醒输出任务 */
+    Policy_Tick_Div();                          /* 分频唤醒策略任务 */
   }
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM23)

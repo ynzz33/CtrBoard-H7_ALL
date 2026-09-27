@@ -25,7 +25,7 @@
 2. **板端**（STM32H723 + CubeAI）实时推理，输出 6 维动作
 3. **执行层**把动作经 PD + 雅可比映射为 6 个电机力矩
 
-整个链路在 actuationTask 控制环里跑（频率随机器：当前 `MACHINE_DEFAULT` 是大机，500 Hz 与训练 PD 内环同频；小机 1 kHz。见 `machine_config.h` 的 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT`，变更 96 / 100），RL 推理 100 Hz（policyTask 自己 10 ms 一拍，执行任务每拍复用最新动作）。
+整个链路在 actuationTask 控制环里跑（频率随机器：当前 `MACHINE_DEFAULT` 是大机，500 Hz 与训练 PD 内环同频；小机 1 kHz。见 `machine_config.h` 的 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT`，变更 96 / 100），RL 推理 100 Hz（policyTask 由同一 TIM6 节拍按 `MACHINE_POLICY_DIV` 分频唤醒：大机 5 分频、小机 10 分频，严格锁相，变更 103；执行任务每拍复用最新动作）。
 
 **数据流一句话**：
 ```
@@ -51,7 +51,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 ### DM 髋电机与五连杆
 
 - DM 左前、左后髋 `feedback_sign=+1`；右前、右后髋 `feedback_sign=-1`。驱动层先统一右侧角度、角速度和力矩反馈到逻辑机体坐标。
-- 几何输入中，前髋 `hip_f = DM 反馈角 + π + offset_f`，后髋 `hip_b = DM 反馈角 + offset_b`。左右腿均使用相同前后映射，`config.mirror=+1`，禁止在五连杆层再次镜像或交换电机。
+- 几何输入中，前髋 `hip_f = DM 反馈角 + π + offset_f`，后髋 `hip_b = DM 反馈角 + offset_b`。左右腿均使用相同前后映射，五连杆层不做二次镜像或交换电机（`config.mirror` 字段已删，变更 102）。
 - `l0` 增大表示伸腿；`phi0` 前摆为正、后摆为负；`virtual_shank = wrap(phi_a - qf - π/2)`，采用相对大腿的 EGA 虚拟小腿定义。
 - 逻辑髋电机力矩到实体输出时，右侧 DM 只在 `dm.c` 驱动边界取反一次；禁止在解算器、测试模式或任务层再次取反。
 
@@ -72,7 +72,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 | 任务 | 频率 | 节拍方式 | 职责 |
 |------|------|----------|------|
 | `actuationTask` | 小机 1kHz / 大机 500Hz | TIM6 信号量（硬实时） | 策略仲裁（LQR / RL）→ 力矩计算 → CAN 下发 |
-| `policyTask` | 100Hz | osDelay | 观测构建 → CubeAI 推理 → 写 action_state |
+| `policyTask` | 100Hz | TIM6 节拍 `MACHINE_POLICY_DIV` 分频信号量（变更 103） | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 1kHz | osDelay(1ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
 | `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA |
 | `defaultTask` | - | - | USB 初始化（保留） |
@@ -111,7 +111,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **根因修复（2026-09-17）**：`thigh_angle` 原来错误使用 `phi_a + π/2`（下连杆绝对角），后髋运动会干扰大腿角。修正为 `Leg_Wrap(cache->qf)`，即前髋上连杆角，只有前髋动才改变。已实机验证。
 
-**极性**：DM/DJI 驱动反馈层统一到机体坐标系，右前髋、右后髋和右轮的物理角度/速度取反；五连杆输入不再重复做右腿镜像。现有 `config.mirror` 保持 +1，后续清理前不得设置为 -1。
+**极性**：DM/DJI 驱动反馈层统一到机体坐标系，右前髋、右后髋和右轮的物理角度/速度取反；五连杆输入不再重复做右腿镜像（原 `config.mirror` 字段已删，变更 102，几何层恒等）。
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
@@ -366,7 +366,7 @@ Leg_Solve 当前已完成以下验证：
 - **BMI088**（本项目未使用，用 HI229）：驱动输出已是 rad/s 和 g
 - **Mahony**：无 acc_trust 门控，无输出限幅
 - **串口**：IDLE+DMA Circular，不使用 Resync
-- **推理频率**：100Hz（policyTask 10 ms；执行任务小机 1 kHz / 大机 500 Hz，每拍用最新动作）
+- **推理频率**：100Hz（policyTask 由 TIM6 节拍 `MACHINE_POLICY_DIV` 分频信号量驱动、与控制拍锁相，变更 103；执行任务小机 1 kHz / 大机 500 Hz，每拍用最新动作）
 - **观测维度**：25 + 125(历史) = 150
 - **动作维度**：6，训练空间 [lf0, lf1, lfwheel, rf0, rf1, rfwheel]，乘 `.rl.sign` 变固件动作（左大腿, 左虚拟小腿, 左轮, 右大腿, 右虚拟小腿, 右轮）
 - **物理通道**：DM×4（左前/左后/右前/右后髋） + DJI×2（左轮/右轮）

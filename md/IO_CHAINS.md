@@ -429,15 +429,15 @@ leg_l / leg_r (leg_state_t):
 三层求解 (三角函数为 CMSIS-DSP 查表 arm_sin/cos_f32, 同 Leg2; LEG_TRIG_LIBM=1 退回 libm):
 
 ① Leg_Solve_Geometry — 闭链几何
-    qf = mirror × hip_f, qb = mirror × hip_b
+    qf = hip_f, qb = hip_b      (不镜像: 极性统一在 dm.c 反馈层)
     A = (lu·cos qf, lu·sin qf)    前杆端点
     B = (lu·cos qb, lu·sin qb)    后杆端点
     求 P 点 (两圆交点) → phi_a, phi_b
     输出:
-      thigh_angle          = Leg_Wrap(qf)                        大腿角(前髋上连杆; mirror=1 时即 wrap(hip_f))
+      thigh_angle          = Leg_Wrap(qf)                        大腿角(前髋上连杆; 即 wrap(hip_f))
       virtual_leg_length   = |OP|                           虚拟腿长
       virtual_leg_angle    = Leg_Wrap(π/2 - atan2(y_p,x_p) + offset_phi0)  虚拟腿摆角
-      virtual_shank_angle  = Leg_Wrap(mirror × (phi_a - qf - π/2))   虚拟小腿角
+      virtual_shank_angle  = Leg_Wrap(phi_a - qf - π/2)   虚拟小腿角
 
 ② Leg_Solve_Velocity — 速度雅可比
     leg_jac[2][2]       → d_virtual_leg_length, d_virtual_leg_angle
@@ -470,7 +470,7 @@ task_comm.c:
 
 **配置参数（`machine_config.c`）：**
 
-`lu`、`lg`、`dm_zero`、`offset_phi0` 和机器腿长区间均已进入机器表；`robot_control.c` 初始化时只读取当前 `machine`（`mirror` 不在机器表，在 `robot_control.c` 固定赋值）。下表杆长为小机器值（历史记录），大机器见 `machine_config.c`。
+`lu`、`lg`、`dm_zero`、`offset_phi0` 和机器腿长区间均已进入机器表；`robot_control.c` 初始化时只读取当前 `machine`（`lu`、`lg`、`dm_zero`、`offset_phi0` 和机器腿长区间均已进入机器表；`robot_control.c` 初始化时只读取当前 `machine`，几何层不做镜像——反馈极性统一在 `dm.c` 驱动层，`mirror` 字段已删，变更 102）。下表杆长为小机器值（历史记录），大机器见 `machine_config.c`。
 
 | 参数 | 左腿 | 右腿 | 说明 |
 |------|:----:|:----:|------|
@@ -478,13 +478,11 @@ task_comm.c:
 | lg | 0.15240 | 0.15240 | 下杆长 (m) |
 | dm_zero | 见 machine_config.c | 见 machine_config.c | 电机零点 (rad)，dm.c 解码时叠加 |
 | offset_phi0 | 见 machine_config.c | 见 machine_config.c | 虚拟腿摆角零位偏置 (rad)，只加在 `virtual_leg_angle` 上，不影响腿长、大腿角、小腿角、雅可比与角速度 |
-| mirror | 1 | 1 | 镜像系数（robot_control.c 固定置 1，非机器表字段） |
-
 **输出字段:**
 
 | 字段 | 含义 | 用途 |
 |------|------|------|
-| thigh_angle | 大腿角 (qf = mirror×hip_f, hip_f 含 +π) | RL obs（RL_Joint_Map）+ rl_torque 腿关节 PD |
+| thigh_angle | 大腿角 (qf = hip_f, hip_f 含 +π) | RL obs（RL_Joint_Map）+ rl_torque 腿关节 PD |
 | virtual_leg_length | 虚拟腿长 \|OP\| | LQR 状态/速度估计 + 腿长 PID（leg_balance） |
 | virtual_leg_angle | 虚拟腿摆角 (相对竖直) | LQR |
 | virtual_shank_angle | 虚拟小腿角 (小腿相对大腿) | RL obs（RL_Joint_Map）+ rl_torque 腿关节 PD |

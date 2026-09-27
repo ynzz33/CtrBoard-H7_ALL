@@ -69,13 +69,12 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     float root;
     float vs_raw;
 
-    cache->mirror = (leg->config.mirror >= 0) ? 1.0f : -1.0f;
     cache->lu     = leg->config.lu;
     cache->lg     = leg->config.lg;
-    cache->qf     = cache->mirror * leg->input.hip_f;
-    cache->qb     = cache->mirror * leg->input.hip_b;
-    cache->vf     = cache->mirror * leg->input.d_hip_f;
-    cache->vb     = cache->mirror * leg->input.d_hip_b;
+    cache->qf     = leg->input.hip_f;
+    cache->qb     = leg->input.hip_b;
+    cache->vf     = leg->input.d_hip_f;
+    cache->vb     = leg->input.d_hip_b;
 
     /* A = 前杆端点, B = 后杆端点 */
     x_a = cache->lu * LEG_COSF(cache->qf);
@@ -123,7 +122,7 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
 
     /* 虚拟小腿角 = φ_a - qf - π/2 (小腿相对大腿) */
     vs_raw = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
-    leg->output.virtual_shank_angle = Leg_Wrap(cache->mirror * vs_raw);
+    leg->output.virtual_shank_angle = Leg_Wrap(vs_raw);
     return 1u;
 }
 
@@ -177,7 +176,7 @@ static uint8_t Leg_Solve_Velocity(leg_state_t *leg, const leg_solver_cache_t *ca
     d_vs    = jac_a * cache->vb + jac_b * cache->vf;
     leg->output.vshank_jac[0] = jac_a;
     leg->output.vshank_jac[1] = jac_b;
-    leg->output.d_virtual_shank_angle = cache->mirror * d_vs;
+    leg->output.d_virtual_shank_angle = d_vs;
     return 1u;
 }
 

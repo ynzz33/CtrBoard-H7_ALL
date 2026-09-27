@@ -22,6 +22,7 @@
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
 #define MACHINE_TIM6_PERIOD       1999u   /* 500 Hz */
 #define MACHINE_CTRL_DT           0.002f
+#define MACHINE_POLICY_DIV        5u      /* 策略节拍 500/5 = 100 Hz */
 #define MACHINE_VOFA_PORT         1u      /* USART1 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u
@@ -29,6 +30,7 @@
 #elif MACHINE_DEFAULT == MACHINE_ID_SMALL_WHEELLEG
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_CTRL_DT           0.001f
+#define MACHINE_POLICY_DIV        10u     /* 策略节拍 1000/10 = 100 Hz */
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  3u
 #define MACHINE_FDCAN13_DATA_SEG1       5u

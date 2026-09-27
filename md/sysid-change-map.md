@@ -2974,6 +2974,52 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 ---
 
+## 变更 102 · 删 `leg_solver` 的 `mirror` 字段（作者 2026-09-27：「至于 mirror 删了吧，我可以在机器配置表改极性，没必要多一个这种一样性质的东西」）
+
+**性质**：属 §0.1 红线物理量项，作者明确指示删除；改动**行为等价**——全树 `mirror` 只有 `robot_control.c:55/:60` 两处赋值（均为 +1），`Leg_Init()` 不设默认，无任何 `-1` 路径，几何里所有 `mirror ×` 都是恒等。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Algorithm/leg_solver.h` | 删 `leg_config_t.mirror`（原 :24）、`leg_solver_cache_t.mirror`（原 :60）；`qf/qb` 注释「前髋(镜像后)」→「前髋角」 |
+| `imcalib/Algorithm/leg_solver.c` | 删 `cache->mirror` 赋值（原 :72）；`qf/qb/vf/vb` 去掉 `mirror ×`（原 :75-78）；`virtual_shank_angle`（原 :126）、`d_virtual_shank_angle`（原 :180）去掉 `mirror ×` |
+| `imcalib/task/robot_control.c` | 删 `leg_l/leg_r.config.mirror = 1`（原 :55/:60） |
+| `md/RL_OVERVIEW.md` | :54、:114 去掉 `config.mirror` 表述 |
+| `md/IO_CHAINS.md` | 求解公式块（:432 附近）改 `qf = hip_f`；配置说明行更新、参数表删 mirror 行、`thigh_angle` 行更新 |
+| `md/LQR_PLAN.md` | :202、:237 去掉 mirror 表述 |
+
+**输入 / 输出 / 调用链**：不变。`task_comm.c:48-58` 组装 `hip_f/hip_b`（含 `+LEG_PI`）→ `Leg_Solve()` → 几何 `qf = hip_f`（原 `mirror × hip_f`）→ 输出字段与消费端（`task_policy.c` RL_Joint_Map、`rl_torque.c`、`lqr_balance.c` / `leg_balance.c`）一字未动。
+
+**物理量现状**：右腿极性仍只在两处——`dm.c` 反馈 `dm_sign.fb`（右前/右后 = −1）与输出 `dm_sign.out`；`machine_config.c:18` 未动。`md/AGENTS.md:21` 红线清单仍列 `mirror`（保留该表述，镜像概念本身仍归作者台架）。
+
+**核对**：AC5 按 `build/CtrBoard-H7_ALL/compile_commands.json` 全量编译 **92 文件 0 fail / 1 warn**（`-o` 全部到临时目录，作者 `.obj` 未动）；唯一告警仍是 `task_comm.c:198` 的 `uint8_t i; 声明未使用`（本分支既有，与本次无关）。未链接、未下载、未上机。
+
+**待台架**：默认站姿读 `thigh ≈ 2.54 / vs ≈ 2.99`、两腿镜像对称姿态 `hip_f_l ≈ hip_f_r`——与改动前一致即通过。
+
+---
+
+## 变更 103 · policyTask 改 TIM6 节拍分频：严格 100 Hz（作者 2026-09-27：「按分频方案改动」）
+
+**问题**：policyTask 原来 `osDelay(10)`，循环体（观测 + 推理，`run_us` ≈ 500~700 µs）在延时之前 → 实际周期 ≈ 10.6 ms → ≈ 94 Hz；动作被 PD 保持 5.3 拍，训练是严格 5 拍。
+
+**方案（分频）**：策略节拍从同一个 TIM6 控制节拍分出来——TIM6 ISR 里每 `MACHINE_POLICY_DIV` 拍释放一次 `policy_tick_sem`，policyTask 等该信号量再跑循环体。与 500 Hz 控制拍严格锁相，动作固定保持 5 拍（大机）。
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/user-lib/machine_config.h` | 两份表各加 `MACHINE_POLICY_DIV`（大机 5u / 小机 10u），紧邻 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT` |
+| `imcalib/task/robot_control.c/h` | 新增 `policy_tick_sem`（def + `Robot_Control_Init()` 创建，初值 1）；新增 `Policy_Tick_Div()`（`++div_cnt >= MACHINE_POLICY_DIV` 归零并释放策略节拍，计数在函数内静态）；头文件加 extern 与原型 |
+| `Core/Src/main.c` | TIM6 回调（USER CODE 区）在释放 `ctrl_tick_sem` 之后调 `Policy_Tick_Div()` |
+| `Core/Src/freertos.c` | `policyTask_Entry` 的 `osDelay(10)` → `osSemaphoreWait(policy_tick_sem_handle, osWaitForever)`，先等节拍再跑 `ctrl_task_body()` |
+| `md/RL_OVERVIEW.md` | 总述、任务表、速查同步为"TIM6 分频信号量" |
+| `md/AGENTS.md` | 「控制频率」条目补 policyTask 分频说明 |
+
+**输入 / 输出 / 调用链**：`TIM6 ISR` →（每拍）`ctrl_tick_sem` → actuationTask；同一 ISR 每 5 拍 → `policy_tick_sem` → policyTask → `ctrl_task_body()` → 观测 + `RL_Policy_Run()` → `action_state` → actuationTask 从下一拍起消费，固定保持 5 拍。
+
+**核对**：AC5 全量编译 **92 文件 0 fail / 1 warn**（唯一告警仍是 `task_comm.c:198` 既有未用变量；`-o` 全部到临时目录，作者 `.obj` 未动）。未链接、未下载、未上机。
+
+**待台架**：`rl_control.policy.run_ok` 每 10 s 应涨 **1000**（原来 ≈ 940）；动作保持固定 5 拍。
+
+---
+
 ## 附录 A · 每次改完必须跑的核对
 
 1. 全量编译：按 `build/CtrBoard-H7_ALL/compile_commands.json` 逐条执行 armcc 命令（`-o` 指到临时目录即可）→ 要求 `0 fail / 0 warn`。

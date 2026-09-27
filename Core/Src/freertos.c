@@ -204,7 +204,7 @@ void imuTask_Entry(void const * argument)
   for(;;)
   {
     imu_task_body();
-    osDelay(2);
+    osDelay(1);
   }
   /* USER CODE END imuTask_Entry */
 }
@@ -222,9 +222,9 @@ void policyTask_Entry(void const * argument)
   ctrl_task_init();
   for(;;)
   {
+    osSemaphoreWait(policy_tick_sem_handle, osWaitForever);   /* TIM6 分频节拍 */
     ctrl_task_body();
-    osDelay(10);
-  }
+/  }
   /* USER CODE END policyTask_Entry */
 }
 

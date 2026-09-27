@@ -24,6 +24,20 @@ uint8_t torque_output_enabled;
 
 osSemaphoreDef(ctrl_tick_sem);
 osSemaphoreId ctrl_tick_sem_handle = NULL;
+osSemaphoreDef(policy_tick_sem);
+osSemaphoreId policy_tick_sem_handle = NULL;
+
+/* TIM6 节拍分频: 每 MACHINE_POLICY_DIV 拍释放策略节拍 (ISR 调用) */
+void Policy_Tick_Div(void)
+{
+    static uint8_t div_cnt;   /* 分频计数 */
+
+    if (++div_cnt >= MACHINE_POLICY_DIV)
+    {
+        div_cnt = 0u;
+        osSemaphoreRelease(policy_tick_sem_handle);
+    }
+}
 
 /* 清空动作 */
 void Action_State_Clear(void)
@@ -45,6 +59,11 @@ void Robot_Control_Init(void)
     {
         Error_Handler();
     }
+    policy_tick_sem_handle = osSemaphoreCreate(osSemaphore(policy_tick_sem), 1);
+    if (policy_tick_sem_handle == NULL)
+    {
+        Error_Handler();
+    }
     torque_output_enabled = 1u;
 
     Leg_Init(&leg_l);
@@ -52,12 +71,10 @@ void Robot_Control_Init(void)
     leg_l.config.lu = machine->leg_lu;
     leg_l.config.lg = machine->leg_lg;
     leg_l.config.offset_phi0 = machine->leg_off_phi0[0];
-    leg_l.config.mirror = 1;
     leg_l.config.configured = 1u;
     leg_r.config.lu = machine->leg_lu;
     leg_r.config.lg = machine->leg_lg;
     leg_r.config.offset_phi0 = machine->leg_off_phi0[1];
-    leg_r.config.mirror = 1;
     leg_r.config.configured = 1u;
 
     leg_map_l.dm_front = DM_MOTOR_LEG_F_LFT;

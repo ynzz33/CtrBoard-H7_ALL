@@ -21,7 +21,6 @@ typedef struct {
     float lu;           /* 上杆长 */
     float lg;           /* 下杆长 */
     float offset_phi0;  /* 摆角零位偏置 */
-    int8_t mirror;      /* 镜像 */
     uint8_t configured;
 } leg_config_t;
 
@@ -53,11 +52,10 @@ typedef struct {
 
 /* 求解中间量 */
 typedef struct {
-    float qf;           /* 前髋(镜像后) */
-    float qb;           /* 后髋(镜像后) */
+    float qf;           /* 前髋角 */
+    float qb;           /* 后髋角 */
     float vf;           /* 前髋速度 */
     float vb;           /* 后髋速度 */
-    float mirror;
     float lu;
     float lg;
     float phi_a;        /* 前杆角度 */

@@ -211,7 +211,7 @@ CtrBoard-H7_ALL/
 ## 关键约束
 
 - **时钟**：HSE 24MHz → PLL → SYSCLK 550MHz，APB1 137.5MHz，定时器时钟 275MHz
-- **控制频率**：actuationTask 由 TIM6 信号量驱动，频率随机器表编译期切换（`machine_config.h` 的 `MACHINE_TIM6_PERIOD`/`MACHINE_CTRL_DT`，`tim.c` USER CODE 2 里套用）：当前 `MACHINE_DEFAULT` = 大机器 → Period=1999 → **500 Hz**（`CTRL_DT=0.002f`，2026-09-26 起，变更 100），小机器 Period=999 → **1 kHz**（`CTRL_DT=0.001f`）。两者 Prescaler 均 274。LQR、RL 共用该节拍
+- **控制频率**：actuationTask 由 TIM6 信号量驱动，频率随机器表编译期切换（`machine_config.h` 的 `MACHINE_TIM6_PERIOD`/`MACHINE_CTRL_DT`，`tim.c` USER CODE 2 里套用）：当前 `MACHINE_DEFAULT` = 大机器 → Period=1999 → **500 Hz**（`CTRL_DT=0.002f`，2026-09-26 起，变更 100），小机器 Period=999 → **1 kHz**（`CTRL_DT=0.001f`）。两者 Prescaler 均 274。LQR、RL 共用该节拍；policyTask 由同一节拍按 `MACHINE_POLICY_DIV` 分频唤醒（500/5、1000/10 = 100 Hz，变更 103）
 - **LQR 腿长工作区间**：机器表区间与 K 表拟合域 0.13~0.23 m 的交集，只夹拨轮目标；投入不查实测腿长（同 Leg2，变更 92），趴地投入靠腿长 PID 撑起
 - **LQR 辅助 PID**：当前保留左右腿长 PID 和横滚 PID；防劈叉 PID 已移除。参数以 `leg_balance.h` 为准，投入时清 PID 历史。腿长区间按本机自标，不照抄 Leg2（投入已不查实测腿长，无"投入下限"门槛）
 - **FDCAN**：HSE 24 MHz，仲裁段 1 Mbps = NominalPrescaler=3 / Seg1=5 / Seg2=2（`fdcan.c` 三路一致；**发**只发经典帧、只走仲裁段；**收**不挑帧格式，经典帧与 FD 帧都收——达妙跑 FD 1M/4M，回帧是 FD，见变更 101）。数据段参数写死在 `fdcan.c`（FDCAN1 = FD_BRS + 1/4/1，FDCAN2 = classic + 3/5/2，FDCAN3 = classic + 1/4/1），`machine_config.h` 的 `MACHINE_FDCAN13_DATA_*` 目前**不生效**（`main.c:74-94` 的套用函数整段注释掉了）——**换机器不改任何 CAN 时序**
