@@ -3075,6 +3075,41 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 **同日追加（作者 2026-09-27：「直接把 vofa 通道替换回旧的看一下为什么」）**：恢复 `task_comm.c::Robot_Control_Send_Vofa()` 里被 a824da1 注释掉的 **RL 布局**（ch3~6 下发力矩、ch7/8 轮指令、ch9~12 实测 DM 力矩、ch13~16 观测四腿角、ch17~22 六关节速度、ch23~28 上次动作、ch29/30 轮电流 raw、ch31 `ctrl_fault`；LQR 布局整段留在注释里备查），函数上方通道注释同步更新，`task_comm.c` 的未用变量告警随之消失。另在 `s2r_telemetry.h` 增 `S2R_DIAGNOSTIC_DEFAULT`（默认 `1` = 上电由 S2R1 占口；改 `0` 重编译即上电发旧 VOFA，台架调试用），`s2r_diagnostic_requested` 初值改用它。Keil AC5 全量编译+链接复核：**0 error / 0 warning**（`Code=113488`）。
 
+## 变更 105 · 关闭自动录制 + 修回被回退的 sct DMA 内存布局（作者 2026-09-27：「目前不要录制，一直以低频情况发送数据即可」）
+
+**改动**：
+
+| 文件 | 改动 |
+| --- | --- |
+| `imcalib/Telemetry/s2r_telemetry.h` | `S2R_RECORD_AUTO` **1 → 0**：默认不录制、不回放，只发实时低频流（`S2R_RATE_LOW` 维持 `2` = 稳健 ≈4.3 kB/s）。调试器写 `s2r_record_requested` / `s2r_replay_requested` 的手动通道保留，改回 `1` 即恢复全自动 |
+| `imcalib/Telemetry/s2r_telemetry.c` | `record_tick()` 里 `record_prev_session` / `record_stop_at` 两个自动录制专用静态量移进 `#if S2R_RECORD_AUTO`（含手动分支里那次 `record_stop_at` 复位）——不改则 `AUTO=0` 时 armcc 报 `#550-D: variable was set but never used`（首次编译实测 2 条告警） |
+| `MDK-ARM/CtrBoard-H7_ALL.sct` | **修回归**：`282aed4「整合了github及本地文件」`把该文件整段换成上游 GitHub 版本，丢掉了 `RW_IRAM2` 里的 `* (.s2r_dma)` / `vofa_send.o (+RW +ZI)` / `uart_idle.o (+RW +ZI)` 三行。实测 `.map`：`dma_buffer` @ `0x20001020`、`buf`(VOFA) @ `0x2000b140`、`hi229_rx` @ `0x2000af00` **全落回 DTCM**，H7 的 DMA 访问不到（IMU/遥控串口收不到、遥测与 VOFA 发不出）。已复原这三行 |
+| `md/AGENTS.md`、`md/sim2real_serial_capture.md`、`md/sim2real_serial_protocol.md` | 同步"当前默认不录制"与"sct 三行是 DMA 硬需求" |
+
+**输入 / 输出 / 调用链**：不变（`commTask → S2R_Pump` → 队列 → `VOFA_UART` DMA，档 2 周期不变）；本次只改录制触发条件与内存布局。
+
+**核对**：Keil AC5（UV4 `-b`，CWD = `MDK-ARM/`）**0 Error(s), 0 Warning(s)**；`Program Size: Code=114792 RO-data=163756 RW-data=5484 ZI-data=292620`（关录制前 `Code=115004`）。DTCM `RW_IRAM1` = 50,712 B；AXI `RW_IRAM2` = 247,392 / 327,680 B；`dma_buffer`@0x24000200、`buf`@0x24001d80、`dbus_rx`/`debug_rx`/`hi229_rx`@0x240016c0/0x24001900/0x24001b40、`record_buffer`@0x2400b730 全在 AXI。三个 Telemetry `.c` 单文件 armcc（默认 0 与显式 `-DS2R_RECORD_AUTO=1`）各 **0 error / 0 warning**。`python tests/test_s2r.py` 协议 8 项全过（`CC` 未设，`NativeChecks` 未跑）。**未下载、未上机**。
+
+**顺带修掉指纹过期**：`282aed4` 之后 `python tools/s2r_build_info.py --check` 失败（`s2r_build_info.h` 里仍是 16:52 那版的 `5bff26d4…`，与当前 96 个源文件不符，raw/LF/CRLF 三种算法都对不上）；本次已重生成，`base_commit=282aed4`、`dirty_at_generation=true`，`--check` 通过。
+
+---
+
+## 变更 106 · 大机器左右轮恢复 CAN 原序并修正极性（作者 2026-09-28 实机确认）
+
+- **依据**：作者明确确认物理左轮为 0x201、右轮为 0x202；大机器左轮反馈/输出极性均为 -1，右轮均为 +1。此前把左右轮反馈源与下发槽交叉的判断有误。
+- **物理量变更**：`imcalib/user-lib/machine_config.c` 大机器 `dji_sign` 从 `{{+1,+1},{-1,-1}}` 改为 `{{-1,-1},{+1,+1}}`；小机器配置和训练关节 `rl.sign` 不变。
+- **调用链**：`dji.c` 将 0x201/0x202 反馈分别放入 LFT/RGT，并按新 `dji_sign.fb` 校正 → `task_policy.c` 左/右轮观测原序 → `task_actuation.c` 左/右轮 PD 速度原序、力矩原序送 `Dji_Send_Wheel_Torque` → `dji.c` 按新 `dji_sign.out` 下发。VOFA 轮电流、S2R 轮速/角度及 META 源索引同步改回原序。
+- **核对**：Keil AC5 按工程编译参数将 8 个相关 C 文件的对象文件写到临时目录，全部 0 错误；S2R 协议测试 8/8 通过，META 指纹已重生成且 `--check` 通过。native host 检查需要 GCC，本机未运行。未链接、未下载；实体运动方向仍待上机复测。
+
+---
+
+## 变更 107 · 台架默认恢复 VOFA 测试帧（作者 2026-09-28 要求）
+
+- **输入**：先退出 S2R gap 遥测，恢复原有 VOFA 发送以测试左右轮。
+- **改动**：`S2R_DIAGNOSTIC_DEFAULT` 从 `1` 改为 `0`；`init_once()` 用该默认值初始化 `diag.enabled`，上电首拍即走 VOFA，不等待模式切换条件。保留调试器写 `s2r_diagnostic_requested=1` 后切回 S2R1 的入口。
+- **调用链**：`comm_task_body → S2R_Pump` 返回 0 → `Robot_Control_Send_Vofa` 发送现有 32 路 RL 帧；控制策略与左右轮极性不变。
+- **核对**：Keil AC5 按工程参数编译 `s2r_telemetry.c` 和 `task_comm.c` 均 0 错误；S2R 协议测试 8/8 通过；META 指纹重生成并校验通过。未链接、未下载、未上机。
+
 ---
 
 ## 附录 A · 每次改完必须跑的核对

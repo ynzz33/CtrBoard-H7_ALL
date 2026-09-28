@@ -187,9 +187,10 @@ static void Robot_Enable_Update(void)
 /*
  * VOFA 观测帧 (JustFloat, 32 通道)
  * ch0 在线掩码；ch1 状态位；ch2 RL 状态位。
- * ch3~6 下发力矩 rl_output_dm_cmd_nm；ch7/8 轮力矩指令；
- * ch9~12 实测 DM 力矩；ch13~16 观测四腿角(训练空间)；
- * ch17~22 观测六关节速度；ch23~28 上次动作；ch29/30 轮电流 raw(交叉源)；
+ * ch3~6 下发力矩 rl_output_dm_cmd_nm；ch7/8 为左/右轮速；
+ * ch9/10 左/右轮速，ch11/12 右前/右后 DM 力矩；
+ * ch13~16 左大腿/左虚拟小腿/右大腿/右虚拟小腿 RL 角观测；
+ * ch17~22 观测六关节速度；ch23~28 当前训练空间动作；ch29/30 为左/右轮电流 raw；
  * ch31 故障位 ctrl_fault。每两次 commTask 周期发送一次。
  * LQR 布局(状态 x/target/腿长/u)在下方注释里备查。
  */
@@ -252,15 +253,16 @@ static void Robot_Control_Send_Vofa(void)
     }
     dbg[7] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_LFT];
     dbg[8] = rl_output_wheel_cmd_nm[DJI_MOTOR_WHEEL_RGT];
+    dbg[9] =  motor_state.dji.vel_rad_s[0];
+    dbg[10] =  motor_state.dji.vel_rad_s[1];
     for (i = 0u; i < DJI_MOTOR_NUM; i++)
     {
-        dbg[29u + i] = motor_state.dji.current_raw[
-            (i == DJI_MOTOR_WHEEL_LFT) ? DJI_MOTOR_WHEEL_RGT : DJI_MOTOR_WHEEL_LFT];
+        dbg[29u + i] = motor_state.dji.current_raw[i];
     }
     for (i = 0u; i < RL_ACTION_SIZE; i++)
     {
         dbg[17u + i] = rl_control.observation.obs[RL_OBS_L_THIGH_VEL + i];
-        dbg[23u + i] = rl_control.observation.obs[RL_OBS_LAST_ACTION + i];
+        dbg[23u + i] = rl_control.observation.last_action[i];
     }
     dbg[31] = (float)ctrl_fault;   /* 0x10 = FAULT_ACTION */
 

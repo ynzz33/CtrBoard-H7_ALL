@@ -7,7 +7,7 @@
 - 板端遥测口 TX（`imcalib/user-lib/Vofa_send.h` 按机器表的 `MACHINE_VOFA_PORT` 选口：大机 `1` = **USART1 PA9**，小机 `8` = UART8 PE1）→ USB 转串口 RX，两端 GND 共地。使用与板端电平兼容的 TTL 转换器，不能直接接 RS-232 电平。
 - 本工具只接收，USB 转串口 TX 可不接；板端遥测口 RX（大机 USART1 PA10）不启用。不要连接 DTR/RTS 到复位或使能。
 - 波特率 **1152000、8N1、无流控**。USB 转串口和驱动必须支持该速率；与原 VOFA 程序互斥占用串口。
-- 遥测口上电直接发 S2R1（首拍 `S2R_Pump()` 自初始化，`main.c` 不参与），同口不再发 32 路 VOFA（`commTask` 里两者互斥）。UART7 仍接 IMU，UART9 仍接遥控。无诊断串口启动电机/策略指令。
+- 当前台架默认上电发送 32 路 VOFA（`S2R_DIAGNOSTIC_DEFAULT=0`）；要采集 S2R1，改为 `1` 后重编。两者共用串口且在 `commTask` 中互斥。UART7 仍接 IMU，UART9 仍接遥控。无诊断串口启动电机/策略指令。
 
 采集工具不改变任何控制路径；要采集网络策略，按原有流程（左上挡 + 右中位）投入推理。
 
@@ -22,7 +22,7 @@ python tools/s2r_build_info.py --check
 
 生成的 `imcalib/Telemetry/s2r_build_info.h` 报告源集 SHA256、生成时的 Git 基准和 dirty 状态、真实 CubeAI 产物中的模型名/签名，以及机器配置源文件 SHA256。修改源文件后必须重生成，再用 Keil/eIDE 构建，避免烧录代码与 META 身份不一致。当前模型签名是 `4899195601babb22a7c0b46cc151ad84`（MD5），不可只凭模型文件名判断版本。
 
-两套工程已登记 Telemetry 源目录。链接脚本把 `.s2r_dma` 固定在 **RW_IRAM2（0x24000000 AXI SRAM）**，DMA 缓冲不落 DTCM——本分支实测 `dma_buffer` @ `0x24001100`、1068 B、32 字节对齐以上（`MDK-ARM/CtrBoard-H7_ALL/CtrBoard-H7_ALL.map`）。遥测自身静态内存（24 槽 FIFO + 快照 + META JSON）约 43 KiB，与整机一起占 AXI SRAM 约 0x18270 / 0x50000。不要绕过工程所选 scatter 文件。`S2R_Source_Tick()` 的采样块与 `event()` 的记录都是静态量，commTask 栈占用没有明显增加（如改回栈变量，注意 commTask 只有 512 words）。
+两套工程已登记 Telemetry 源目录。链接脚本把 `.s2r_dma` 固定在 **RW_IRAM2（0x24000000 AXI SRAM）**，DMA 缓冲不落 DTCM——实测 `dma_buffer`（1068 B、32 字节对齐以上）与 `vofa_send` / `uart_idle` 的收发缓冲都在 `0x2400xxxx`（`MDK-ARM/CtrBoard-H7_ALL/CtrBoard-H7_ALL.map`）。**这三行 sct 规则是硬需求**：合并/替换外部工程文件时最容易整段丢掉，丢掉后 DMA 缓冲会落回 DTCM（`0x2000xxxx`），H7 的 DMA 访问不到 → IMU/遥控串口收不到、遥测与 VOFA 发不出。核对就看 `.map` 里 `dma_buffer`/`buf`/`dbus_rx`/`debug_rx`/`hi229_rx` 的地址。遥测自身静态内存（24 槽 FIFO + 快照 + META JSON）约 43 KiB，与整机一起占 AXI SRAM 约 0x18270 / 0x50000。不要绕过工程所选 scatter 文件。`S2R_Source_Tick()` 的采样块与 `event()` 的记录都是静态量，commTask 栈占用没有明显增加（如改回栈变量，注意 commTask 只有 512 words）。
 
 若没有输出，先检查调试变量 `s2r_init_error`：bit0 为启动 RNG/boot_id 失败，bit1 为 META 缓冲溢出。不要用固定 boot_id 替代错误；那会把不同次上电混成一段。
 
@@ -72,11 +72,11 @@ python tools/s2r_capture.py --port COM5 --baud 1152000 --seconds 20 --output s2r
 
 ### 3.1 短窗录制：链路带宽不够时的 100 Hz 采集（协议 §13.1）
 
-实时流被限流档压到 5 Hz 时，仍要按 md 的 100 Hz 抓一段执行细节，就用板端缓存：
+实时流被限流档压到 5 Hz 时，仍要按 md 的 100 Hz 抓一段执行细节，就用板端缓存。**注意：当前固件默认不录制**（`S2R_RECORD_AUTO=0`，作者 2026-09-27「目前不要录制，一直以低频情况发送数据即可」），要走下面流程，先把该宏改回 `1` 重编，或直接用调试器写 `s2r_record_requested`。
 
 1. **烧带录制功能的固件**（本分支默认已含），照常起采集：
    `python tools/s2r_capture.py --port COMx --baud 1152000 --seconds 180 --output s2r_rec_01`
-2. **触发（默认全自动，不需要连调试器）**：
+2. **触发（`S2R_RECORD_AUTO=1` 时全自动，不需要连调试器）**：
    - 直接**左上+右中投入** → 固件自动开录（`EVENT 9, reason 1`）
    - 动作几秒 → **回失能** → 再录 200 ms 尾巴后自动停并转入回放（`EVENT 10, reason 3`）
    - 缓存 192 KB ≈ **4.1 s**，超了会自动停（`EVENT 10, reason 0`）

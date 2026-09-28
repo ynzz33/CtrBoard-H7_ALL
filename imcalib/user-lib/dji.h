@@ -53,7 +53,7 @@ typedef struct {
 
 extern const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM];
 extern dji_motor_feedback_t dji_motor_feedback[DJI_MOTOR_NUM];
-extern volatile int16_t wheel_current[4]; /* 最后一次左右轮电流指令 raw, 供发送与 VOFA 观测 */
+extern volatile int16_t wheel_current[4]; /* 0x200 电流槽 raw，槽 0/1 对应 0x201/0x202 */
 
 void Dji_Init(void);
 void Dji_Parse(void);

@@ -185,7 +185,7 @@ void commTask_Entry(void const * argument)
   for(;;)
   {
     comm_task_body();
-    osDelay(1);
+    osDelay(2);
   }
   /* USER CODE END commTask_Entry */
 }
@@ -204,7 +204,7 @@ void imuTask_Entry(void const * argument)
   for(;;)
   {
     imu_task_body();
-    osDelay(1);
+    osDelay(2);
   }
   /* USER CODE END imuTask_Entry */
 }

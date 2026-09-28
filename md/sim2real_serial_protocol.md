@@ -129,7 +129,7 @@ CRC 使用 CRC-32/ISO-HDLC：poly=`0x04C11DB7`，反射实现 poly=`0xEDB88320`�
 
 - POLICY 的动作、观测、latent 均为**训练/网络接口空间**，直接截取实际网络输入输出。
 - CONTROL 中带 `_fw` 的量为**固件控制器实际使用的坐标**，不能误标成训练空间。META 发送 `q_train = sign * wrap(q_fw - zero)` 的 sign/zero，以及动作映射规则。
-- M6 使用固件逻辑电机正方向，发送/反馈都按同一极性校正，并明确角度/速度/力矩是在电机轴还是减速器输出轴。CAN ID、左右交叉接线和减速比写入 META。
+- M6 使用固件逻辑电机正方向，发送/反馈都按同一极性校正，并明确角度/速度/力矩是在电机轴还是减速器输出轴。CAN ID、左右轮源索引和减速比写入 META；大机器左轮 0x202、右轮 0x201。
 - 四元数统一序列 `[w,x,y,z]`。IMU 原始空间保留设备定义；变换后的 `quat_body` 定义为机体到世界旋转，世界 +z 向上。若源接口方向相反，先转换并在 META 记录转换规则。
 - 本机器人训练前向为机体 **+x**。不要套用 imcawl 的 +y 约定。
 - 角度 rad，角速度 rad/s，力矩 N·m，电流 A，加速度 m/s²，时间 μs；编码器原始值、DJI raw 电流单独声明换算，不与 SI 值混写。
@@ -409,7 +409,7 @@ motor_clamp_or_mask, virtual_clamp_or_mask, telemetry_generated_total
 
 | 项 | 实现 |
 | --- | --- |
-| 触发 | **默认自动（`S2R_RECORD_AUTO=1`）**：建会话（投入）即开录，会话结束（失能）后再录 `S2R_RECORD_TAIL_US`(200 ms) 尾巴即停 → 自动回放导出，**全程不需要调试器**（也就不存在"调试器停 CPU"的风险）。缓存满同样自动停。调试器写 `s2r_record_requested`（0→1 边沿）可作手动覆盖，写 `s2r_replay_requested = 1` 把缓存里这一轮**再回放一次**（补丢帧） |
+| 触发 | **当前默认关闭（`S2R_RECORD_AUTO=0`，2026-09-27 起）**：只发实时低频流，不录制、不回放。要录制就把该宏改回 `1` 重编（自动：建会话（投入）即开录，会话结束（失能）后再录 `S2R_RECORD_TAIL_US`(200 ms) 尾巴即停 → 自动回放导出，**全程不需要调试器**，缓存满同样自动停），或由调试器写 `s2r_record_requested`（0→1 边沿）手动启动；写 `s2r_replay_requested = 1` 把缓存里这一轮**再回放一次**（补丢帧） |
 | 状态（只读） | `s2r_record_state`：0 空闲 / 1 录制中 / 2 回放中；`s2r_record_frames`：已录帧数 |
 | 采样与存储 | 录制期间**按 §9 的 100 Hz**（`S2R_RECORD_PERIOD_US`）从同一份采样快照生成 CONTROL 帧，完整 452 字节载荷 + 生成时刻 `t_us` / `flags` / `session` 一起存入 192 KB 片内缓存（紧凑格式 `u16 len | u8 type | u8 rsv | u32 flags | u32 session | u64 t_us | payload`），**约 4.1 s** 满；缓存满即停采（EVENT 10, reason 0），不阻塞控制 |
 | 回放 | 缓存内容按 `S2R_DUMP_PERIOD_US`（默认 150 ms → **≈3.1 kB/s**）逐条塞进现有发送队列，**序号在入队时重新分配、CRC 重新计算**，而头部 `t_us` 保持录制时刻；帧头 flags 加 `REPLAYING(16384)` 位，录制期为 `RECORDING(8192)`，便于上位机切分 |

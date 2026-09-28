@@ -21,10 +21,9 @@
 extern volatile uint8_t s2r_diagnostic_requested;
 extern volatile uint32_t s2r_init_error;    /* bit0 启动 RNG 失败, bit1 META 溢出 */
 
-/* 烧录默认值: 1 = 上电即由 S2R1 诊断遥测占口; 0 = 上电发旧 VOFA (台架调试用)
- * 2026-09-27: 台架查 RL 投入时曾临时置 0, 查完改回 1 (要再看 VOFA 就临时改 0 重编, 或调试器写 s2r_diagnostic_requested=0) */
+/* 烧录默认值: 1 = S2R1 诊断遥测; 0 = VOFA 台架测试 */
 #ifndef S2R_DIAGNOSTIC_DEFAULT
-#define S2R_DIAGNOSTIC_DEFAULT 1u
+#define S2R_DIAGNOSTIC_DEFAULT 0u
 #endif
 
 /* ============================================================================
@@ -107,9 +106,10 @@ extern volatile uint32_t s2r_init_error;    /* bit0 启动 RNG 失败, bit1 META
 #define S2R_TX_GAP_US           1500u
 #endif
 /* 触发方式: 1 = 固件自动 (建会话即开录, 会话结束再录 200 ms 尾巴后自动导出, 无需调试器);
- *           0 = 只认调试器写的 s2r_record_requested */
+ *           0 = 只认调试器写的 s2r_record_requested
+ * 2026-09-27: 作者「目前不要录制, 一直以低频情况发送数据即可」→ 默认 0, 只走实时低频流 */
 #ifndef S2R_RECORD_AUTO
-#define S2R_RECORD_AUTO         1u
+#define S2R_RECORD_AUTO         0u
 #endif
 #define S2R_RECORD_TAIL_US      200000u         /* 失能后继续录的尾巴 */
 

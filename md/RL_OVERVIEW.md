@@ -57,7 +57,7 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 
 ### DJI 轮电机与遥控
 
-- DJI 左轮 `feedback_sign=+1`，右轮 `feedback_sign=-1`；轮速和多圈角已验证：机器人前进方向为正，后退方向为负。
+- 大机器台架手转确认左轮反馈 ID 为 `0x202`、右轮为 `0x201`；机器表当前 `dji_sign` 左 `{-1,-1}`、右 `{+1,+1}`，极性仍待前进/后退手转和单轮出力复核。
 - 轮电机输出极性由 `dji.c` 按配置表的 `output_sign` 统一处理（与 `feedback_sign` 同号）；调用方不要再取反
 - 遥控接收方向已验证；普通 RL 指令缩放以 `rl_policy.h` 的 `RL_CMD_*` 为准（已按训练域填，见 §3.5）。历史：手动遥操时代曾统一缩放到 `±0.1` 用于安全测试——该缩放随手动路径删除，不再是当前值。
 
@@ -115,7 +115,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-VOFA 正常控制帧为 32 通道；帧内容按当前测试阶段切换（当前为 LQR 观测帧，RL 调试打包在 `task_comm.c` 内已注释留档），不再维护通道 Markdown，当前布局直接以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。
+VOFA 正常控制帧为 32 通道；当前为 RL 观测与出力布局，LQR 布局在 `task_comm.c` 内注释备查。当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -140,7 +140,7 @@ DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `out
 
 历史堆叠：循环左移，`[t-4, t-3, t-2, t-1, t]` 五帧；首帧重复 5 次填满，末帧含本次观测。
 
-**关节映射**（`task_policy.c::RL_Joint_Map()`）：训练用串联代理关节 lf0/lf1（lf1 不是实物电机），固件给的是前髋大腿角 `thigh_angle` 与 EGA 虚拟小腿角 `virtual_shank_angle`。观测关节 = `sign × wrap(固件角 − zero)`，速度乘同一 `sign`；`sign[6]`/`zero[4]` 在机器表 `machine->rl`，**大机器表已按候选 A 填写并置 `configured=1`（变更 98，数值以 `machine_config.c` 为准、待作者台架复核，见 §8.1）；小机器表未配置（全 0、`configured=0`）**。轮速按物理左右交叉取源（左轮槽取 DJI RGT 索引，见 `task_policy.c` 注释）。未配置时观测无效、不推理、零力矩。
+**关节映射**（`task_policy.c::RL_Joint_Map()`）：训练用串联代理关节 lf0/lf1（lf1 不是实物电机），固件给的是前髋大腿角 `thigh_angle` 与 EGA 虚拟小腿角 `virtual_shank_angle`。观测关节 = `sign × wrap(固件角 − zero)`，速度乘同一 `sign`；`sign[6]`/`zero[4]` 在机器表 `machine->rl`，**大机器表已按候选 A 填写并置 `configured=1`（变更 98，数值以 `machine_config.c` 为准、待作者台架复核，见 §8.1）；小机器表未配置（全 0、`configured=0`）**。大机器左轮速度取 DJI LFT（0x202），右轮取 DJI RGT（0x201）。未配置时观测无效、不推理、零力矩。
 
 ### 3.3 推理 (`rl_policy`)
 
@@ -178,8 +178,8 @@ DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `out
 力矩输出结构 `torque_output_t` 将 DM 与 DJI 分离（已重构）：
 - `dm[DM_MOTOR_NUM]` — 4 个髋关节力矩，按 DM 驱动索引（F_LFT/B_LFT/F_RGT/B_RGT）
 - `dji[DJI_MOTOR_NUM]` — 2 个轮子力矩，按 DJI 驱动索引（WHEEL_LFT/WHEEL_RGT）
-- 右轮极性在 `dji.c` 驱动边界按 `output_sign` 处理，调用方不再取反（`tau_v[VJ_R_WHEEL]` 直接传）
-- `task_actuation.c::output_dispatch()` 调用 `Dm_Send_Torque(torque.dm)` + `Dji_Send_Wheel_Torque(...)` 下发；左右轮槽位在分发边界交叉（右槽进左轮、左槽进右轮），对应物理左右轮反馈源交叉
+- 左右轮极性在 `dji.c` 驱动边界按 `output_sign` 处理，调用方不再取反
+- `task_actuation.c::output_dispatch()` 调用 `Dm_Send_Torque(torque.dm)` + `Dji_Send_Wheel_Torque(...)` 下发；大机器左轮电流进 0x200 的 0x202 槽，右轮进 0x201 槽
 
 PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。控制器在总初始化和模型切换时逐个调用 `PID_struct_init`，不做运行时参数同步。气弹簧端点几何来自训练仓 `sim2sim/chuanliantui.xml`，`gas_spring_force_n[2]` 表示左右轴向推力，`gas_comp_sign[2]` 的 0 关闭、+1 叠加同向被动力矩、-1 抵消被动力矩；符号及端点安装一致性待台架确认。两份机器表当前 `gas_comp_sign` 均为 0（默认关闭），补偿仅在 `.rl` 已配置且符号非 0 时生效。补偿进入虚拟小腿力矩，再经原雅可比映射到四髋，当前不包含输出斜率限制。
 
@@ -271,7 +271,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 | 力矩执行 | rl_torque.c/h | ✅ PID + 雅可比映射 + DM/DJI 分离输出 + 轮子 PID；已上机验证 |
 | 任务框架 | task/robot_control.c + task_*.c | ✅ 4 任务体、共享状态、使能机、故障门、VOFA 32ch（上限 32）；已上机验证 |
 | 遥控映射 | task_policy.c | ✅ 推理路径（投入 → 预热 → 推理 → 映射发布）；手动遥操路径已删除（历史） |
-| 力矩下发 | task_actuation.c | ✅ torque_output_t 直接下发 DM+DJI，左右轮槽位在分发边界交叉 |
+| 力矩下发 | task_actuation.c | ✅ torque_output_t 按物理左右传给 DJI 驱动，由驱动按反馈 ID 选择 0x200 电流槽 |
 | 离线测试 | tests/offline_test.c | ⚠️ 已移除（文件已不存在，历史记录） |
 
 ### 待实测 / 待配置
@@ -323,7 +323,7 @@ Leg_Solve 当前已完成以下验证：
 
 后续 RL 整链路仍按以下顺序进行，任何一步失败则停止：
 
-（下列 ch 号为历史 RL 调试帧布局；当前 VOFA 帧是 LQR 观测布局，以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。RL 信号现经调试器 Watch 读取：`rl_control.observation.obs` / `.last_action`、`rl_output_dm_cmd_nm` / `rl_output_wheel_cmd_nm`。）
+（下列 ch 号为历史 RL 调试帧布局；当前 32 路 VOFA 帧以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准，也可在调试器 Watch 读取 `rl_control.observation.obs` / `.last_action`、`rl_output_dm_cmd_nm` / `rl_output_wheel_cmd_nm`。）
 
 ```
 ① .rl 已按候选 A 填 (变更 98); 台架核对 (左拨杆上, 不投入即可, 变更 99 起有观测预览):
@@ -402,7 +402,7 @@ Leg_Solve 当前已完成以下验证：
 - **候选 B**：固件 +x = URDF −x（训练的"前"是实机车尾）。
   `lf0 = +(thigh_L − 0.664721)`，`lf1 = +(vs_L − 0.055207)`，右腿取反；轮：lfwheel = +左轮速，rfwheel = −右轮速；并且策略用的机体系要绕 z 转 180°，gyro x/y 与重力 x/y 取反，`.rl` 要再加帧符号字段。默认站姿下固件读到 **thigh ≈ 0.60 rad、vs ≈ 0.16 rad**。
 - **台架判定**：站到默认姿态（轮心在髋正下、微蹲），看 ch11 / ch13 落在哪一组，一眼分清。
-- **左右归属（已处理，不必等 CAD）**：URDF 里 `lf0` 在 y = −0.179，候选 A 下 "lf" 是 URDF 的右侧腿。机器左右对称时，"右腿喂 lf 槽、IMU 原样"与"左腿喂 lf 槽、策略机体系绕 x-z 面镜像"是同一策略的镜像部署，效果等价。历史：固件曾取后者，由 `task_policy.c` 的 `RL_FRAME_MIRROR_Y = 1` 实现，推理路径把 gyro x/z、四元数 x/z、偏航指令取反，左腿仍进 lf 槽，VOFA 的"左"仍是左。**该宏已删除**：当前推理路径无帧镜像开关，左右/极性以机器表 `.rl` 的 `sign` 与 `machine_config.c` 为准、待作者台架复核（左右轮另有物理交叉取源/下发，见 `task_policy.c` / `task_actuation.c`）。CAD 答复只在机器明显不对称时才有意义。
+- **左右归属（已处理，不必等 CAD）**：URDF 里 `lf0` 在 y = −0.179，候选 A 下 "lf" 是 URDF 的右侧腿。机器左右对称时，"右腿喂 lf 槽、IMU 原样"与"左腿喂 lf 槽、策略机体系绕 x-z 面镜像"是同一策略的镜像部署，效果等价。历史：固件曾取后者，由 `task_policy.c` 的 `RL_FRAME_MIRROR_Y = 1` 实现，推理路径把 gyro x/z、四元数 x/z、偏航指令取反，左腿仍进 lf 槽，VOFA 的"左"仍是左。**该宏已删除**：当前推理路径无帧镜像开关，腿部映射以机器表 `.rl` 的 `sign` 为准、待作者台架复核；大机器轮电机左反馈 ID 0x202、右反馈 ID 0x201，驱动极性按 `machine_config.c` 的 `dji_sign`，待另行复核。CAD 答复只在机器明显不对称时才有意义。
 - 训练默认角左右反号只是因为右腿轴反向，物理姿态左右对称；映射后固件左右腿的 `dof_pos` 都是 thigh 2.5369 / vs 2.9864。
 
 `MACHINE_DEFAULT` 已于 2026-09-26 切到 `MACHINE_ID_BIG_WHEELLEG`（变更 100，宏名以 `machine_config.h` 为准），RL 整链门控随之打开；小机器上跑这个策略没有意义。大机器 `.imu` 的 `quat_src` 与角速度通道是否对应有未确认疑点，见变更 100「待台架 ①」。大机器 `.imu` 表仍是"照抄原宏、待实测"，②那一步一起看。
@@ -417,6 +417,6 @@ Leg_Solve 当前已完成以下验证：
 
 ### 8.3 VOFA
 
-当前 VOFA 帧为 LQR 观测布局，**以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准**：ch0 在线掩码、ch1 状态位、ch2 RL 状态位、ch3~12 LQR 状态 x[0..9]、ch13~22 目标 target[0..9]、ch23~24 实测腿长、ch25~26 腿长目标、ch27~30 LQR 输出 u[0..3]、ch31 故障位；每两次 commTask 周期发一帧。未投入时观测照算预览。
+当前默认发送 VOFA：ch0 在线掩码、ch1 状态位、ch2 RL 状态位、ch3~6 四髋逻辑力矩指令、ch7~8 左右轮逻辑力矩指令、ch9/10 左右轮速、ch11/12 右前/右后髋反馈力矩、ch13~16 左大腿/左虚拟小腿/右大腿/右虚拟小腿 RL 角观测（解算角经 `.rl.zero`、`.rl.sign` 并减去训练默认角）、ch17~22 六关节观测速度、ch23~28 当前训练空间动作（区别于策略输入中的上一拍动作）、ch29~30 左右轮反馈电流 raw、ch31 故障位。每两次 commTask 周期发一帧；布局以 `task_comm.c::Robot_Control_Send_Vofa()` 为准。
 
 历史（RL 调试帧，`task_comm.c` 内已注释留档）：RL 模式（推理路径且左拨杆上位）曾复用 LQR 无意义的通道，下标不动：ch3~5 投影重力、ch6 RL 状态位、ch7~9 观测角速度（策略机体系，已镜像、×0.25）、ch10~13 固件原始 thigh / vs、ch15~20 观测关节速度（×0.05）、ch21~24 观测关节角、ch25~30 力矩命令（总输出关也有值）、ch31 推理耗时。

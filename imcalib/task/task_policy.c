@@ -55,11 +55,10 @@ static uint8_t RL_Joint_Map(float joint_pos[4], float joint_vel[6])
     joint_pos[3] = (float)map->sign[4] * Angle_Wrap_180(leg_r.output.virtual_shank_angle - map->zero[3]);
     qd[0] = leg_l.input.d_hip_f;
     qd[1] = leg_l.output.d_virtual_shank_angle;
-    /* 台架反馈核对: 物理左轮目前从 DJI RGT 索引进入, RL 左轮槽在这里交换来源 */
-    qd[2] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    qd[2] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
     qd[3] = leg_r.input.d_hip_f;
     qd[4] = leg_r.output.d_virtual_shank_angle;
-    qd[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    qd[5] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
     for (uint8_t i = 0u; i < 6u; i++)
     {
         joint_vel[i] = (float)map->sign[i] * qd[i];

@@ -76,13 +76,11 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     cache->vf     = leg->input.d_hip_f;
     cache->vb     = leg->input.d_hip_b;
 
-    /* A = 前杆端点, B = 后杆端点 */
     x_a = cache->lu * LEG_COSF(cache->qf);
     y_a = cache->lu * LEG_SINF(cache->qf);
     x_b = cache->lu * LEG_COSF(cache->qb);
     y_b = cache->lu * LEG_SINF(cache->qb);
 
-    /* 求 P 点: 以 A 为圆心 lg 为半径的圆, 与以 B 为圆心 lg 为半径的圆的交点 */
     dx     = x_b - x_a;
     dy     = y_b - y_a;
     lg_dx2 = 2.0f * cache->lg * dx;
@@ -97,30 +95,24 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
     {
         disc = 0.0f;
     }
-
-    /* φ_a = 前杆绝对角, P = A + lg 方向 */
     root         = Leg_Sqrtf(disc);
     cache->phi_a = 2.0f * atan2f(lg_dy2 + root, lg_dx2 + ab_sq);
     x_p          = x_a + cache->lg * LEG_COSF(cache->phi_a);
     y_p          = y_a + cache->lg * LEG_SINF(cache->phi_a);
     cache->phi_b = atan2f(y_p - y_b, x_p - x_b);
 
-    /* 虚拟腿长 = |OP| */
     leg->output.virtual_leg_length = Leg_Sqrtf(x_p * x_p + y_p * y_p);
     if (leg->output.virtual_leg_length < LEG_MIN_LENGTH)
     {
         return 0u;
     }
 
-    /* 虚拟腿摆角 (相对竖直方向) */
     cache->virtual_leg_angle_abs  = atan2f(y_p, x_p);
     leg->output.virtual_leg_angle = Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs
                             + leg->config.offset_phi0);
 
-    /* 大腿角 = qf (前髋上连杆, 去镜像后与 hip_f 一致) */
     leg->output.thigh_angle = Leg_Wrap(cache->qf);
 
-    /* 虚拟小腿角 = φ_a - qf - π/2 (小腿相对大腿) */
     vs_raw = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
     leg->output.virtual_shank_angle = Leg_Wrap(vs_raw);
     return 1u;

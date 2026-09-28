@@ -313,15 +313,18 @@ static uint8_t record_dump_one(void)
 }
 
 /* 每拍: 录制/回放状态机
- * 自动模式 (S2R_RECORD_AUTO=1, 默认): 建会话(投入)即开录, 会话结束(失能)后再录一小段尾巴
+ * 自动模式 (S2R_RECORD_AUTO=1): 建会话(投入)即开录, 会话结束(失能)后再录一小段尾巴
  * 即停 → 自动回放导出, 全程不需要调试器;
+ * 当前默认 S2R_RECORD_AUTO=0 (不录制, 只发实时低频流);
  * 调试器写 s2r_record_requested / s2r_replay_requested 仍可用作手动覆盖。 */
 static void record_tick(uint64_t now)
 {
     static uint8_t record_prev_request;
+    static uint8_t record_manual;
+#if S2R_RECORD_AUTO
     static uint32_t record_prev_session;
     static uint64_t record_stop_at;
-    static uint8_t record_manual;
+#endif
 
 #if S2R_RECORD_AUTO
     if (record_state == 0u && diag.session && !record_prev_session)
@@ -352,8 +355,8 @@ static void record_tick(uint64_t now)
             event(10u, 3u, record_frames);   /* reason 3 = 会话结束自动停止 */
         }
     }
-#endif
     record_prev_session = diag.session;
+#endif
 
     if (s2r_record_requested && !record_prev_request && record_state == 0u)
     {
@@ -362,7 +365,9 @@ static void record_tick(uint64_t now)
         record_frames = 0u;
         record_dump_frames = 0u;
         record_last_frame = 0u;
+#if S2R_RECORD_AUTO
         record_stop_at = 0u;
+#endif
         record_state = 1u;
         record_manual = 1u;
         event(9u, 0u, 0u);                  /* 录制开始 (reason 0 = 手动) */
@@ -464,7 +469,7 @@ static void init_once(void)
     memset(&queue, 0, sizeof(queue));
     diag.boot = boot_id();
     s2r_init_error = diag.boot ? 0u : 1u;
-    diag.enabled = 1u;
+    diag.enabled = S2R_DIAGNOSTIC_DEFAULT;
     diag.initialized = 1u;
     diag.health_time = S2R_Now_Us();
     diag.meta_restart = 1u;
@@ -979,7 +984,7 @@ static void build_meta(void)
     {
         json_append("%s{\"rx_id\":%u,\"tx_id\":%u,\"bus\":%u,\"fb_sign\":%d,\"out_sign\":%d,\"zero\":%.9g}", i ? "," : "", dm_motor_config[i].feedback_id, dm_motor_config[i].control_id, m->dm_bus[i], m->dm_sign[i].fb, m->dm_sign[i].out, (double)m->dm_zero[i]);
     }
-    json_append("],\"wheel_source_indices\":[1,0],\"dji_bus\":%u,\"dji_type\":%u,\"gear_ratio\":%.9g,\"wheel_radius\":%.9g,", m->dji_bus, m->dji_type, (double)m->dji_gear_ratio, (double)m->wheel_r);
+    json_append("],\"wheel_source_indices\":[0,1],\"dji_bus\":%u,\"dji_type\":%u,\"gear_ratio\":%.9g,\"wheel_radius\":%.9g,", m->dji_bus, m->dji_type, (double)m->dji_gear_ratio, (double)m->wheel_r);
     json_append("\"wheel_sign\":[[%d,%d],[%d,%d]],\"motor_units\":\"driver logical output axis, rad/rad_s/Nm\",", m->dji_sign[0].fb, m->dji_sign[0].out, m->dji_sign[1].fb, m->dji_sign[1].out);
     json_append("\"feedback\":{\"dm_torque\":\"driver MIT estimate\",\"wheel_torque\":null,\"motor_current_A\":null,\"accel_includes_gravity\":null},");
     json_array("gas_force_n", m->gas_spring_force_n, 2u);
