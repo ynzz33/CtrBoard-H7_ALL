@@ -8,7 +8,7 @@
 #include "pid.h"
 #include "simple-function.h"
 #include "torque_output.h"
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 
 typedef struct {
     pid_t leg_len[2];   /* 腿长 */
@@ -26,6 +26,7 @@ void    Leg_Balance_Init(leg_balance_t *lb);
 void    Leg_Balance_Reset(leg_balance_t *lb);
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
+                            const lqr_runtime_config_t *config,
                             float dt, torque_output_t *torque);
 
 #endif

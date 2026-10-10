@@ -1,6 +1,6 @@
 # 控制律复刻说明书（MuJoCo 仿真端）
 
-> **历史资料，当前不可按此操作。** 现行关节 USB 测试见 [新流程](../joint-usb-sysid.md)。
+> **历史资料，当前不可按此操作。** USB关节试验及旧辨识固件已移除。
 
 > 大机器测试专用，`SYSID_ENABLE=1` 时生效。
 
@@ -38,19 +38,19 @@ CAN 总线 → DM 电机执行
 | 步骤 | 函数 | 文件:行 |
 |------|------|---------|
 | 1. 1kHz 节拍 | `Sysid_Mode_Run()` | `imcalib/Sysid/sysid_mode.c` |
-| 2. 斜率限幅得到目标角 | `Ramp_Update()`（大腿 0.4 / 小腿 0.2 rad/s） | `imcalib/Sysid/sysid_mode.c:715-724`、`user-lib/simple-function.c` |
+| 2. 斜率限幅得到目标角 | `Ramp_Update()`（大腿 0.4 / 小腿 0.2 rad/s） | `imcalib/Sysid/sysid_mode.c:715-724`、`common/simple-function.c` |
 | 3. 目标角→动作值 | `act_buf = (target - dof_pos) × 2.0` | `imcalib/Sysid/sysid_mode.c:730-733` |
 | 4. 虚拟关节 PD + 雅可比映射 | `RL_Torque_Compute()` | `imcalib/Algorithm/rl_torque.c:126` |
 | 4b. 测试限幅 | `clampf(±SYSID_TRQ_LIMIT_NM)`（当前 10 Nm） | `imcalib/Sysid/sysid_mode.c:747-748` |
-| 5. PID 计算 | `pid_calc()` | `imcalib/user-lib/pid.c:42` |
-| 6. 力矩下发 | `Dm_Send_Torque()` | `imcalib/user-lib/dm.c:291` |
-| 7. MIT 编码 | `Dm_Mit_Control()` | `imcalib/user-lib/dm.c:187` |
+| 5. PID 计算 | `pid_calc()` | `imcalib/common/pid.c:42` |
+| 6. 力矩下发 | `Dm_Send_Torque()` | `imcalib/drivers/dm.c:291` |
+| 7. MIT 编码 | `Dm_Mit_Control()` | `imcalib/drivers/dm.c:187` |
 
 ---
 
 ## 2. PD 控制律精确离散形式
 
-### 2.1 PID 实现（`imcalib/user-lib/pid.c:42-91`）
+### 2.1 PID 实现（`imcalib/common/pid.c:42-91`）
 
 本工程使用 **位置式 PID**（`POSITION_PID`），D 项**不除 dt**：
 
@@ -317,7 +317,7 @@ SYSID_POSE_HOLD_S = 3.0 s    // 到位后保持的时间（准静态取数）
 
 > `SYSID_POSE_RAMP_RATE 1.2f` 这个宏当前没有被引用，真正的斜率写在 §6.4 的 `ramp_t` 初值里。
 
-### 6.4 斜坡实现（`sysid_mode.c:230-231, 715-724` + `user-lib/simple-function.c::Ramp_Update()`）
+### 6.4 斜坡实现（`sysid_mode.c:230-231, 715-724` + `common/simple-function.c::Ramp_Update()`）
 
 ```c
 static ramp_t sysid_ramp_th = {0.0f, 0.4f};   // 大腿角斜坡, 斜率 0.4 rad/s

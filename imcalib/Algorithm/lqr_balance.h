@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "rc_command.h"
+#include "rc_types.h"
 #include "imu_state.h"
 #include "leg_solver.h"
 #include "simple-function.h"
@@ -47,7 +47,9 @@ typedef struct {
     uint8_t legacy_gain;       /* 小机旧表对照 */
     float   trq_max_wheel;     /* 轮限幅 */
     float   trq_max_hip;       /* 髋限幅 */
-} lqr_debug_t;
+} lqr_runtime_config_t;
+
+typedef lqr_runtime_config_t lqr_debug_t;
 
 typedef struct {
     float x[LQR_X_NUM];             /* 状态 */

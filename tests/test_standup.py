@@ -20,7 +20,8 @@ static lqr_state_t lqr_state;
 static leg_balance_t leg_balance;
 static rc_command_t rc_command;
 static struct { uint8_t rc_enable, motor_enabled, fallen; } robot_state;
-static struct { struct { float trq_nm[4]; uint64_t parsed_rx_ns[4]; uint8_t online[4]; } dm; struct { float vel_rad_s[2]; } dji; } motor_state;
+static motor_state_t motor_state;
+static struct { uint8_t mode; } input_command;
 static struct { uint8_t rl_ready; float a[6]; } action_state;
 static struct { struct { unsigned selected_model; } policy;
     rl_torque_param_t torque_param[1]; rl_torque_state_t torque_state; } rl_control;
@@ -38,9 +39,6 @@ static uint8_t fixture_defaults_ready;
 static int htim6;
 #define FAULT_NONE 0u
 #define FAULT_IMU 0x01u
-#define DR16_SW_UP 1u
-#define DR16_SW_DOWN 2u
-#define DR16_SW_MID 3u
 #define HAL_OK 0
 #define CONTROL_TIME_VOFA_ENABLE 0
 #define taskENTER_CRITICAL() ((void)0)
@@ -49,12 +47,11 @@ static int htim6;
 static int HAL_TIM_Base_Start_IT(int *t) { (void)t; return HAL_OK; }
 static void Error_Handler(void) { assert(0); }
 static uint64_t Mono_Ns_Get(void) { return now_ns; }
-static uint8_t JointUsb_ModeLock(void) { return 0; }
-static uint8_t JointUsb_EnableAllowed(void) { return 0; }
-static uint8_t JointUsb_StreamRequested(void) { return 0; }
-static void JointUsb_Compute(torque_output_t *t) { (void)t; }
-static void JointUsb_ActuationTick(const torque_output_t *t, uint64_t n, uint8_t ok)
-{ (void)t; (void)n; (void)ok; }
+
+
+
+
+
 static int Dm_All_Enable(void) { return HAL_OK; }
 static uint8_t fixture_dm_enable_mask = 15u;
 static uint8_t Dm_Is_Enabled(uint8_t i) { return i < 4 && (fixture_dm_enable_mask & (1u << i)); }
@@ -367,7 +364,7 @@ int main(void)
     for(i=0;i<600 && standup_control.phase==STANDUP_FAILED;i++) { step(); }
     assert(standup_control.phase!=STANDUP_FAILED && standup_control.retry==1);
     setup(machine->lqr.leg_trim[0]);standup_control.phase=STANDUP_DONE;
-    rc_command.vel=.2f;imu_state.euler_rad[0]=.9f;
+    rc_command.vel=.2f;imu_state.pitch_world=standup_param.trigger_pitch+.01f;
     for(i=0;i<(unsigned)(standup_param.trigger_time/MACHINE_LQR_DT)+10u && standup_control.phase==STANDUP_DONE;i++) { step(); }
     assert(standup_control.phase!=STANDUP_DONE && standup_control.phase!=STANDUP_FAILED);
     assert(sent_wheel[0]==0 && sent_wheel[1]==0);
@@ -479,11 +476,11 @@ int main(void)
     setup(-1.2f);
     leg_l.output.virtual_leg_length=leg_r.output.virtual_leg_length=0.15f;
     standup_param.angle_pos_kd=50;standup_param.angle_speed_kd=10;
-    step();assert(standup_control.phase==STANDUP_SWING);
+    Standup_Enter(&standup_control,STANDUP_SWING);step();assert(standup_control.phase==STANDUP_SWING);
     assert(standup_control.angle_pos_pid[0].dout==0 && standup_control.angle_speed_pid[0].dout==0);
     setup(-1.2f);
     leg_l.output.virtual_leg_length=leg_r.output.virtual_leg_length=0.15f;
-    step();assert(standup_control.phase==STANDUP_SWING);
+    Standup_Enter(&standup_control,STANDUP_SWING);step();assert(standup_control.phase==STANDUP_SWING);
     standup_control.angle_cmd[0]=machine->lqr.leg_trim[0]+0.8f;
     leg_l.output.d_virtual_leg_angle=standup_param.angle_speed_max+0.5f;step();
     assert(standup_control.angle_speed_cmd[0]==standup_param.angle_speed_max);
@@ -512,7 +509,7 @@ int main(void)
     setup(machine_table[MACHINE_DEFAULT].lqr.leg_trim[0]);
     leg_r.output.virtual_leg_angle=machine->lqr.leg_trim[1];
     assert(fabsf(standup_param.trigger_angle-50.0f*LEG_PI/180.0f)<1e-6f);
-    assert(fabsf(standup_param.trigger_pitch-40.0f*LEG_PI/180.0f)<1e-6f);
+    assert(fabsf(standup_param.trigger_pitch-50.0f*LEG_PI/180.0f)<1e-6f);
     for(sign=-1;sign<=1;sign+=2)
     {
         for(side=0;side<2;side++)
@@ -525,9 +522,9 @@ int main(void)
             assert(Standup_Need(&imu_state,legs));
             (side==0 ? &leg_l : &leg_r)->output.virtual_leg_angle=machine->lqr.leg_trim[side];
         }
-        imu_state.pitch_world=sign*39.9f*LEG_PI/180.0f;
+        imu_state.pitch_world=sign*49.9f*LEG_PI/180.0f;
         assert(!Standup_Need(&imu_state,legs));
-        imu_state.pitch_world=sign*40.1f*LEG_PI/180.0f;
+        imu_state.pitch_world=sign*50.1f*LEG_PI/180.0f;
         assert(Standup_Need(&imu_state,legs));
         imu_state.pitch_world=0;
     }
@@ -547,11 +544,11 @@ int main(void)
     {
         imu_state.pitch_world=angles[i];Robot_Fallen_Update();assert(robot_state.fallen==expected[i]);
     }
-    imu_state.pitch_world=0;imu_state.pitch_world_valid=0;Robot_Fallen_Update();assert(robot_state.fallen);
+    ctrl_fault=FAULT_IMU;imu_state.pitch_world=0;imu_state.pitch_world_valid=0;Robot_Fallen_Update();assert(robot_state.fallen);
     imu_state.pitch_world_valid=1;imu_state.pitch_world=NAN;Robot_Fallen_Update();assert(robot_state.fallen);
     imu_state.pitch_world=0;imu_state.online=0;Robot_Fallen_Update();assert(robot_state.fallen);
-    imu_state.online=1;Robot_Fallen_Update();assert(!robot_state.fallen);
-    imu_state.pitch_world=LEG_PI;step();zero();assert(robot_state.fallen && !robot_state.motor_enabled);
+    imu_state.online=1;ctrl_fault=0;Robot_Fallen_Update();assert(!robot_state.fallen);
+    standup_control.recovery_enabled=0;imu_state.pitch_world=LEG_PI;step();zero();assert(robot_state.fallen && !robot_state.motor_enabled);
     assert(standup_control.phase==STANDUP_IDLE && standup_control.need && !lqr_running);
     setup(-1.2f);imu_state.euler_rad[1]=1.0f;
     for(i=0;i<2;i++)
@@ -562,7 +559,7 @@ int main(void)
     leg_r.output.virtual_leg_angle=machine->lqr.leg_trim[1];
     assert(!Standup_Need(&imu_state,legs));
     imu_state.pitch_world=0.6f;assert(!Standup_Need(&imu_state,legs));
-    imu_state.pitch_world=0.75f;assert(Standup_Need(&imu_state,legs));
+    imu_state.pitch_world=standup_param.trigger_pitch+.01f;assert(Standup_Need(&imu_state,legs));
     standup_control.phase=STANDUP_SWING;standup_control.support=1;
     for(i=0;i<2;i++) { standup_control.length_cmd[i]=machine->lqr.leg_len_init[i]; }
     leg_l.output.virtual_leg_length=standup_control.length_cmd[0];
@@ -623,7 +620,7 @@ int main(void)
             {
                 assert(standup_control.angle_cmd[0]==Standup_Wrap(machine->lqr.leg_trim[0]));
                 assert(standup_control.angle_cmd[1]==Standup_Wrap(machine->lqr.leg_trim[1]));
-                assert(standup_control.tp[0]>=0);
+                assert(isfinite(standup_control.tp[0]) && fabsf(standup_control.tp[0])<=standup_param.tp_max);
             }
             if(standup_control.phase==STANDUP_DONE)
             {
@@ -674,7 +671,7 @@ int main(void)
     leg_r.output.virtual_leg_length=Standup_Extend_Length();
     for(i=0;i<150 && standup_control.phase==STANDUP_EXTEND;i++) { step(); }
     assert(standup_control.phase==STANDUP_REAR && standup_control.tp[0]>0);
-    assert(standup_control.tp[0]<1.0f);
+    assert(fabsf(standup_control.tp[0]-standup_param.angle_speed_kp*clampf(standup_param.angle_pos_kp*standup_param.rear_rate*MACHINE_LQR_DT,-standup_param.angle_speed_max,standup_param.angle_speed_max))<.001f);
     assert(fabsf(standup_control.angle_cmd[0]-(.5f+standup_param.rear_rate*MACHINE_LQR_DT))<1e-5f);
     assert(fabsf(standup_control.rear_goal[0]-(standup_param.rear_angle+LEG_2PI))<1e-5f);
     assert(standup_control.angle_pos_pid[0].angle_wrap==0);
@@ -716,43 +713,30 @@ int main(void)
 int main(void)
 {
     unsigned i;
-    float failure_time;
-    setup(-1.2f);step();
-    for(i=0;i<3100;i++) { step(); }
-    zero();assert(standup_control.phase==STANDUP_FAILED && standup_control.fault==STANDUP_TIMEOUT);
-    failure_time=standup_control.elapsed;
-    assert(failure_time>standup_param.timeout[0] && failure_time<standup_param.timeout[0]+.01f);
-    assert(!standup_control.prepare.valid);
-    assert(robot_state.motor_enabled); /* No new communication gate. */
-    leg_l.output.virtual_leg_angle=leg_r.output.virtual_leg_angle=machine->lqr.leg_trim[0];
-    step();zero();assert(standup_control.phase==STANDUP_FAILED && !lqr_running);
-    assert(standup_control.elapsed==failure_time && standup_control.fault==STANDUP_TIMEOUT);
-    setup(-1.2f);step();assert(standup_control.phase==STANDUP_RETRACT);
+    setup(standup_param.rear_angle);standup_param.recovery_retry_max=0;step();
+    assert(standup_control.phase==STANDUP_RETRACT);
+    for(i=0;i<6000 && standup_control.phase!=STANDUP_FAILED;i++) { step(); }
+    zero();assert(standup_control.fault==STANDUP_TIMEOUT);
+    assert(standup_control.elapsed>standup_param.timeout[0] && standup_control.elapsed<standup_param.timeout[0]+.01f);
+    assert(!standup_control.prepare.valid && robot_state.motor_enabled);
+    rc_command.s2=DR16_SW_DOWN;step();zero();assert(standup_control.phase==STANDUP_IDLE);
+    rc_command.s2=DR16_SW_MID;step();assert(standup_control.phase==STANDUP_RETRACT);
     leg_l.output.virtual_leg_length=.19f;leg_r.output.virtual_leg_length=.1901f;step();
     assert(standup_control.phase==STANDUP_RETRACT);
-    leg_r.output.virtual_leg_length=.19f;
-    leg_l.output.d_virtual_leg_length=leg_r.output.d_virtual_leg_length=-1.0f;
-    step();assert(standup_control.phase==STANDUP_SWING && standup_control.elapsed==0 && standup_control.stable==0);
-    leg_l.output.d_virtual_leg_length=leg_r.output.d_virtual_leg_length=0;
-    for(i=0;i<4100;i++) { step(); }
-    zero();assert(standup_control.phase==STANDUP_FAILED && standup_control.fault==STANDUP_TIMEOUT);
+    leg_r.output.virtual_leg_length=.19f;step();assert(standup_control.phase==STANDUP_SWING);
+    for(i=0;i<6000 && standup_control.phase!=STANDUP_FAILED;i++) { step(); }
+    zero();assert(standup_control.fault==STANDUP_TIMEOUT);
     assert(standup_control.elapsed>standup_param.timeout[1] && standup_control.elapsed<standup_param.timeout[1]+.01f);
-    leg_l.output.virtual_leg_angle=leg_r.output.virtual_leg_angle=machine->lqr.leg_trim[0];
-    rc_command.s2=DR16_SW_UP;step();assert(standup_control.phase==STANDUP_IDLE);
-    rc_command.s2=DR16_SW_MID;step();assert((standup_control.phase==STANDUP_DONE) && lqr_running);
-    ctrl_fault=4;step();zero();assert(standup_control.fault==STANDUP_GATED && !robot_state.motor_enabled);
-    ctrl_fault=0;step();zero();assert(!lqr_running);
-    setup(-1.2f);step();rc_command.online=0;step();zero();assert(standup_control.phase==STANDUP_FAILED);
-    rc_command.online=1;step();zero();assert(!lqr_running);
-    setup(-1.2f);step();torque_output_enabled=0;step();zero();assert(standup_control.fault==STANDUP_GATED);
-    torque_output_enabled=1;step();zero();
-    setup(-1.2f);leg_l.output.force_valid=0;step();zero();assert(standup_control.fault==STANDUP_BAD_INPUT);
+    rc_command.s1=DR16_SW_DOWN;step();zero();assert(!robot_state.motor_enabled);
+    rc_command.s1=DR16_SW_MID;step();assert(standup_control.phase==STANDUP_EXTEND && robot_state.motor_enabled);
+    for(i=0;i<6000 && standup_control.phase!=STANDUP_DONE;i++) { follow();step(); }
+    assert(standup_control.phase==STANDUP_DONE && lqr_running);
     setup(-1.2f);standup_control.phase=99;step();zero();assert(standup_control.fault==STANDUP_BAD_CONFIG);
-    setup(-1.2f);imu_state.pitch_world=1.0f;step();zero();assert(standup_control.fault==STANDUP_BAD_POSE);
-    setup(-1.2f);step();imu_state.euler_rad[0]=0.6f;step();zero();assert(standup_control.fault==STANDUP_BAD_POSE);
-    setup(-1.2f);imu_state.pitch_world=2.0f;step();zero();assert(!lqr_running && !(standup_control.phase==STANDUP_RETRACT || standup_control.phase==STANDUP_SWING));
-    setup(machine_table[MACHINE_DEFAULT].lqr.leg_trim[0]);step();lqr_state.K[0][0]=NAN;step();zero();
-    assert(standup_control.fault==STANDUP_BAD_INPUT);
+    setup(-1.2f);standup_control.recovery_enabled=0;imu_state.pitch_world=standup_param.pitch_max+.01f;
+    step();zero();assert(standup_control.fault==STANDUP_BAD_POSE);
+    setup(-1.2f);leg_l.output.force_valid=0;step();zero();assert(standup_control.fault==STANDUP_BAD_INPUT);
+    setup(machine_table[MACHINE_DEFAULT].lqr.leg_trim[0]);standup_control.phase=STANDUP_DONE;
+    step();lqr_state.K[0][0]=NAN;step();zero();assert(standup_control.fault==STANDUP_BAD_INPUT);
     return 0;
 }
 """,
@@ -760,12 +744,12 @@ int main(void)
 int main(void)
 {
     unsigned i;float previous,delta;
-    setup(-1.2f);step();
+    setup(-1.2f);standup_param.recovery_retry_max=0;Standup_Enter(&standup_control,STANDUP_SWING);step();
     for(i=0;i<1600 && standup_control.phase==STANDUP_RETRACT;i++) { follow();step(); }
     assert(standup_control.phase==STANDUP_SWING);
     for(i=0;i<4100;i++) { step(); }
     zero();assert(standup_control.fault==STANDUP_TIMEOUT);
-    setup(-1.2f);step();
+    setup(-1.2f);Standup_Enter(&standup_control,STANDUP_SWING);step();
     for(i=0;i<1600 && standup_control.phase==STANDUP_RETRACT;i++) { follow();step(); }
     assert(standup_control.phase==STANDUP_SWING);
     fixture_machine.lqr.leg_trim[0]=fixture_machine.lqr.leg_trim[1]=3.13f;
@@ -863,21 +847,21 @@ class StandupTest(unittest.TestCase):
         if compiler is None:self.skipTest('set CC to host gcc')
         env=os.environ.copy();env['PATH']=str(Path(compiler).parent)+os.pathsep+env.get('PATH','')
         headers=['#include "air_detection.h"\n#include "Attitude_Algorithm.h"', PREFIX.replace('#define DM_MOTOR_NUM 4\n',''),
-                 '#define RL_ACTION_SIZE 6\ntypedef int rl_model_t;',
-                 production_enum(read('imcalib/user-lib/dm.h'),'dm_motor_idx_t')]
-        for path in ('imcalib/user-lib/rc_command.h','imcalib/Algorithm/torque_output.h','imcalib/Algorithm/rl_torque.h',
+
+                 ]
+        for path in ('imcalib/task/inc/rc_command.h','imcalib/Algorithm/torque_output.h','imcalib/Algorithm/rl_torque.h',
                      'imcalib/Algorithm/lqr_balance.h','imcalib/Algorithm/leg_balance.h','imcalib/Algorithm/gas_spring.h',
                      'imcalib/Algorithm/standup.h','imcalib/Algorithm/slip.h'):
             headers.append(without_includes(read(path)))
         headers.append(production_enum(read('imcalib/task/inc/robot_control.h'),'ctrl_strategy_t'))
         headers.append(re.search(r'typedef struct \{\s*ctrl_strategy_t strategy;[^}]*\} rc_control_mode_t;',
             read('imcalib/task/inc/robot_control.h')).group())
-        config=without_includes(read('imcalib/user-lib/machine_config.c')).split('const machine_cfg_t *const machine')[0]
+        config=without_includes(read('imcalib/config/machine_config.c')).split('const machine_cfg_t *const machine')[0]
         split=FIXTURE.index('static void zero(')
         content='\n'.join(headers)+'\n'+config+'\n'+FIXTURE[:split]
         for path in ('imcalib/Algorithm/lqr_balance.c','imcalib/Algorithm/leg_balance.c','imcalib/Algorithm/gas_spring.c',
-                     'imcalib/Algorithm/gravity_comp.c', 'imcalib/Algorithm/air_detection.c', 'imcalib/Algorithm/Attitude_Algorithm.c',
-                     'imcalib/Algorithm/standup.c','imcalib/task/task_actuation.c'):
+                     'imcalib/Algorithm/gravity_comp.c', "imcalib/Algorithm/leg_compensation.c", 'imcalib/Algorithm/air_detection.c', 'imcalib/Algorithm/Attitude_Algorithm.c',
+                     'imcalib/Algorithm/standup.c','imcalib/task/feedback_snapshot.c','imcalib/task/task_actuation.c'):
             content+='\n'+without_includes(read(path))
         content+='\n'+production_function(read('imcalib/task/task_comm.c'),'Robot_Fallen_Update')
         content+='\n'+production_function(read('imcalib/task/task_comm.c'),'Robot_Enable_Update')+'\n'+FIXTURE[split:]
@@ -889,11 +873,11 @@ class StandupTest(unittest.TestCase):
                     with self.subTest(case=name,machine=machine):
                         exe=folder/(name+str(machine)+'.exe')
                         dependencies=['imcalib/Algorithm/slip.c','imcalib/Algorithm/lqr_gain_table.c','imcalib/Algorithm/lqr_gain_big.c',
-                            'imcalib/Algorithm/lqr_gain_small.c','imcalib/Algorithm/leg_solver.c','imcalib/user-lib/pid.c',
-                            'imcalib/user-lib/simple-function.c','imcalib/user-lib/kalman.c']
+                            'imcalib/Algorithm/lqr_gain_small.c','imcalib/Algorithm/leg_solver.c','imcalib/common/pid.c',
+                            'imcalib/common/simple-function.c','imcalib/common/kalman.c']
                         r=subprocess.run([compiler,'-std=c99','-Wall','-Wextra','-Werror','-DLEG_TRIG_LIBM=1',
                             f'-DMACHINE_DEFAULT={machine}','-I',str(folder),'-I',str(ROOT/'imcalib/Algorithm'),
-                            '-I',str(ROOT/'imcalib/user-lib'),str(source),*[str(ROOT/p) for p in dependencies],'-lm','-o',str(exe)],
+                            "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),str(source),*[str(ROOT/p) for p in dependencies],'-lm','-o',str(exe)],
                             capture_output=True,text=True,encoding='utf-8',errors='replace',env=env)
                         self.assertEqual(r.returncode,0,r.stdout+r.stderr)
                         r=subprocess.run([str(exe)],capture_output=True,text=True,encoding='utf-8',errors='replace',env=env)

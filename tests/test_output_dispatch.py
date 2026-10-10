@@ -28,8 +28,9 @@ HARNESS = r"""
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include "motor_types.h"
 #include "torque_output.h"
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 static compensation_debug_t pending_compensation, compensation_debug;
 static uint8_t ctrl_strategy;
 #define CTRL_STRATEGY_COMPENSATION 4
@@ -126,7 +127,7 @@ class OutputDispatchTest(unittest.TestCase):
             executable = folder / ("output_dispatch.exe" if os.name == "nt" else "output_dispatch")
             command = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                        "-I" + str(folder), "-I" + str(ROOT / "imcalib/Algorithm"),
-                       "-I" + str(ROOT / "imcalib/user-lib"),
+                       "-I" + str(ROOT / "imcalib/drivers"), "-I" + str(ROOT / "imcalib/bsp"), "-I" + str(ROOT / "imcalib/common"), "-I" + str(ROOT / "imcalib/config"), "-I" + str(ROOT / "imcalib/task/inc"),
                        str(host), "-o", str(executable)]
             result = subprocess.run(command, capture_output=True, text=True, env=environment)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

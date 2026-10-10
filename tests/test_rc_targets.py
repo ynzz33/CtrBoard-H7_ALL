@@ -39,7 +39,7 @@ int main(void)
     assert(LQR_Target_Update(&s,&rc_command,MACHINE_LQR_DT));
     near(s.target[LQR_X_DS],machine->lqr.vel_max); near(s.target[LQR_X_DPHI],-machine->lqr.yaw_max);
     near(s.yaw_tgt,.4f); near(s.leg_len_tgt[0],len+machine->lqr.len_rate*MACHINE_LQR_DT);
-    RL_Command_From_Rc(out); near(out[0],RL_CMD_VX_MAX); near(out[1],RL_CMD_YAW_MAX);
+    RL_Command_From_Rc(&rc_command,out); near(out[0],RL_CMD_VX_MAX); near(out[1],RL_CMD_YAW_MAX);
     r.ch1=r.ch2=r.wheel=0; Rc_Command_Update(&rc_command,&r); s.x[LQR_X_PHI]=.5f;
     assert(LQR_Target_Update(&s,&rc_command,MACHINE_LQR_DT));
     near(s.target[LQR_X_DS],0);
@@ -47,7 +47,7 @@ int main(void)
     r.ch1=-660; r.ch2=-660; Rc_Command_Update(&rc_command,&r);
     assert(LQR_Target_Update(&s,&rc_command,MACHINE_LQR_DT));
     near(s.target[LQR_X_DS],-machine->lqr.vel_max); near(s.target[LQR_X_DPHI],machine->lqr.yaw_max);
-    RL_Command_From_Rc(out); near(out[0],-RL_CMD_VX_MAX); near(out[1],-RL_CMD_YAW_MAX);
+    RL_Command_From_Rc(&rc_command,out); near(out[0],-RL_CMD_VX_MAX); near(out[1],-RL_CMD_YAW_MAX);
     r.ch1=1000; r.ch2=-1000; Rc_Command_Update(&rc_command,&r);
     near(rc_command.vel,machine->lqr.vel_max); near(rc_command.yaw,machine->lqr.yaw_max);
     r.online=0; Rc_Command_Update(&rc_command,&r);
@@ -66,21 +66,20 @@ class RcTargetsTest(unittest.TestCase):
             self.skipTest("set CC to host gcc")
         environment = os.environ.copy()
         environment["PATH"] = str(Path(compiler).parent) + os.pathsep + environment.get("PATH", "")
-        source = "#include <stdbool.h>\n" + PREFIX.replace(
-            "typedef struct { int unused; } dr16_t;", production_type(read("imcalib/user-lib/dr16.h"), "dr16_t"))
-        source += "\n" + "\n".join(re.findall(r"^#define DR16_[^\n]+", read("imcalib/user-lib/dr16.h"), re.M))
+        source = "#include <stdbool.h>\n" + PREFIX
+        source += "\n" + "\n".join(re.findall(r"^#define DR16_[^\n]+", read("imcalib/drivers/dr16.h"), re.M))
         source += "\n" + "\n".join(re.findall(r"^#define RL_CMD_[^\n]+", read("imcalib/Algorithm/rl_policy.h"), re.M))
-        for path in ("imcalib/user-lib/rc_command.h", "imcalib/Algorithm/lqr_balance.h"):
+        for path in ("imcalib/task/inc/rc_command.h", "imcalib/Algorithm/lqr_balance.h"):
             source += "\n" + without_includes(read(path))
         source += "\nstatic rc_command_t rc_command;\nstatic struct { float vx_cmd,yaw_cmd,height_cmd; } input_command;\n"
         source += "static uint8_t output_task_rl_engaged(void) { return 1u; }\n"
-        source += production_function(read("imcalib/user-lib/dr16.c"), "DR16_Deadline")
-        for path in ("imcalib/user-lib/rc_command.c", "imcalib/Algorithm/lqr_balance.c"):
+        source += production_function(read("imcalib/drivers/dr16.c"), "DR16_Deadline")
+        for path in ("imcalib/task/rc_command.c", "imcalib/Algorithm/lqr_balance.c"):
             source += "\n" + without_includes(read(path))
         source += "\n" + production_function(read("imcalib/task/task_policy.c"), "RL_Command_From_Rc")
-        dependencies = ("imcalib/user-lib/machine_config.c", "imcalib/Algorithm/lqr_gain_table.c",
+        dependencies = ("imcalib/config/machine_config.c", "imcalib/Algorithm/lqr_gain_table.c",
                         "imcalib/Algorithm/lqr_gain_big.c", "imcalib/Algorithm/lqr_gain_small.c",
-                        "imcalib/user-lib/simple-function.c", "imcalib/user-lib/kalman.c")
+                        "imcalib/common/simple-function.c", "imcalib/common/kalman.c")
         # Also exercise nonzero training ranges without changing firmware parameters.
         active = re.sub(r"(#define RL_CMD_VX_MAX\s+)\S+", r"\g<1>1.0f", source)
         active = re.sub(r"(#define RL_CMD_YAW_MAX\s+)\S+", r"\g<1>3.0f", active)
@@ -95,7 +94,7 @@ class RcTargetsTest(unittest.TestCase):
                         executable = folder / (label + str(machine) + ".exe")
                         command = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                                    f"-DMACHINE_DEFAULT={machine}", "-I" + str(folder),
-                                   "-I" + str(ROOT / "imcalib/Algorithm"), "-I" + str(ROOT / "imcalib/user-lib"),
+                                   "-I" + str(ROOT / "imcalib/Algorithm"), "-I" + str(ROOT / "imcalib/drivers"), "-I" + str(ROOT / "imcalib/bsp"), "-I" + str(ROOT / "imcalib/common"), "-I" + str(ROOT / "imcalib/config"), "-I" + str(ROOT / "imcalib/task/inc"),
                                    str(harness), *[str(ROOT / p) for p in dependencies], "-lm", "-o", str(executable)]
                         result = subprocess.run(command, capture_output=True, text=True, env=environment)
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

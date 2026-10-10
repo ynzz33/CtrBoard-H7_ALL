@@ -111,7 +111,6 @@ uint8_t CDC_Transmit_HS(uint8_t* Buf, uint16_t Len);
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
 uint8_t CDC_Transmit_Ready_HS(void);
 uint8_t CDC_Transmit_Idle_HS(void);
-uint8_t CDC_Configured_HS(void);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

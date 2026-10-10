@@ -1,6 +1,6 @@
 # UART IDLE + DMA 接收框架
 
-> 配合文件：[`uart_idle.h`](../imcalib/user-lib/uart_idle.h)、[`uart_idle.c`](../imcalib/user-lib/uart_idle.c)
+> 配合文件：[`uart_idle.h`](../imcalib/bsp/uart_idle.h)、[`uart_idle.c`](../imcalib/bsp/uart_idle.c)
 
 ---
 

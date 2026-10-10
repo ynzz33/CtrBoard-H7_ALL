@@ -17,7 +17,7 @@
 
 同一模式区的 `strategy_from_mode()`只负责USB锁优先和最终策略；`Robot_Control_Enable_Allowed()`只组合故障、翻倒恢复与使能许可。执行任务每拍将解码结果放入control_frame.mode，自起重置/投入及RL投入只读strategy/engage，不再检查s1/s2。`strategy_rc_enable()`保留旧接口，仅返回统一解码的rc_enable。USB模块读取同一解码的许可/复位结果，不再定义自己的挡位条件。参数、零力矩挡位及所有原保护规则保持。
 
-> 配合文件：[`dr16.h`](../imcalib/user-lib/dr16.h)、[`dr16.c`](../imcalib/user-lib/dr16.c)
+> 配合文件：[`dr16.h`](../imcalib/drivers/dr16.h)、[`dr16.c`](../imcalib/drivers/dr16.c)
 
 ---
 
@@ -130,7 +130,7 @@ DR16_Parse: 解析 18 字节 → dr16_t
 
 ## 7. 遥控指令映射
 
-摇杆只在一处解算：`commTask` → `Remote_Control_Update()` (`task_comm.c:67`) → `Rc_Command_Update()` (`user-lib/rc_command.c`) 填全局 `rc_command`，各链路只读。
+摇杆只在一处解算：`commTask` → `Remote_Control_Update()` (`task_comm.c:67`) → `Rc_Command_Update()` (`task/rc_command.c`) 填全局 `rc_command`，各链路只读。
 
 **`rc_command_t`**：死区内清零，区外保留原值；夹在 ±660 后除以 660。`vel/yaw` 再乘本机 `machine->lqr.vel_max/yaw_max`，输出实际单位；`len` 保持 [-1, 1]。
 

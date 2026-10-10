@@ -218,7 +218,7 @@
 ## 2026-10-05 · 自起超时VOFA诊断
 
 - **授权**：作者要求“把需要的值替换在vofa通道”，由作者重新编译、实机采集CSV，排查收腿未完成后回弹是否源于超时。
-- **链路**：沿用 `Robot_Control_Send_Vofa` 的39通道普通帧，ch3～26替换为自起阶段／故障／阶段和到位计时、启用／需求标志、长度目标和伸缩速度、F/Tp、补偿后限幅前四髋需求、最后下发的四髋命令及原roll/pitch。ch0～2、27～38保留原状态、实际腿长、世界pitch及左腿失能留证；完整定义见 [VOFA采集](vofa_policy_trace.md)。本页不再被旧控制周期采样开关覆盖，策略追踪32通道保持。
+- **链路**：沿用 `Robot_Control_Send_Vofa` 的39通道普通帧，ch3～26替换为自起阶段／故障／阶段和到位计时、启用／需求标志、长度目标和伸缩速度、F/Tp、补偿后限幅前四髋需求、最后下发的四髋命令及原roll/pitch。ch0～2、27～38保留原状态、实际腿长、世界pitch及左腿失能留证；完整定义见 VOFA采集（对应文件已移除，历史记录）。本页不再被旧控制周期采样开关覆盖，策略追踪32通道保持。
 - **留证**：`standup_ctx_t`只增加四路限幅前raw_dm，原Gas_Spring_Apply成功后保存，再用原限幅生成prepare。`Standup_Fail`保留第一条fault及最后elapsed/stable与控制值，prepare仍清零；人工退出后按原Reset清状态。未新增发送模块、任务或诊断散全局。
 - **控制边界**：保留作者当前默认enabled=1；未改阶段阈值／超时、PID、模型补偿、K表、物理极性、量程、离线时间及唯一分发链。默认启用已由作者先前修改，本轮仅同步原来仍写默认关闭的说明和测试断言。
 - **验证**：仅做真实VOFA打包／DMA忙保帧及自起超时锁存／人工复位两项定向宿主小测试；相关四个源文件大小机GCC／Keil AC5编译通过，通信文件另覆盖周期采样开／关，共20个编译项。对象仅在临时目录，未链接、烧录或实机验证；源码指纹重新生成并核对。
@@ -296,7 +296,7 @@
 ## 2026-09-25 · CAN 发送临界区 + FAULT_ACTION 不可用判据
 
 - 输入：作者 2026-09-25 授权：第 2 点 CAN 发送竞态修复；第 3 点 FAULT_ACTION 增判据。
-- 输出①：`imcalib/user-lib/can_bus.c` 的 `Can_Bus_Transmit`（`can_bus.c:136`）把空闲检查→HAL 调用→`last_tx_tick` 更新用 `taskENTER_CRITICAL`/`taskEXIT_CRITICAL` 包住，消除与中断/高优先级任务发送的交错窗口（窗口 <2 µs）。
+- 输出①：`imcalib/bsp/can_bus.c` 的 `Can_Bus_Transmit`（`can_bus.c:136`）把空闲检查→HAL 调用→`last_tx_tick` 更新用 `taskENTER_CRITICAL`/`taskEXIT_CRITICAL` 包住，消除与中断/高优先级任务发送的交错窗口（窗口 <2 µs）。
 - 输出②：`imcalib/task/task_comm.c::Robot_Fault_Update`（`task_comm.c:81`）新增判据：`output_task_rl_engaged()` 且 `action_state.rl_ready==0` 持续 ≥100 ms → `FAULT_ACTION`（函数内 static 计时，未投入/恢复即清零；warmup 期 `rl_ready=1` 不误报）。
 - 调用链：actuation/comm 发送链；comm 故障判定链（`Robot_Fault_Update` → `ctrl_fault` → 使能门禁）。
 - 核对：armcc 编译 can_bus / task_comm / dm / dji / task_actuation 五个文件，以并行任务结果为准，0 错 0 警；未链接、未上机。
@@ -305,7 +305,7 @@
 ## 2026-09-25 · RC 离线阈值 50ms + 推理失败 last_action 修正
 
 - 输入：作者决定：第 5 点 RC 离线 100→50 ms 实施；第 7 点失败 last_action 修正加入；第 4 点保持现状、第 6 点不做。
-- 输出①：`imcalib/user-lib/dr16.h:8` `DR16_OFFLINE_MS` 100u→50u，`DR16_Online()`（`dr16.c:84`）与 `FAULT_RC` 判定随之提前。
+- 输出①：`imcalib/drivers/dr16.h:8` `DR16_OFFLINE_MS` 100u→50u，`DR16_Online()`（`dr16.c:84`）与 `FAULT_RC` 判定随之提前。
 - 输出②：`imcalib/task/task_policy.c` 推理失败分支补 `RL_Observation_Set_Last_Action(..., action_t)`（`RL_Policy_Run` 已清零 `action_t`，`rl_policy.c:147`），obs 19-24（`RL_OBS_LAST_ACTION`，`rl_observation.h:44`）与实际执行的零力矩一致。
 - 调用链：comm 遥控链 / policy 观测链。
 - 核对：armcc 编译 dr16 / rc_command / task_comm / task_actuation / task_policy 五个文件，以并行任务结果为准，0 错 0 警；未链接、未上机。
@@ -852,10 +852,10 @@ FDCAN2 RX 中断 → `HAL_FDCAN_RxFifo0Callback()`（`can_bus.c:114`）→ 路�
 
 | 文件 | 变化 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h` | `machine_cfg_t` 删除 `leg_off_f[2]` / `leg_off_b[2]`，新增 `float dm_zero[MACHINE_LEG_NUM]`（4 台腿电机零点，顺序前左/后左/前右/后右） |
-| `imcalib/user-lib/machine_config.c` | 两份机器表填 `.dm_zero`；大机器见 `MACHINE_ID_CHUANLIANTUI` 表项，小机器见 `MACHINE_ID_LOCAL` 表项（数值与原 `leg_off_f/leg_off_b` 逐项一致） |
-| `imcalib/user-lib/dm.h` | `dm_motor_feedback_t` 新增 `float pos_zero_rad`（`pos_rad` 注释改为"解码角"，`pos_zero_rad` 注释"加零点"） |
-| `imcalib/user-lib/dm.c` | `Dm_Parse()` 解码后新增 `feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i]` |
+| `imcalib/config/machine_config.h` | `machine_cfg_t` 删除 `leg_off_f[2]` / `leg_off_b[2]`，新增 `float dm_zero[MACHINE_LEG_NUM]`（4 台腿电机零点，顺序前左/后左/前右/后右） |
+| `imcalib/config/machine_config.c` | 两份机器表填 `.dm_zero`；大机器见 `MACHINE_ID_CHUANLIANTUI` 表项，小机器见 `MACHINE_ID_LOCAL` 表项（数值与原 `leg_off_f/leg_off_b` 逐项一致） |
+| `imcalib/drivers/dm.h` | `dm_motor_feedback_t` 新增 `float pos_zero_rad`（`pos_rad` 注释改为"解码角"，`pos_zero_rad` 注释"加零点"） |
+| `imcalib/drivers/dm.c` | `Dm_Parse()` 解码后新增 `feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i]` |
 | `imcalib/task/inc/robot_control.h` | `dm_motor_state_t` 新增 `float pos_zero_rad[DM_MOTOR_NUM]` |
 | `imcalib/task/task_comm.c` | `Motor_State_Update()` 同时拷贝 `pos_rad` 和 `pos_zero_rad`；`Leg_State_Update()` 改用 `dm.pos_zero_rad[]` 组 `input.hip_f/hip_b`（前髋 `+ LEG_PI` 保留，任务层不再加任何 off 项）；VOFA ch35/36/43/44 改为 `dm.pos_zero_rad[]` |
 | `imcalib/Algorithm/leg_solver.h` | `leg_config_t` 删除 `offset_f` / `offset_b`（`offset_phi0` 保留，仍被求解器使用） |
@@ -866,7 +866,7 @@ FDCAN2 RX 中断 → `HAL_FDCAN_RxFifo0Callback()`（`can_bus.c:114`）→ 路�
 ```
 machine_config.c 的 .dm_zero
     │
-    │  Dm_Parse() @ imcalib/user-lib/dm.c
+    │  Dm_Parse() @ imcalib/drivers/dm.c
     ▼
 dm_motor_feedback[].pos_zero_rad  (= pos_rad + dm_zero[i])
     │
@@ -929,7 +929,7 @@ leg_l/leg_r.input.hip_b = pos_zero_rad[B]
 
 | 文件 | 变化 |
 | --- | --- |
-| `imcalib/user-lib/Vofa_send.h` | `VOFA_MAX_CH` 从 48 改为 **32**（注释：上限 32；当前实际发 27 路） |
+| `imcalib/bsp/Vofa_send.h` | `VOFA_MAX_CH` 从 48 改为 **32**（注释：上限 32；当前实际发 27 路） |
 | `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` **整体重写**：`dbg[48]` → `dbg[VOFA_MAX_CH]`，发送 `Vofa_Send(dbg, 27u)`；删掉旧的 RL 通道（大腿/小腿的当前/目标/误差/虚拟力矩）、旧轮子量、旧 LQR 通道；新增电机原始解码角 ch3~6 与零点后角 ch7~10 成对显示 |
 
 **新通道表**：27 路，详见 `md/VOFA_SEND.md`「当前 VOFA 通道布局」。
@@ -1040,7 +1040,7 @@ leg_l/leg_r.input.hip_b = pos_zero_rad[B]
 - 大机器 `dm_bus={1,1,1,1}` + `dji_bus=3` → **FDCAN2 上没有任何登记设备**，必然在 100 ms 后判 DEAD → `task_comm.c:169` 永久置 `FAULT_CAN`(0x08) → `task_comm.c:207` 的 `enable_request` 恒为 0 → **使能永不成立**。
 - 小机器 `dm_bus={1,1,3,3}` + `dji_bus=2`，三条总线都有设备，所以这个坑一直没暴露。
 
-**改动**（`imcalib/user-lib/can_bus.c`，`Can_Bus_Online()` 循环开头加 4 行守卫）
+**改动**（`imcalib/bsp/can_bus.c`，`Can_Bus_Online()` 循环开头加 4 行守卫）
 ```c
 /* 本机没在这条总线登记设备 → 不要求流量 */
 if (bus->route_cnt == 0u)
@@ -1153,10 +1153,10 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 **改动**（4 个文件，无控制行为变化、不涉及任何物理量）
 | 文件:行 | 内容 |
 | --- | --- |
-| `imcalib/user-lib/dm.h:54` | `dm_motor_feedback_t` 新增 `uint64_t rx_ns;` |
-| `imcalib/user-lib/dji.h:47` | `dji_motor_feedback_t` 新增 `uint64_t rx_ns;` |
-| `imcalib/user-lib/dm.c:94` | `Dm_Read()` ISR 入口记录 `Mono_Ns_Get()`；新增 `#include "mono_ns.h"` |
-| `imcalib/user-lib/dji.c:94` | `Dji_Read()` ISR 入口同上 |
+| `imcalib/drivers/dm.h:54` | `dm_motor_feedback_t` 新增 `uint64_t rx_ns;` |
+| `imcalib/drivers/dji.h:47` | `dji_motor_feedback_t` 新增 `uint64_t rx_ns;` |
+| `imcalib/drivers/dm.c:94` | `Dm_Read()` ISR 入口记录 `Mono_Ns_Get()`；新增 `#include "mono_ns.h"` |
+| `imcalib/drivers/dji.c:94` | `Dji_Read()` ISR 入口同上 |
 
 **输入 / 输出 / 调用链**：CAN RX 中断 → `HAL_FDCAN_RxFifo0Callback` → `Dm_Read()` / `Dji_Read()` → 打 `rx_ns`（DWT + TIM6 扩展的单调 ns）→ `raw_pending` → `Dm_Parse()` / `Dji_Parse()` 解码 → 后续 sysid 数据行用 `rx_ns` 作时间戳。
 
@@ -1204,7 +1204,7 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 
 ## 变更 35 · 系统辨识前置：CAN 发送完成打 ns 时间戳 + TX pending 表（计划缺口 B）
 
-**改动**（只动 `imcalib/user-lib/can_bus.c` / `can_bus.h`：+113 / +30 行）
+**改动**（只动 `imcalib/bsp/can_bus.c` / `can_bus.h`：+113 / +30 行）
 | 位置 | 内容 |
 | --- | --- |
 | `can_bus.h` | 新增类型 `can_tx_pending_t` / `can_tx_done_t`；`can_bus_t` 新增 `tx_complete_cnt`、`tx_pending[32]`、`tx_ring_w/r`、`tx_drop_cnt`；新增 4 个 API 声明 |
@@ -1239,9 +1239,9 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 **改动**
 | 文件:行 | 内容 |
 | --- | --- |
-| `imcalib/user-lib/dji.h:17-27` | 删 `DJI_NM_PER_RAW_M2006/M3508`；改为 `DJI_NM_FULL_M2006/M3508`（满电流输出轴堵转力矩，标准比下）+ `DJI_RATIO_STD_M2006/M3508`（36 / 19.2） |
-| `imcalib/user-lib/dji.c:46-60` | `Dji_Torque_To_Current()` 的 `per_raw` 改为 `满力矩 / 满raw × (实机总比 / 标准比)` |
-| `imcalib/user-lib/machine_config.c:12` | 大机器 `dji_trq_clamp` 6.0 → **4.8**（15.5 箱比下的输出轴物理上限） |
+| `imcalib/drivers/dji.h:17-27` | 删 `DJI_NM_PER_RAW_M2006/M3508`；改为 `DJI_NM_FULL_M2006/M3508`（满电流输出轴堵转力矩，标准比下）+ `DJI_RATIO_STD_M2006/M3508`（36 / 19.2） |
+| `imcalib/drivers/dji.c:46-60` | `Dji_Torque_To_Current()` 的 `per_raw` 改为 `满力矩 / 满raw × (实机总比 / 标准比)` |
+| `imcalib/config/machine_config.c:12` | 大机器 `dji_trq_clamp` 6.0 → **4.8**（15.5 箱比下的输出轴物理上限） |
 
 **数值自检（AI 亲自算，非子代理自述）**
 | 机型 / 总比 | `per_raw` | 满量程 |
@@ -1263,7 +1263,7 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 **改动**
 | 位置 | 内容 |
 | --- | --- |
-| `imcalib/user-lib/Vofa_send.h:9-12` | 新增布局开关 `VOFA_LAYOUT`（`#ifndef` 保护，可 `-DVOFA_LAYOUT=n` 覆盖）：1 = 虚拟关节 PID 视图，**2 = sysid 数据自检（当前默认）** |
+| `imcalib/bsp/Vofa_send.h:9-12` | 新增布局开关 `VOFA_LAYOUT`（`#ifndef` 保护，可 `-DVOFA_LAYOUT=n` 覆盖）：1 = 虚拟关节 PID 视图，**2 = sysid 数据自检（当前默认）** |
 | `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` 拆成"共用状态块 + `#if` 两套布局"；新增 layout 2 的自检填充 |
 | `imcalib/task/task_comm.c` 头部 | 新增 `#include "machine_config.h"`（layout 2 用 `machine->dji_sign / dji_bus / dm_bus`） |
 
@@ -1304,7 +1304,7 @@ VOFA_UART DMA 发送（132 字节 + 4 字节帧尾）
 - 缺口 B 的 `HAL_FDCAN_TxBufferCompleteCallback()` 对 `BufferIndexes` 掩码里**每一个置位的元素**都写一条完成记录，**没有检查该元素是否本机登记过**。
 - 每窗口稳定 64 = **环形缓冲容量（`CAN_TX_RING_CAP` = 64）**，即缓冲每窗口都被填满。按"**32 位 × 每窗口约 2 次中断 = 64**"推断：硬件把**整个 TXBCF 掩码（32 位全置位）**都报给了回调，其中绝大多数元素没有任何登记信息 → 被当成"完成"写进环 → 环立即满 → 持续丢帧。
 
-**改动**（`imcalib/user-lib/can_bus.c/h`）
+**改动**（`imcalib/bsp/can_bus.c/h`）
 | 位置 | 内容 |
 | --- | --- |
 | `can_bus.h:31-36` | `can_tx_pending_t` 增加 `uint8_t valid;` |
@@ -1940,7 +1940,7 @@ commTask (1kHz) → comm_task_body()
 
 | 文件 | 变化 |
 | --- | --- |
-| `imcalib/user-lib/Vofa_send.h` | **删除 `VOFA_LAYOUT` 宏**（保留 `VOFA_MAX_CH`、`VOFA_PORT`） |
+| `imcalib/bsp/Vofa_send.h` | **删除 `VOFA_LAYOUT` 宏**（保留 `VOFA_MAX_CH`、`VOFA_PORT`） |
 | `imcalib/task/task_comm.c` | `Robot_Control_Send_Vofa()` 删除 `#if VOFA_LAYOUT == 1`（虚拟关节 PID 视图）整个分支，只保留测试相关通道那一套（力矩 / 髋角 / 腿长摆角 / 轮 / 时间戳）；注释改为"通道内容直接改这个函数" |
 | `imcalib/Sysid/sysid_mode.c` | 姿态表大腿角改为 **45° / 95° / 145°**（0.7854 / 1.6581 / 2.5307 rad）；`SYSID_POSE_RAMP_S` 0.5 → **1.5 s**（跨度大使斜坡给足时间） |
 
@@ -2029,8 +2029,8 @@ commTask (1kHz) → comm_task_body()
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h` | `MACHINE_DEFAULT`：`MACHINE_ID_CHUANLIANTUI` → `MACHINE_ID_LOCAL` |
-| `imcalib/user-lib/machine_config.c` | 未改；`machine` 初值 `&machine_table[MACHINE_DEFAULT]` 自动指向小机器表 |
+| `imcalib/config/machine_config.h` | `MACHINE_DEFAULT`：`MACHINE_ID_CHUANLIANTUI` → `MACHINE_ID_LOCAL` |
+| `imcalib/config/machine_config.c` | 未改；`machine` 初值 `&machine_table[MACHINE_DEFAULT]` 自动指向小机器表 |
 
 **为什么只改这一行**：机器相关的量（型号/减速比/限幅/极性/零点/总线/腿几何/腿长区间）全部在两份表里，切换机器只切指针。
 
@@ -2109,9 +2109,9 @@ commTask (1kHz) → comm_task_body()
 | --- | --- |
 | `imcalib/task/task_comm.c` | VOFA 恢复 2 分频 500 Hz；删除正常链路 CAN 完成环清空与腿速度自检；两腿 `Leg_Solve()` 用调度器锁保护；接入 DM 使能看门狗、故障码和 ch1 bit4~7 使能位 |
 | `imcalib/task/inc/robot_control.h` | 删除无人消费的 `leg_debug_history_t` |
-| `imcalib/user-lib/dr16.c/h` | 删除过时的三项接收诊断计数 |
-| `imcalib/user-lib/can_bus.c/h` | TX 完成登记、完成中断、环形缓冲与统计 API 全部限制在 `SYSID_ENABLE=1`；正常固件直接入发送 FIFO |
-| `imcalib/user-lib/dm.c/h`、`dji.c` | RX 纳秒时间戳仅在 sysid 构建启用；新增 DM 使能/故障判定和每台独立 100 ms 使能看门狗 |
+| `imcalib/drivers/dr16.c/h` | 删除过时的三项接收诊断计数 |
+| `imcalib/bsp/can_bus.c/h` | TX 完成登记、完成中断、环形缓冲与统计 API 全部限制在 `SYSID_ENABLE=1`；正常固件直接入发送 FIFO |
+| `imcalib/drivers/dm.c/h`、`dji.c` | RX 纳秒时间戳仅在 sysid 构建启用；新增 DM 使能/故障判定和每台独立 100 ms 使能看门狗 |
 | `imcalib/Algorithm/leg_balance.c/h` | 新增 `Leg_Balance_Reset()`，只清四个 PID 的历史与输出，不改参数 |
 | `imcalib/task/task_actuation.c` | LQR 投入锁存成功时复位辅助 PID |
 
@@ -2142,7 +2142,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/task/inc/robot_control.h` | 新增统一控制周期 `CTRL_DT=0.001f` |
 | `imcalib/task/task_actuation.c`、`imcalib/Algorithm/rl_torque.c`、`imcalib/Sysid/sysid_mode.c` | 删除分散的 `0.002f` / `OUTPUT_DT`，统一引用 `CTRL_DT` |
 | `CtrBoard-H7_ALL.ioc`、`Core/Src/tim.c` | TIM6 Prescaler 549 → 274，Period 保持 999，对应 275 MHz / 275 / 1000 = 1 kHz |
-| `Core/Src/main.c`、`imcalib/user-lib/mono_ns.c` | TIM6 与单调时钟注释同步为 1 kHz |
+| `Core/Src/main.c`、`imcalib/bsp/mono_ns.c` | TIM6 与单调时钟注释同步为 1 kHz |
 | `imcalib/Algorithm/leg_balance.h` | 按作者确认，腿长/防劈叉/横滚三个辅助 PID 的 KD 分别由 25000/250/50 改为 0，先使用纯 P，待台架单独标定 D |
 | `imcalib/Sysid/sysid_mode.c`、`sysid_log.c/h` | sysid 单周期同步为 1 kHz；心跳改 250 tick 保持 250 ms；`SYSID_TX_DIV=4` 保持 1 kHz commTask → 250 Hz 发送 |
 
@@ -2176,7 +2176,7 @@ commTask (1kHz) → comm_task_body()
 | --- | --- |
 | `imcalib/Algorithm/lqr_balance.h/c` | 新增全局 `lqr_debug`；默认符号保持现状；轮/髋/腿长 PID 三个输出开关；轮/髋运行时限幅；K 表域 0.13~0.23 m |
 | `imcalib/Algorithm/leg_balance.c` | 关闭轮通道时轮输出为 0；关闭髋通道时 `Tp=0`；关闭腿长 PID 时足端力只留固定前馈；PID 始终继续计算 |
-| `imcalib/user-lib/machine_config.h/c` | `machine_cfg_t` 新增独立轮半径 `wheel_r`；大机器 0.04 m（占位待实测），小机器 0.03 m（Leg2_v1 建模值） |
+| `imcalib/config/machine_config.h/c` | `machine_cfg_t` 新增独立轮半径 `wheel_r`；大机器 0.04 m（占位待实测），小机器 0.03 m（Leg2_v1 建模值） |
 
 **`lqr_debug` 默认值与行为**
 
@@ -2221,7 +2221,7 @@ commTask (1kHz) → comm_task_body()
 | `md/RL_OVERVIEW.md` | 控制频率改 1 kHz、100 Hz 推理改每 10 周期；删除旧 VOFA 通道复制表并指向 `VOFA_SEND.md`；时钟修为 550 MHz；D-Cache 状态改为已开启且 VOFA DMA 前 Clean |
 | `md/LQR_PLAN.md` | 常量表同步运行时限幅、腿长域和机器轮径；频率清单标完成；新增 `lqr_debug` 用法；替换为小机器台架顺序；遗留项与双配置编译结果同步 |
 | `md/IO_CHAINS.md` | DM `err_raw` 使能看门狗/故障链；机器配置表来源；VOFA 改为单一文档链接；LQR 链同步 1 kHz、轮径、腿长交集与调试门 |
-| `md/VOFA_SEND.md`、`imcalib/user-lib/Vofa_send.h` | 按当前代码重写 32 路表，删除乱码；默认 `VOFA_PORT=1`、1152000、500 Hz 与 D-Cache Clean 同步；sysid 只保留目录指针 |
+| `md/VOFA_SEND.md`、`imcalib/bsp/Vofa_send.h` | 按当前代码重写 32 路表，删除乱码；默认 `VOFA_PORT=1`、1152000、500 Hz 与 D-Cache Clean 同步；sysid 只保留目录指针 |
 | `md/DBUS.md`、`md/UART_IDLE_DMA.md` | 通读保留；修正 DR16 接受 `len>=18`、UART9=DR16、UART7=HI229 的现行拓扑 |
 | `md/sysid/` | 六份大机器测试文档移入该目录，文件头统一标注“大机器测试专用，`SYSID_ENABLE=1` 时生效”，交叉路径同步 |
 | `md/hip-test-vofa.md` | 删除；旧 32 通道测试布局已被变更 59 替代，需要时从提交 `87c6628` 恢复 |
@@ -2283,7 +2283,7 @@ commTask (1kHz) → comm_task_body()
 | `imcalib/Algorithm/leg_balance.h` | 腿长/防劈叉/横滚 KD：0/0/0 → **50000/500/100**（Leg2_v1 `Code/Task/balance.h` 原值） |
 | `imcalib/Algorithm/lqr_balance.c` | `lqr_debug.trq_max_hip` 默认：5.0 → `machine->dm_trq_clamp`（小机器 10 N·m） |
 | `imcalib/Algorithm/lqr_balance.h` | `LQR_RC_YAW_MAX`：3.0 → **5.0 rad/s**（Leg2_v1 `app_rc.c`）；`LQR_K_LEN_MIN` 0.13 **不动** |
-| `imcalib/user-lib/machine_config.c` | 小机器 `wheel_r`：0.03 → **0.04**（物理量，见下方单列）；`leg_len_min/max` 0.10/0.20 **不动** |
+| `imcalib/config/machine_config.c` | 小机器 `wheel_r`：0.03 → **0.04**（物理量，见下方单列）；`leg_len_min/max` 0.10/0.20 **不动** |
 | `md/LQR_PLAN.md` | §一 加决策 9；§1.1/§2.4/§五/§八 数值同步；§六 ① 拆成 ①a~①d 四项符号/零点测法；新增 §十 与 Leg2_v1 参数对照表 |
 | `md/AGENTS.md`、`md/RL_OVERVIEW.md` | 辅助 PID 描述同步 |
 
@@ -2537,9 +2537,9 @@ ch21~29 只在 LQR / 手动腿测投入后更新，其余随时有效。
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h` | 新增 `imu_cfg_t`（`eul_src[3]` / `eul_sign[3]` / `gyr_sign[3]` / `acc_sign[3]` / `quat_sign[3]`），`machine_cfg_t` 加 `.imu` |
-| `imcalib/user-lib/machine_config.c` | 两份表各填一组（下表）；大机器照抄原宏值、注明待实测 |
-| `imcalib/user-lib/hi229.h` | 删除 12 个 `HI229_*_SIGN_*` 全局宏（已搬入表），驱动只出原始值 |
+| `imcalib/config/machine_config.h` | 新增 `imu_cfg_t`（`eul_src[3]` / `eul_sign[3]` / `gyr_sign[3]` / `acc_sign[3]` / `quat_sign[3]`），`machine_cfg_t` 加 `.imu` |
+| `imcalib/config/machine_config.c` | 两份表各填一组（下表）；大机器照抄原宏值、注明待实测 |
+| `imcalib/drivers/hi229.h` | 删除 12 个 `HI229_*_SIGN_*` 全局宏（已搬入表），驱动只出原始值 |
 | `imcalib/Algorithm/imu_state.h` | `imu_state_t` 加 `acc_g[3]`（G，乘符号后） |
 | `imcalib/task/task_imu.c` | 改读 `machine->imu`：欧拉角按 `eul_src` 取路再乘 `eul_sign`；角速度/加速度/四元数乘各自符号；新填 `acc_g` |
 | `imcalib/task/task_comm.c` | VOFA 换成 IMU 测试帧第二版：前 9 路为乘过极性后的欧拉角（俯仰/横滚/偏航）、角速度 X/Y/Z、加速度 X/Y/Z；原始欧拉角/角速度挪到 ch26~31，原始加速度不再发 |
@@ -2609,7 +2609,7 @@ else if (!enable_request && motor_enabled) { 失能 }   /* else 分支只在 mot
 | 文件 | 改动 |
 | --- | --- |
 | `imcalib/task/task_comm.c` | `Robot_Enable_Update()` 改成"使能沿 / 失能沿"互斥的 `if / else if`，看门狗放在后面按 `motor_enabled` 二选一 |
-| `imcalib/user-lib/dm.c/h` | 新增 `Dm_Disable_Watchdog()`：总失能期间，在线且 `err_raw==1` 的电机每 100 ms 重发失能（失能帧丢了也兜得住），与使能看门狗对称 |
+| `imcalib/drivers/dm.c/h` | 新增 `Dm_Disable_Watchdog()`：总失能期间，在线且 `err_raw==1` 的电机每 100 ms 重发失能（失能帧丢了也兜得住），与使能看门狗对称 |
 | `md/RL_OVERVIEW.md`、`md/IO_CHAINS.md` | 使能状态机描述同步 |
 
 **输入 / 输出 / 调用链**：`rc_enable`（s1≠下 且遥控在线）、`ctrl_fault`（IMU / 遥控 / 电机 / CAN / 动作）、`fallen` → `enable_request` → 沿检测 → `Dm_All_Enable()` / `Dji_All_Stop()`+`Dm_All_Disable()` → 之后每拍按 `motor_enabled` 跑对应看门狗 → `motor_enabled` 被 `output_task_body()` 的投入条件消费，为 0 时 LQR / 手动腿测 / RL 全部只发零力矩。
@@ -2636,7 +2636,7 @@ else if (!enable_request && motor_enabled) { 失能 }   /* else 分支只在 mot
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/dm.c` | `Dm_Is_Enabled()` 加 `Dm_Is_Online()` 条件 |
+| `imcalib/drivers/dm.c` | `Dm_Is_Enabled()` 加 `Dm_Is_Online()` 条件 |
 
 **输入 / 输出 / 调用链**：`Dm_Is_Enabled()` 只被 `task_comm.c` 的 VOFA ch1 bit4~7 消费，不进控制与使能判定（那两处用的是 `online[]` 与 `Dm_Has_Fault()`）。
 
@@ -2731,7 +2731,7 @@ else if (!enable_request && motor_enabled) { 失能 }   /* else 分支只在 mot
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/kalman.c/h`（新增） | 照抄 Leg2_v1 `Code/Tool/kalman.c`：`v += a·dt; p += Q; p ≤ P_MAX; k = p/(p+R); v += k(z−v); p = (1−k)p`。差别：`dt` 每拍传入、P 上限做成字段。已登记进 `MDK-ARM/CtrBoard-H7_ALL.uvprojx` user-lib 组 |
+| `imcalib/common/kalman.c/h`（新增） | 照抄 Leg2_v1 `Code/Tool/kalman.c`：`v += a·dt; p += Q; p ≤ P_MAX; k = p/(p+R); v += k(z−v); p = (1−k)p`。差别：`dt` 每拍传入、P 上限做成字段。已登记进 `MDK-ARM/CtrBoard-H7_ALL.uvprojx` user-lib 组 |
 | `imcalib/Algorithm/lqr_balance.h` | `lqr_debug_t` 加 `vel_src`（0 低通 / 1 卡尔曼）、`acc_fwd_sign`；`lqr_state_t` 加 `ds_raw` / `ds_lpf` / `ds_kf` / `a_fwd` / `kf_vel` |
 | `imcalib/Algorithm/lqr_balance.c` | 新增 `LQR_Accel_Forward()`：四元数把 `acc_g` 转到世界系，取水平分量投影到机体 x 轴的水平方向 ×9.81；`LQR_State_Update()` 两条速度并行算，`x[1] = vel_src ? ds_kf : ds_lpf`；`LQR_Init()` 初始化卡尔曼（P0 0.1 / Q 0.005 / R 0.01 / P_MAX 0.5，同 Leg2 `Body.h`），`vel_src=1`、`acc_fwd_sign=+1` |
 | `imcalib/Algorithm/lqr_balance.c` | 作者同批：`LQR_Enable_Latch()` 两腿腿长目标改锁到 `LQR_LEG_LEN_INIT`（共用一个值，不再各锁各的实测——之前投入时两腿目标不一致，拨轮同步升降永远拉不平）；位移目标 / 腿摆角目标暂改 0 供测试，Leg2 原值 −0.12 / −0.05 待零点定后恢复 |
@@ -2810,8 +2810,8 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 | `imcalib/Algorithm/leg_solver.c`（补） | 作者 eIDE 编译报 `cannot open source input file "arm_math.h"`（eIDE 包含目录没有 `Middlewares/ST/ARM/DSP/Inc`）→ include 改为相对路径，最终指向 `"../../Drivers/CMSIS/DSP/Include/arm_math.h"`（1.6.0，与三个源文件同一版本），同 `task_actuation.c` 的 `../Sysid/` 写法，两套工程都不依赖包含目录 |
 | `imcalib/Algorithm/leg_solver.h` | 声明 `Leg_Position_Leg2()` |
 | `imcalib/task/task_comm.c` | VOFA 第五版：ch12/13 由 `ds_kf` / `a_fwd` 改为 Leg2 解算的左/右腿长（左 `(pos_zero[前左] + π, pos_zero[后左])`，右 `(−pos_zero[后右] + π, −pos_zero[前右])`，负号撤销驱动层右侧取反、再按 Leg2 前后互换）；ch3~6 注释改成作者已改的四髋零点后角；头注释同步 |
-| `imcalib/user-lib/arm_sin_f32.c` / `arm_cos_f32.c`（新增） | 照抄 `Drivers/CMSIS/DSP/Source/FastMathFunctions` 1.6.0，只把两行 include 改成相对路径 `../../Drivers/CMSIS/DSP/Include/...`（diff 确认其余逐字相同） |
-| `imcalib/user-lib/arm_sin_table_f32.c`（新增） | 从 `arm_common_tables.c` 第 56926~57021 行截出 `sinTable_f32[513]`，逐行一致；不编整个 `arm_common_tables.c`（armcc 不拆数据段，700 KB 表会整段进 flash） |
+| `imcalib/common/arm_sin_f32.c` / `arm_cos_f32.c`（新增） | 照抄 `Drivers/CMSIS/DSP/Source/FastMathFunctions` 1.6.0，只把两行 include 改成相对路径 `../../Drivers/CMSIS/DSP/Include/...`（diff 确认其余逐字相同） |
+| `imcalib/common/arm_sin_table_f32.c`（新增） | 从 `arm_common_tables.c` 第 56926~57021 行截出 `sinTable_f32[513]`，逐行一致；不编整个 `arm_common_tables.c`（armcc 不拆数据段，700 KB 表会整段进 flash） |
 | `MDK-ARM/CtrBoard-H7_ALL.uvprojx` | 三个新源登记进 `imcalib/user-lib` 组（`kalman.c` 之后）；本条先前加的 `Lib` 组 .lib 条目已撤掉 |
 | `.eide/eide.yml` | **AI 未能改动**：手改三次（加库、加包含目录、删多余库）都在几秒到几分钟内被正在运行的 eIDE 扩展用内存里的模型覆盖回去。改成源码方式后 eIDE 不需要任何配置改动（`srcDirs` 自动扫 `imcalib/user-lib`，include 是相对路径）。作者在面板里加的 `Drivers/CMSIS/DSP/Lib/ARM` 下 19 个 .lib 现在无害（对象先于库解析，`arm_sin/cos_f32` 由本工程 .o 提供，试链接确认 0 个库成员被拉入），但建议在面板里删掉，别留着 |
 | `md/LQR_PLAN.md` / `md/AGENTS.md` / `md/IO_CHAINS.md` | §2.9 新增对照说明；§2.8 验收改为调试器看 `ds_kf`/`a_fwd`；§八/§十 各加一行；AGENTS 模块表与关键约束加 CMSIS-DSP 接法；IO_CHAINS §6 一句 |
@@ -2940,7 +2940,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/rc_command.c/h` | **新增**。`rc_command_t`：`vel`(ch1 右摇杆Y) / `yaw`(ch0 右摇杆X) / `len`(拨轮) / `ang`(ch3 左摇杆Y) 四轴去死区归一化 [-1,1] + `s1` / `s2` / `online`；`Rc_Command_Update(cmd, dr16快照)`，离线全零。死区常量 `RC_DEADBAND_VEL=10`、其余 20。Keil 已登记进 `imcalib/user-lib` 组，eIDE 靠 `srcDirs` 自动扫到 |
+| `imcalib/task/rc_command.c/h` | **新增**。`rc_command_t`：`vel`(ch1 右摇杆Y) / `yaw`(ch0 右摇杆X) / `len`(拨轮) / `ang`(ch3 左摇杆Y) 四轴去死区归一化 [-1,1] + `s1` / `s2` / `online`；`Rc_Command_Update(cmd, dr16快照)`，离线全零。死区常量 `RC_DEADBAND_VEL=10`、其余 20。Keil 已登记进 `imcalib/user-lib` 组，eIDE 靠 `srcDirs` 自动扫到 |
 | `imcalib/task/robot_control.c/h` | 全局 `rc_command_t rc_command`；`robot_control.h` include `rc_command.h` |
 | `imcalib/task/task_comm.c` | `Remote_Control_Update()` 在 `DR16_Snapshot()` 后调 `Rc_Command_Update(&rc_command, &remote)`，全机唯一的摇杆解算点 |
 | `imcalib/Algorithm/lqr_balance.c/h` | `LQR_Target_Update()` 第二参数 `const dr16_t *` → `const rc_command_t *`；删 `LQR_RC_Axis()` 与 `LQR_RC_DEADBAND`；`axis_vel/yaw/len` 直接取 `cmd->vel/yaw/len`；头文件不再 include `dr16.h`。换算常数、偏航锁存、腿长积分与夹取、转向取负一律不动 |
@@ -3053,7 +3053,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 | --- | --- |
 | `imcalib/Algorithm/rl_policy.c/h` | 四模型封装收成 networkzn1 单模型：`rl_model_t` 只剩 `RL_MODEL_STANDUP`；静态检查 2 输入 (25/125)、2 输出 (6/3)；`RL_Policy_Run()` 读输出 0 动作、输出 1 latent 存 `policy->latent`，DWT 计耗时 `run_us`，计数 `run_ok/run_fail`。头文件新增推理路径参数宏：`RL_CMD_VX_MAX/YAW_MAX/HEIGHT_MIN/MAX`（全 0，待训练侧）、`RL_WARMUP_STEPS`（50）、`RL_ACTION_CLIP`（0 = 不裁）、`RL_LATENT_SIZE` |
 | `imcalib/Algorithm/rl_observation.c/h` | 训练侧观测参数进宏（gyro 0.25、cmd [2.0, 0.25, 5.0]、关节速度 0.05、默认角 [−0.06, 0.10, 0.06, −0.10]），`RL_Observation_Param_Init()` 填入并置 `configured=1`；`RL_Observation_Build()` 末尾整体裁剪 ±100 |
-| `imcalib/user-lib/machine_config.c/h` | 新增 `rl_map_t`（`sign[6]` / `zero[4]` / `configured`）与机器表字段 `.rl`；两台机器都填 0、`configured=0` |
+| `imcalib/config/machine_config.c/h` | 新增 `rl_map_t`（`sign[6]` / `zero[4]` / `configured`）与机器表字段 `.rl`；两台机器都填 0、`configured=0` |
 | `imcalib/Algorithm/rl_torque.c/h` | 参数只剩 STANDUP 一组：`dof_pos = zero + sign × 训练默认角`（按机器表算），Kp/Kd/轮增益全 0 待训练侧；轮速尺度 20 → 10；腿 D 项改为 `− Kd × q̇`（pid 的 Δe 微分置 0）；删 `spin_mode/jump_mode` 与 `act[]` 拷贝 |
 | `imcalib/task/inc/robot_control.h` | `action_state_t` 加 `rl_ready`；`rl_control_state_t` 加 `infer_enable` / `infer_phase`；声明 `output_task_rl_engaged()` |
 | `imcalib/task/robot_control.c` | 只初始化 STANDUP 参数；`infer_enable=0`、`infer_phase=0`；`Action_State_Clear()` 清 `rl_ready` |
@@ -3124,7 +3124,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 | --- | --- |
 | `Core/Src/tim.c`、`CtrBoard-H7_ALL.ioc` | TIM6 Period 999 → **1999**，Prescaler 274 不变：275 MHz / 275 / 2000 = 500 Hz（与变更 61 同一处，反向） |
 | `imcalib/task/inc/robot_control.h` | `CTRL_DT` 0.001f → **0.002f**，LQR / RL / sysid 的时间步统一跟随 |
-| `Core/Src/main.c`、`imcalib/user-lib/mono_ns.c` | TIM6 回调与单调时钟注释同步为 500 Hz（`Mono_Ns_Tick()` 只要求 ≥ 每 7.8 s 一次，500 Hz 无影响） |
+| `Core/Src/main.c`、`imcalib/bsp/mono_ns.c` | TIM6 回调与单调时钟注释同步为 500 Hz（`Mono_Ns_Tick()` 只要求 ≥ 每 7.8 s 一次，500 Hz 无影响） |
 | `imcalib/task/task_actuation.c` | **无功能改动**。本条一度做过"RL 分支两拍算一次"的分频版，作者否决后撤回；撤回时误用 `git checkout` 把变更 95 在本文件的四处（`rl_engaged`、`output_task_rl_engaged()`、`solve_rl()` 前提 `rl_ready`、MANUAL 分支写 `rl_engaged`）一并还原，已重新补回，`grep` 核对四处都在 |
 | `md/AGENTS.md`、`md/RL_OVERVIEW.md`、`md/LQR_PLAN.md` §五 | 频率相关行同步；LQR_PLAN §五 顶部加注：本节以下是 1 kHz 时的记录 |
 
@@ -3180,7 +3180,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 | 文件 | 改动 |
 | --- | --- |
 | `imcalib/task/robot_control.c` | `torque_output_enabled` 1 → **0**（全链零力矩）；`rl_control.infer_enable` 0 → **1**（走推理路径） |
-| `imcalib/user-lib/machine_config.h` | **`MACHINE_DEFAULT` `MACHINE_ID_LOCAL` → `MACHINE_ID_CHUANLIANTUI`**（作者确认；networkzn1 对应大机器，小机器 `.rl` 未配置）。机器表本身一个数没动 |
+| `imcalib/config/machine_config.h` | **`MACHINE_DEFAULT` `MACHINE_ID_LOCAL` → `MACHINE_ID_CHUANLIANTUI`**（作者确认；networkzn1 对应大机器，小机器 `.rl` 未配置）。机器表本身一个数没动 |
 | `imcalib/task/task_policy.c` | 新增 `RL_Observation_Preview()`：RL 未投入时仍按同一套映射/镜像构建观测，只供 VOFA，**不推历史**（投入沿历史照旧从首帧重填）；IMU 或两腿无效时观测清零。`RL_Command_From_Rc()` 挪到投入判断前 |
 | `imcalib/task/task_comm.c` | RL 模式 VOFA：ch10~13 固件原始 thigh / vs（左、右）；ch15~20 由网络动作**直接替换**为观测关节速度（作者定不加宏切换）；ch6 加 bit6 观测有效、bit7 `.rl` 已配置 |
 | `md/RL_OVERVIEW.md` | §3.5 投入行、§3.6 总开关、§五 ①②、§8.2 开关默认值、§8.3 VOFA |
@@ -3198,7 +3198,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h:19` | `MACHINE_DEFAULT`：`MACHINE_ID_SMALL_WHEELLEG` → `MACHINE_ID_BIG_WHEELLEG`。该行工作区里已由作者改好（mtime 15:42，AI 未重复改动），本批只做文档同步与编译核验 |
+| `imcalib/config/machine_config.h:19` | `MACHINE_DEFAULT`：`MACHINE_ID_SMALL_WHEELLEG` → `MACHINE_ID_BIG_WHEELLEG`。该行工作区里已由作者改好（mtime 15:42，AI 未重复改动），本批只做文档同步与编译核验 |
 | `md/AGENTS.md` | 关键约束「控制频率」：当前默认改注大机器 500 Hz；顺手去掉该行已不存在的「手动遥操」 |
 | `md/RL_OVERVIEW.md` | §一 频率行、§四 差异表注、§8.1 末段：默认机器改为大机器 |
 | `md/LQR_PLAN.md` | 头部「当前机器」段：默认已切大机器、`lqr_configured=0` → 左拨杆中位判失能，要跑 LQR 先切回小机器 |
@@ -3233,7 +3233,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/can_bus.c` | RX 校验去掉 `FDFormat != FDCAN_CLASSIC_CAN` 一条，保留 标准帧 / 数据帧 / 8 字节 三条；加一行注释（FD 帧也放行）。RX FIFO 元素本来就是 8 字节，FD 帧 DLC=8 编码与经典帧一致，不必改 |
+| `imcalib/bsp/can_bus.c` | RX 校验去掉 `FDFormat != FDCAN_CLASSIC_CAN` 一条，保留 标准帧 / 数据帧 / 8 字节 三条；加一行注释（FD 帧也放行）。RX FIFO 元素本来就是 8 字节，FD 帧 DLC=8 编码与经典帧一致，不必改 |
 | `md/AGENTS.md` | FDCAN 条目补一句"收不挑帧格式（经典 + FD 都收），只发是经典帧" |
 
 **输入 / 输出 / 调用链**：`HAL_FDCAN_RxFifo0Callback()` → 校验 → 路由按 ID 匹配 → `Dm_Read()` → `dm_motor_feedback[i]`（`rx_seen = 1`、`raw_pending = 1`）→ `Dm_Parse()`（commTask）→ `motor_state.dm.*` → VOFA 在线掩码 / `Dm_Is_Online()` / 使能与失能看门狗。
@@ -3280,7 +3280,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h` | 两份表各加 `MACHINE_POLICY_DIV`（大机 5u / 小机 10u），紧邻 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT` |
+| `imcalib/config/machine_config.h` | 两份表各加 `MACHINE_POLICY_DIV`（大机 5u / 小机 10u），紧邻 `MACHINE_TIM6_PERIOD` / `MACHINE_CTRL_DT` |
 | `imcalib/task/robot_control.c/h` | 新增 `policy_tick_sem`（def + `Robot_Control_Init()` 创建，初值 1）；新增 `Policy_Tick_Div()`（`++div_cnt >= MACHINE_POLICY_DIV` 归零并释放策略节拍，计数在函数内静态）；头文件加 extern 与原型 |
 | `Core/Src/main.c` | TIM6 回调（USER CODE 区）在释放 `ctrl_tick_sem` 之后调 `Policy_Tick_Div()` |
 | `Core/Src/freertos.c` | `policyTask_Entry` 的 `osDelay(10)` → `osSemaphoreWait(policy_tick_sem_handle, osWaitForever)`，先等节拍再跑 `ctrl_task_body()` |
@@ -3358,7 +3358,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h/c` | `.imu` 新增 `gyr_src[3]`；大机由隐含恒等 `{0,1,2}` 改为 `{1,0,2}`，小机显式 `{0,1,2}`；两机 `gyr_sign` 均不变 |
+| `imcalib/config/machine_config.h/c` | `.imu` 新增 `gyr_src[3]`；大机由隐含恒等 `{0,1,2}` 改为 `{1,0,2}`，小机显式 `{0,1,2}`；两机 `gyr_sign` 均不变 |
 | `imcalib/task/task_imu.c` | `gyro_rad_s[i]` 由 `gyr_sign[i] × sample.gyr[i]` 改为 `gyr_sign[i] × sample.gyr[gyr_src[i]]`，再做 deg/s→rad/s |
 | `imcalib/Telemetry/s2r_telemetry.c` | META 的 `imu` 对象新增 `gyro_src`，与已有 `gyro_sign` 一起记录实际映射 |
 | `md/IO_CHAINS.md`、`md/sim2real_serial_protocol.md` | 同步数据链路及 META 字段语义 |
@@ -3377,7 +3377,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.h/c` | `.imu` 新增 `acc_src[3]`，两机显式填 `{0,1,2}`；`acc_sign` 仍作用于映射后的输出 X/Y/Z |
+| `imcalib/config/machine_config.h/c` | `.imu` 新增 `acc_src[3]`，两机显式填 `{0,1,2}`；`acc_sign` 仍作用于映射后的输出 X/Y/Z |
 | `imcalib/task/task_imu.c` | `acc_g[i]` 由 `acc_sign[i] × sample.acc[i]` 改为 `acc_sign[i] × sample.acc[acc_src[i]]` |
 | `imcalib/Telemetry/s2r_telemetry.c` | META 的 `imu` 对象新增 `acc_src` 和 `acc_sign`，记录实际映射与符号 |
 | `md/IO_CHAINS.md`、`md/sim2real_serial_protocol.md` | 同步数据链路及 META 字段语义 |
@@ -3396,7 +3396,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 
 | 文件 | 改动 |
 | --- | --- |
-| `imcalib/user-lib/machine_config.c` | 仅大机 `.imu.quat_src` 从 `{0,1,2}` 改为 `{1,0,2}`，`.imu.quat_sign` 从 `{-1,1,-1}` 改为 `{-1,1,1}`；角速度、欧拉角、加速度和小机映射不变 |
+| `imcalib/config/machine_config.c` | 仅大机 `.imu.quat_src` 从 `{0,1,2}` 改为 `{1,0,2}`，`.imu.quat_sign` 从 `{-1,1,-1}` 改为 `{-1,1,1}`；角速度、欧拉角、加速度和小机映射不变 |
 | `imcalib/Telemetry/s2r_build_info.h` | 按修改后的源码重新生成 S2R 构建指纹 |
 
 **依据与预期**：原追踪中右侧抬升主要改变投影重力 X、低头主要改变 Y；角速度与投影重力变化的直接一致性为 −0.0475。按上述四元数映射离线重算 1087 个连续运动样本后，一致性为 0.99895；右侧抬升主要改变重力 Y、低头主要改变 X。右转时原始四元数 yaw 与陀螺仪 Z 积分反向，修改后应同向。
@@ -3412,7 +3412,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 ## 变更 108 · 大机器轮组反馈 ID 与左右原序（2026-09-30）
 
 - **谁 / 依据**：用户确认 `CtrBoard-H7_ALL_main-new` 的轮组映射正确，并指出根因是 CAN 反馈 ID 归属错误；Codex 按该参考工程现行代码实施。此处记录的是作者确认的配置依据，当前工程仍待台架复核。
-- **物理量单列**：`imcalib/user-lib/dji.c` 的大机器反馈索引由左 `0x201` / 右 `0x202` 改为左 `0x202` / 右 `0x201`，小机器保持原 ID；`imcalib/user-lib/machine_config.c` 的大机器 `dji_sign` 由左 `{+1,+1}` / 右 `{-1,-1}` 改为左 `{-1,-1}` / 右 `{+1,+1}`，小机器符号不变。
+- **物理量单列**：`imcalib/drivers/dji.c` 的大机器反馈索引由左 `0x201` / 右 `0x202` 改为左 `0x202` / 右 `0x201`，小机器保持原 ID；`imcalib/config/machine_config.c` 的大机器 `dji_sign` 由左 `{+1,+1}` / 右 `{-1,-1}` 改为左 `{-1,-1}` / 右 `{+1,+1}`，小机器符号不变。
 - **输入 / 输出链路**：驱动把 `0x202` 反馈放入 LFT、`0x201` 放入 RGT，按各自 `.fb` 修正；`task_policy.c` 与 `task_actuation.c` 按左右原序读轮速，`output_dispatch()` 按原序送轮力矩；`dji.c` 按反馈 ID 将逻辑左右命令写进 `0x200` 对应槽位。`s2r_source.c`、S2R META 与 VOFA 备用布局同步改为左右原序。
 - **范围**：本条只处理轮组映射；LQR 增益、使能、控制周期及策略节拍另行处理。
 - **核验**：改动涉及的 7 个 C 文件在大、小机器分支各编译一次，均 0 错误 / 0 告警；工程清单中 97 个 C 文件全部编译通过，只有未改动的 BMI088 头文件一条既有 `packed` 告警。S2R 协议测试 8/8 通过，源码指纹 `--check` 与 `git diff --check` 通过。原生测试入口需要本机 GCC，本机未配置，未运行；未链接、下载或验证实体动作，仍待台架。
@@ -3514,7 +3514,7 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 ## 2026-10-03 · 双机公共 LQR、独立增益表与状态口径
 
 - **谁 / 授权**：作者明确授权按完整双机计划开始修改，随后要求使用 Leg3 同机参数，并确认轮半径为其 0.0525 m。Codex 实施软件与数值验证，未烧录。
-- **物理量单列**：`imcalib/user-lib/machine_config.c` 大机器 `.wheel_r` 从占位 0.04 更新为作者确认值 0.0525；依据为同机 Leg3 `s03_compute_lqr_fast.m` / `app_config.h`，以及作者本轮明确回答。电机极性、零点、IMU 轴映射、MIT 刻度、mirror 和已有解算符号未改。
+- **物理量单列**：`imcalib/config/machine_config.c` 大机器 `.wheel_r` 从占位 0.04 更新为作者确认值 0.0525；依据为同机 Leg3 `s03_compute_lqr_fast.m` / `app_config.h`，以及作者本轮明确回答。电机极性、零点、IMU 轴映射、MIT 刻度、mirror 和已有解算符号未改。
 - **公共参数**：`machine_cfg_t.lqr` 聚合目标、遥控、滤波/卡尔曼、腿长/横滚 PID、支持前馈。小机保持旧参数；大机采用 Leg3 候选 PID，D 项按本机周期和现有误差差分定义换算，支撑候选仅为机体重量双腿份额，均待台架。
 - **控制链**：大小机共用状态估计、K 求值、状态反馈、腿长/横滚与输出映射。任务仅绑定、校验和仲裁；保持已有仅弹簧台架模式及唯一电机出口。`LQR_Ready()` 同时核对配置与表，控制求值失败不允许继续发布支持力命令。
 - **模型/表**：保留上交五方程，生成侧做轮轴→髋轴状态变换；小机与大机分别生成 `lqr_gain_small/big.c`。公共入口不再被生成物覆盖。状态序、输入序、周期、轮径、杆长、有效域以元数据核对。大机使用 Leg3 机械来源，腿表按质心投影/平行轴换算，仅纳入有效行；原末三行保留在来源快照中，未猜测修正。
@@ -3757,3 +3757,15 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 - **自起/失效**：复用time_on确认初次有效支撑后置armed，再允许离地；自起准备期间清检测和armed，交接后重新确认。观测失效只暂停计时/冻结flight并报fault，不越权让整套LQR停出力或触发自起BAD_INPUT，原电机/IMU硬门控不变。ch31新增bit4=armed。
 - **验证**：新增反复切换时目标/PID/斜坡/F与原路径一致、AIR遥控高度正常更新、落地继续原目标/历史、自起收腿隔离和观测失效不越权停腿等真实C回放。相关24项通过，8个关联源×双机×GCC/AC5的32次对象编译通过；均在工程外临时目录。
 - **保持/边界**：保留作者现行control_enabled=1，阈值/时间、K/Q/R、自起参数与物理映射未改。阈值正确性和反复弹跳是否消失仍待实机支持力曲线/复测，未链接/烧录，不将合成回放宣称为硬件动态验证。
+
+## 2026-10-09 · 删除独立遥测目录
+
+按作者要求移除独立遥测目录全部文件及USB关节/宿主策略协议、策略追踪、专用上位机工具和测试。控制任务、USB接收回调、eIDE源/包含路径及Keil源分组同步清理。保留RL/LQR、自起、补偿及普通39通道VOFA，字段见[vofa-debug.md](vofa-debug.md)。本文此前对应模块条目仅为历史，不代表当前文件或功能仍存在。
+
+## 2026-10-10 · 结构优化（当前）
+
+- 作者明确批准完整实施计划，允许利用现有defaultTask处理低实时性服务。
+- 输入链新增Robot_Feedback_Read：三来源独立发布，电机与腿配套提交；实际接收时间随样本保留。策略和执行只读一次，原预览/历史及最终实时安全门控保持，不新增数据龄超时门。
+- 普通VOFA和灯效从通信迁至默认任务；默认39通道100Hz，无待发队列，传输切换保持失能且已发送完成。通信故障、跌倒、使能、看门狗频率保持。
+- 文件按drivers/bsp/common/config/task迁移；原函数和必要Watch符号保持。生产配置只增加VOFA周期定义，未改物理量、K/Q/R、自起、控制周期或RL观测。
+- 编译、宿主回放与台架验收分开记录于structure-implementation.md。旧段落中已删除模块、旧路径、旧参数和旧回归状态均为历史记录。

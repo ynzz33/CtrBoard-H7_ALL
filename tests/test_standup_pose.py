@@ -88,7 +88,7 @@ int main(void)
     setup(0);lqr_state.roll=.2f;
     lqr_state.leg_len_tgt[0]=leg_l.output.virtual_leg_length;
     lqr_state.leg_len_tgt[1]=leg_r.output.virtual_leg_length;
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     assert(leg_balance.roll.pos_out!=0 && leg_balance.F[0]<leg_balance.F[1]);
     return 0;
 }

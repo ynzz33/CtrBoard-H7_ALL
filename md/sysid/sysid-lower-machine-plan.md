@@ -1,6 +1,6 @@
 # 下位机 sysid 实施计划（轮 + 闭链腿）
 
-> **历史资料，当前不可按此操作。** 旧 `imcalib/Sysid/` 固件模块已移除。现行 USB CDC 关节映射与辨识见 [新流程](../joint-usb-sysid.md)。
+> **历史资料，当前不可按此操作。** USB关节试验及旧辨识固件已移除。
 
 > 大机器测试专用，`SYSID_ENABLE=1` 时生效。
 
@@ -153,16 +153,16 @@ G_total = Δ / (8192 × N)      /* 8192 = 转子一圈的编码器码 */
 
 | 新增/改动 | 文件 | 职责 |
 | --- | --- | --- |
-| 新增 | `imcalib/user-lib/mono_ns.c/h` | DWT 单调 ns 时钟，中断安全 |
-| 新增 | `imcalib/user-lib/machine_config.h` | 两套机器配置表（电机/几何/限值/FK 版本） |
+| 新增 | `imcalib/bsp/mono_ns.c/h` | DWT 单调 ns 时钟，中断安全 |
+| 新增 | `imcalib/config/machine_config.h` | 两套机器配置表（电机/几何/限值/FK 版本） |
 | 新增 | `imcalib/user-lib/sysid_log.c/h` | 事件入环、VOFA 帧组装、发送泵、丢帧计数 |
 | 新增 | `imcalib/task/sysid_program.c/h` | 激励序列表、chirp/PRBS 生成、phase 状态机、run 自动切换 |
-| 改动 | `imcalib/user-lib/dm.c/h` | RX 中断取 ns；`Dm_Read_Param()`（读 PMAX/VMAX/TMAX/CTRL_MODE）；满量程常量 |
-| 改动 | `imcalib/user-lib/can_bus.c/h` | TX 完成中断 + 完成时刻回调 + pending 表 |
-| 改动 | `imcalib/user-lib/dji.c/h` | RX 中断取 ns；sysid 直发接口；钳位常量 |
+| 改动 | `imcalib/drivers/dm.c/h` | RX 中断取 ns；`Dm_Read_Param()`（读 PMAX/VMAX/TMAX/CTRL_MODE）；满量程常量 |
+| 改动 | `imcalib/bsp/can_bus.c/h` | TX 完成中断 + 完成时刻回调 + pending 表 |
+| 改动 | `imcalib/drivers/dji.c/h` | RX 中断取 ns；sysid 直发接口；钳位常量 |
 | 改动 | `imcalib/task/task_actuation.c` | 新增 sysid 仲裁分支（独占） |
 | 改动 | `imcalib/task/task_comm.c` | sysid 下停 32ch；安全判定接入；s1 语义 |
-| 改动 | `imcalib/user-lib/Vofa_send.c/h` | 支持 sysid 帧 + 环形缓冲 + TxCplt 泵 |
+| 改动 | `imcalib/bsp/Vofa_send.c/h` | 支持 sysid 帧 + 环形缓冲 + TxCplt 泵 |
 | 改动 | `Core/Src/main.c` | TIM6 回调里扩展单调时钟（USER CODE 段） |
 | 改动 | `MDK-ARM/*.uvprojx`、`.eide/eide.yml` | 新源文件入工程 |
 

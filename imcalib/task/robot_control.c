@@ -1,4 +1,5 @@
 #include "robot_control.h"
+#include "robot_state.h"
 #include "machine_config.h"
 #include "standup.h"
 #include "air_detection.h"

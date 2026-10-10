@@ -337,7 +337,7 @@
               <MiscControls />
               <Define>USE_HAL_DRIVER,STM32H723xx,USE_PWR_LDO_SUPPLY</Define>
               <Undefine />
-              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../imcalib/user-lib;../imcalib/Algorithm;../imcalib/task/inc;../imcalib/Telemetry;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
+              <IncludePath>../Core/Inc;../USB_DEVICE/App;../USB_DEVICE/Target;../Drivers/STM32H7xx_HAL_Driver/Inc;../Drivers/STM32H7xx_HAL_Driver/Inc/Legacy;../Middlewares/Third_Party/FreeRTOS/Source/include;../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS;../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F;../Middlewares/ST/STM32_USB_Device_Library/Core/Inc;../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc;../Drivers/CMSIS/Device/ST/STM32H7xx/Include;../Drivers/CMSIS/Include;../imcalib/drivers;../imcalib/bsp;../imcalib/common;../imcalib/config;../imcalib/Algorithm;../imcalib/task/inc;../Middlewares/ST/AI/Inc;../X-CUBE-AI/App;../Middlewares/ST/ARM/DSP/Inc</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -1134,105 +1134,116 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>imcalib/user-lib</GroupName>
+          <GroupName>imcalib/drivers</GroupName>
           <Files>
             <File>
               <FileName>BMI088driver.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/BMI088driver.c</FilePath>
-            </File>
-            <File>
-              <FileName>BMI088Middleware.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/BMI088Middleware.c</FilePath>
-            </File>
-            <File>
-              <FileName>can_bus.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/can_bus.c</FilePath>
+              <FilePath>../imcalib/drivers/BMI088driver.c</FilePath>
             </File>
             <File>
               <FileName>dji.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/dji.c</FilePath>
+              <FilePath>../imcalib/drivers/dji.c</FilePath>
             </File>
             <File>
               <FileName>dm.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/dm.c</FilePath>
+              <FilePath>../imcalib/drivers/dm.c</FilePath>
             </File>
             <File>
               <FileName>dr16.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/dr16.c</FilePath>
+              <FilePath>../imcalib/drivers/dr16.c</FilePath>
             </File>
             <File>
               <FileName>hi229.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/hi229.c</FilePath>
-            </File>
-            <File>
-              <FileName>lowpass.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/simple-function.c</FilePath>
-            </File>
-            <File>
-              <FileName>kalman.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/kalman.c</FilePath>
-            </File>
-            <File>
-              <FileName>arm_sin_f32.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/arm_sin_f32.c</FilePath>
-            </File>
-            <File>
-              <FileName>arm_cos_f32.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/arm_cos_f32.c</FilePath>
-            </File>
-            <File>
-              <FileName>arm_sin_table_f32.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/arm_sin_table_f32.c</FilePath>
-            </File>
-            <File>
-              <FileName>machine_config.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/machine_config.c</FilePath>
-            </File>
-            <File>
-              <FileName>mono_ns.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/mono_ns.c</FilePath>
-            </File>
-            <File>
-              <FileName>pid.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/pid.c</FilePath>
-            </File>
-            <File>
-              <FileName>rc_command.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/rc_command.c</FilePath>
-            </File>
-            <File>
-              <FileName>uart_idle.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/uart_idle.c</FilePath>
-            </File>
-            <File>
-              <FileName>Vofa_send.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/Vofa_send.c</FilePath>
+              <FilePath>../imcalib/drivers/hi229.c</FilePath>
             </File>
             <File>
               <FileName>ws2812.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/user-lib/ws2812.c</FilePath>
+              <FilePath>../imcalib/drivers/ws2812.c</FilePath>
             </File>
           </Files>
         </Group>
+        <Group>
+          <GroupName>imcalib/bsp</GroupName>
+          <Files>
+            <File>
+              <FileName>BMI088Middleware.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/BMI088Middleware.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_bus.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/can_bus.c</FilePath>
+            </File>
+            <File>
+              <FileName>mono_ns.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/mono_ns.c</FilePath>
+            </File>
+            <File>
+              <FileName>uart_idle.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/uart_idle.c</FilePath>
+            </File>
+            <File>
+              <FileName>Vofa_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/Vofa_send.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>imcalib/common</GroupName>
+          <Files>
+            <File>
+              <FileName>lowpass.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/simple-function.c</FilePath>
+            </File>
+            <File>
+              <FileName>kalman.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/kalman.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_sin_f32.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/arm_sin_f32.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_cos_f32.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/arm_cos_f32.c</FilePath>
+            </File>
+            <File>
+              <FileName>arm_sin_table_f32.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/arm_sin_table_f32.c</FilePath>
+            </File>
+            <File>
+              <FileName>pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/common/pid.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>imcalib/config</GroupName>
+          <Files>
+            <File>
+              <FileName>machine_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/config/machine_config.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+
         <Group>
           <GroupName>imcalib/Algorithm</GroupName>
           <Files>
@@ -1297,6 +1308,11 @@
               <FilePath>../imcalib/Algorithm/gravity_comp.c</FilePath>
             </File>
             <File>
+              <FileName>leg_compensation.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/leg_compensation.c</FilePath>
+            </File>
+            <File>
               <FileName>slip.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/slip.c</FilePath>
@@ -1346,20 +1362,25 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/task/task_comm.c</FilePath>
             </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>imcalib/Telemetry</GroupName>
-          <Files>
             <File>
-              <FileName>vofa_trace.c</FileName>
+              <FileName>vofa_debug.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/Telemetry/vofa_trace.c</FilePath>
+              <FilePath>../imcalib/task/vofa_debug.c</FilePath>
             </File>
             <File>
-              <FileName>joint_usb.c</FileName>
+              <FileName>background_service.c</FileName>
               <FileType>1</FileType>
-              <FilePath>../imcalib/Telemetry/joint_usb.c</FilePath>
+              <FilePath>../imcalib/task/background_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>feedback_snapshot.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/feedback_snapshot.c</FilePath>
+            </File>
+                      <File>
+              <FileName>rc_command.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/rc_command.c</FilePath>
             </File>
           </Files>
         </Group>

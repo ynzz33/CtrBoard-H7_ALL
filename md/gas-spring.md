@@ -22,13 +22,13 @@
 - `float Leg_SpringF(float L0)`：输入实测腿长 m，返回沿伸腿方向的弹簧等效力 N。使用 Leg3 的原 C 常量及 CMSIS 三角/开方计算，模型为 `Fs = 150 N * ds/dL`；挂点几何和大小腿参数直接采用同机来源。有限输入按原函数钳位到 0.05～0.45 m；NaN/Inf 返回 NaN，避免伪造有效反馈。
 - `Gas_Spring_Apply(left, right, base_dm, raw_dm)`：把左右 `−Leg_SpringF(L)` 经本机 `Leg_Force_Map_Forward(F,0)` 转为四髋增量，执行 `raw_dm = base_dm + delta_dm`。只补 F，不增加 Tp；没有内部限幅或电机发送。支持原地数组；启用时任一腿解算/映射无效或出现非有限量，则返回 0 并将四个输出全部清零。
 
-两个控制器均为“原基础髋力矩 → 调用 Apply → 原电机限幅 → 原分发”。两轮控制保持原值，LQR 的 `lb->F` 恢复记录基础控制力；JID1 不经过补偿。
+两个控制器均为“原基础髋力矩 → 调用 Apply → 原电机限幅 → 原分发”。两轮控制保持原值，LQR 的 `lb->F` 恢复记录基础控制力。
 
 ## 开关与机型
 
 `gas_spring.h` 的 `GAS_SPRING_COMP_ENABLE` 当前为 1（作者已开启），需重新编译烧录后生效；对照关闭时设为 0。只有大机器配置使用这套同机模型，小机器即使宏为 1 也保持原基础力矩。关闭时 Apply 直接复制有限基础力矩，不增加力域几何要求。
 
-不再存在 `gas_spring.requested`、`scale`、`gain_n_m` 或补偿页 `-2031`。原普通 VOFA 和策略追踪保持原样。机器表中遗留的 `gas_spring_force_n/gas_comp_sign` 不再参与这个计算，未改动其数值或其他物理量。
+不再存在 `gas_spring.requested`、`scale`、`gain_n_m` 或补偿页 `-2031`。普通VOFA继续保留。机器表中遗留的 `gas_spring_force_n/gas_comp_sign` 不再参与这个计算，未改动其数值或其他物理量。
 
 ## 来源与核验
 

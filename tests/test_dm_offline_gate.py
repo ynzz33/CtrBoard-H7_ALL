@@ -68,7 +68,7 @@ class DmOfflineGateTest(unittest.TestCase):
             self.skipTest("no host compiler; set CC")
         env = os.environ.copy()
         env["PATH"] = str(Path(compiler).parent) + os.pathsep + env.get("PATH", "")
-        source = read("imcalib/user-lib/dm.c")
+        source = read("imcalib/drivers/dm.c")
         functions = []
         for name in ("Dm_Is_Online", "Dm_Is_Enabled", "Dm_Has_Fault"):
             start = source.index("bool " + name + "(")
@@ -92,7 +92,7 @@ class DmOfflineGateTest(unittest.TestCase):
                     exe = folder / (f"gate_{machine}.exe")
                     flags = [] if machine is None else [f"-DMACHINE_DEFAULT={machine}"]
                     result = subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
-                        *flags, "-I", str(folder), "-I", str(ROOT / "imcalib/user-lib"),
+                        *flags, "-I", str(folder), "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
                         str(test), "-o", str(exe)], capture_output=True, text=True,
                         encoding="utf-8", errors="replace", env=env)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

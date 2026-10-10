@@ -27,19 +27,18 @@ PREFIX = r"""
 #include <stdlib.h>
 #include <string.h>
 #include "arm_math.h"
+#include "motor_types.h"
+#include "rc_types.h"
+#include "../task/inc/feedback_snapshot.h"
+#include "rl_types.h"
 #include "machine_config.h"
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 #include "leg_solver.h"
 #include "simple-function.h"
 #include "kalman.h"
 #include "pid.h"
 #include "imu_state.h"
 #include "lqr_gain_table.h"
-typedef struct { int unused; } dr16_t;
-#define DM_MOTOR_NUM 4
-#define DJI_MOTOR_NUM 2
-#define DJI_MOTOR_WHEEL_LFT 0
-#define DJI_MOTOR_WHEEL_RGT 1
 """
 
 CHECK = r"""
@@ -118,13 +117,13 @@ static void chain(void)
     assert(LQR_Target_Update(&s,&remote,MACHINE_CTRL_DT));
     LQR_Control_Update(&s); assert(s.gain_valid);
     Torque_Output_Clear(&torque);
-    assert(Leg_Balance_Compute(&balance,&s,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&s,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     assert(balance.cmd.valid);
     for(i=0;i<4;i++) { assert(isfinite(torque.dm[i])); assert(fabsf(torque.dm[i])<=lqr_debug.trq_max_hip); }
     near(balance.Tp[0],-s.u[LQR_U_BL]); near(balance.Tp[1],-s.u[LQR_U_BR]);
     for(i=0;i<2;i++) { near(torque.dji[i],s.u[i]); }
     lqr_debug.len_pid_enable=0; lqr_debug.hip_enable=0;
-    assert(Leg_Balance_Compute(&balance,&s,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&s,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     near(balance.F[0],machine->lqr.support_force[0]);
     near(balance.F[1],machine->lqr.support_force[1]);
     near(balance.Tp[0],0); near(balance.Tp[1],0);
@@ -145,22 +144,22 @@ static void length_history_startup(void)
     state.u[LQR_U_WL] = 0.6f; state.u[LQR_U_WR] = -0.7f;
     state.u[LQR_U_BL] = 0.8f; state.u[LQR_U_BR] = -0.9f;
 
-    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     near(balance.leg_len[0].dout,balance.leg_len[0].d*balance.leg_len[0].err[NOW]);
     near(balance.leg_len[1].dout,balance.leg_len[1].d*balance.leg_len[1].err[NOW]);
     Leg_Balance_Reset(&balance);
     balance.len_prime_enable = 1;
 
     legs[0].output.valid = 0;
-    assert(!Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(!Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     assert(balance.leg_len[0].err[LAST] == 0.0f);
     assert(!balance.len_history_ready);
     legs[0].output.valid = 1;
     state.leg_len_tgt[0] = NAN;
-    assert(!Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(!Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     assert(!balance.len_history_ready);
     state.leg_len_tgt[0] = legs[0].output.virtual_leg_length - 0.04f;
-    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     assert(balance.len_history_ready);
     near(balance.leg_len[0].dout,0.0f); near(balance.leg_len[1].dout,0.0f);
     near(balance.leg_len[0].pout,balance.leg_len[0].p*balance.leg_len[0].err[NOW]);
@@ -170,7 +169,7 @@ static void length_history_startup(void)
 
     last_error = balance.leg_len[0].err[LAST];
     legs[0].input.hip_f += 0.001f; assert(Leg_Solve(&legs[0]));
-    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     error = balance.leg_len[0].set[NOW] - legs[0].output.virtual_leg_length;
     assert(fabsf(error-last_error)>0.000001f);
     near(balance.leg_len[0].dout,balance.leg_len[0].d*(error-last_error));
@@ -178,13 +177,13 @@ static void length_history_startup(void)
     Leg_Balance_Reset(&balance);
     assert(balance.len_prime_enable && !balance.len_history_ready);
     state.leg_len_tgt[0] -= 0.02f; state.leg_len_tgt[1] += 0.01f;
-    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     near(balance.leg_len[0].dout,0.0f); near(balance.leg_len[1].dout,0.0f);
 
     balance.len_prime_enable = 0;
     Leg_Balance_Reset(&balance);
     assert(!balance.len_prime_enable && !balance.len_history_ready);
-    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],MACHINE_CTRL_DT,&torque));
+    assert(Leg_Balance_Compute(&balance,&state,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&torque));
     near(balance.leg_len[0].dout,balance.leg_len[0].d*balance.leg_len[0].err[NOW]);
     near(balance.leg_len[1].dout,balance.leg_len[1].d*balance.leg_len[1].err[NOW]);
 }
@@ -319,7 +318,7 @@ static void replay(void)
         }
         for(i=0;i<4;i++) { near(old.u[i],now.u[i]); }
         Torque_Output_Clear(&to); Torque_Output_Clear(&tn);
-        assert(Leg_Balance_Compute(&bn,&now,&legs[0],&legs[1],MACHINE_CTRL_DT,&tn));
+        assert(Leg_Balance_Compute(&bn,&now,&legs[0],&legs[1],&lqr_debug,MACHINE_CTRL_DT,&tn));
         /* Compare unchanged force law on the same smoothed length inputs. */
         for(i=0;i<2;i++) { raw_length[i]=old.leg_len_tgt[i]; old.leg_len_tgt[i]=bn.leg_len[i].set[NOW]; }
         assert(Baseline_Leg_Balance_Compute(&bo,&old,&legs[0],&legs[1],MACHINE_CTRL_DT,&to));
@@ -390,10 +389,10 @@ class UnifiedLqrTest(unittest.TestCase):
         cls.environment["PATH"] = str(Path(compiler).parent) + os.pathsep + cls.environment.get("PATH", "")
         (folder / "arm_math.h").write_text(ARM_MATH_SHIM)
         source = PREFIX
-        for path in ("imcalib/user-lib/rc_command.h", "imcalib/Algorithm/torque_output.h",
+        for path in ("imcalib/task/inc/rc_command.h", "imcalib/Algorithm/torque_output.h",
                      "imcalib/Algorithm/lqr_balance.h", "imcalib/Algorithm/leg_balance.h",
                      "imcalib/Algorithm/gas_spring.h", "imcalib/Algorithm/lqr_balance.c",
-                     "imcalib/Algorithm/leg_balance.c", "imcalib/Algorithm/gas_spring.c", "imcalib/Algorithm/gravity_comp.c"):
+                     "imcalib/Algorithm/leg_balance.c", "imcalib/Algorithm/gas_spring.c", "imcalib/Algorithm/gravity_comp.c", "imcalib/Algorithm/leg_compensation.c"):
             source += "\n" + without_includes(read(path))
         source += "\n" + baseline() + "\n" + CHECK
         harness = folder / "controller.c"
@@ -401,14 +400,14 @@ class UnifiedLqrTest(unittest.TestCase):
         cls.executables = {}
         for machine_id in (0, 1):
             executable = folder / (f"lqr_{machine_id}" + (".exe" if os.name == "nt" else ""))
-            sources = ["imcalib/user-lib/machine_config.c", "imcalib/Algorithm/lqr_gain_table.c",
+            sources = ["imcalib/config/machine_config.c", "imcalib/Algorithm/lqr_gain_table.c",
                        "imcalib/Algorithm/lqr_gain_small.c", "imcalib/Algorithm/lqr_gain_big.c",
-                       "imcalib/Algorithm/leg_solver.c", "imcalib/user-lib/pid.c",
-                       "imcalib/user-lib/simple-function.c", "imcalib/user-lib/kalman.c"]
+                       "imcalib/Algorithm/leg_solver.c", "imcalib/common/pid.c",
+                       "imcalib/common/simple-function.c", "imcalib/common/kalman.c"]
             result = subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                                      "-DLEG_TRIG_LIBM=1", f"-DMACHINE_DEFAULT={machine_id}",
                                      "-I", str(folder), "-I", str(ROOT / "imcalib/Algorithm"),
-                                     "-I", str(ROOT / "imcalib/user-lib"), str(harness),
+                                     "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"), str(harness),
                                      *[str(ROOT / p) for p in sources], "-lm", "-o", str(executable)],
                                     capture_output=True, text=True, encoding="utf-8", errors="replace", env=cls.environment)
             if result.returncode:

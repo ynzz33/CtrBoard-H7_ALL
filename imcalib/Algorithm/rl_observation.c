@@ -1,3 +1,4 @@
+#include "math_utils.h"
 #include "rl_observation.h"
 
 #include <math.h>
@@ -39,27 +40,14 @@ void RL_Observation_Roles_From_Training(const float training[RL_ACTION_SIZE],
     RL_Observation_Transform_Roles(training, reference);
 }
 
-/* 检查数组 */
-static uint8_t RL_Observation_Array_Finite(const float *data, uint32_t count)
-{
-    uint32_t i;
-
-    if (data == NULL) return 0u;
-    for (i = 0u; i < count; i++)
-    {
-        if (!isfinite(data[i])) return 0u;
-    }
-    return 1u;
-}
-
 /* 检查参数 */
 static uint8_t RL_Observation_Param_Valid(const rl_observation_param_t *param)
 {
     if (param == NULL || !param->configured) return 0u;
-    if (!RL_Observation_Array_Finite(param->obs_dof_pos, 4u)) return 0u;
-    if (!RL_Observation_Array_Finite(param->command_scale, 3u)) return 0u;
-    if (!RL_Observation_Array_Finite(param->gyro_scale, 3u)) return 0u;
-    if (!RL_Observation_Array_Finite(param->joint_vel_scale, 6u)) return 0u;
+    if (!Float_Array_Finite(param->obs_dof_pos, 4u)) return 0u;
+    if (!Float_Array_Finite(param->command_scale, 3u)) return 0u;
+    if (!Float_Array_Finite(param->gyro_scale, 3u)) return 0u;
+    if (!Float_Array_Finite(param->joint_vel_scale, 6u)) return 0u;
     return 1u;
 }
 
@@ -149,7 +137,7 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
         quat_unit[i] = quat[i] / norm;
     }
     RL_Observation_Project_Gravity_Unit(quat_unit, gravity);
-    return RL_Observation_Array_Finite(gravity, 3u);
+    return Float_Array_Finite(gravity, 3u);
 }
 
 /* 构建观测 */
@@ -163,33 +151,21 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              uint8_t source_valid)
 {
     float gravity[3];    /* 投影重力 */
-    float quat_norm;     /* 四元模长 */
-    float quat_unit[4];  /* 单位四元 */
     uint32_t i;          /* 循环索引 */
 
     if (state == NULL) return 0u;
     if (!source_valid || !RL_Observation_Param_Valid(param)
-        || !RL_Observation_Array_Finite(gyro_rad_s, 3u)
-        || !RL_Observation_Array_Finite(quat, 4u)
-        || !RL_Observation_Array_Finite(command, 3u)
-        || !RL_Observation_Array_Finite(joint_pos, 4u)
-        || !RL_Observation_Array_Finite(joint_vel, 6u))
+        || !Float_Array_Finite(gyro_rad_s, 3u)
+        || !Float_Array_Finite(quat, 4u)
+        || !Float_Array_Finite(command, 3u)
+        || !Float_Array_Finite(joint_pos, 4u)
+        || !Float_Array_Finite(joint_vel, 6u))
     {
         RL_Observation_Reset(state);
         return 0u;
     }
 
-    quat_norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1]
-                    + quat[2] * quat[2] + quat[3] * quat[3]);
-    if (!isfinite(quat_norm) || quat_norm < RL_QUAT_EPS)
-    {
-        RL_Observation_Reset(state);
-        return 0u;
-    }
-
-    for (i = 0u; i < 4u; i++) quat_unit[i] = quat[i] / quat_norm;
-    RL_Observation_Project_Gravity_Unit(quat_unit, gravity);
-    if (!RL_Observation_Array_Finite(gravity, 3u))
+    if (!RL_Observation_Project_Gravity(quat, gravity))
     {
         RL_Observation_Reset(state);
         return 0u;
@@ -226,7 +202,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
         }
     }
 
-    if (!RL_Observation_Array_Finite(state->obs, RL_OBS_SIZE))
+    if (!Float_Array_Finite(state->obs, RL_OBS_SIZE))
     {
         RL_Observation_Reset(state);
         return 0u;

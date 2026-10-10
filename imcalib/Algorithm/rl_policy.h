@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "rl_observation.h"
+#include "rl_types.h"
 #include "ai_platform.h"
 
 /* 遥控目标范围 */
@@ -20,13 +21,9 @@
 /* 动作裁剪 (训练 normalization.clip_actions = 100) */
 #define RL_ACTION_CLIP      100.0f
 
-#define RL_LATENT_SIZE      3u
 
 /* 模型: networkzn1 = chuanliantui 起立策略 (model_6000, 2026-09-22) */
-typedef enum {
-    RL_MODEL_STANDUP = 0,
-    RL_MODEL_COUNT
-} rl_model_t;
+
 
 typedef struct {
     rl_model_t selected_model;           /* 当前模型 */

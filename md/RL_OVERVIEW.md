@@ -6,15 +6,15 @@
 
 - 用户后续自行调整遥控映射；临时 action 测试代码已删除，不再加入额外测试控制链路。
 - 任务代码迁至 `imcalib/task/`；IMU、策略、执行、通信各自独立文件。
-- `task/inc/robot_control.h` 统一声明共享状态和跨任务接口，不再保留分散的 `task_*.h`。
+- `task/inc/robot_control.h`声明任务、许可与节拍接口；共享数据类型与状态声明归`robot_state.h`，算法不包含任务头。写入归属见[module-boundaries.md](module-boundaries.md)。
 - Keil 与 eIDE 已更新任务源目录和 `imcalib/task/inc` include 路径。
 - 已阅读姿态解算、`leg_solver`、观测构建；`rl_policy` 留待结合训练同学的模型参数共同检查。
-- `rl_torque` 保持动作、PID、雅可比和电机输出的直接链路。PID 直接逐个 `PID_struct_init`，不使用参数指针同步、循环初始化或隐式重配。
+- `rl_torque` 保持动作、PID、雅可比和电机输出的直接链路。PID按六个关节索引调用PID_struct_init，保持腿/轮角色差异，不做运行时隐式重配。
 - 气弹簧采用同机器 Leg3 的 `Leg_SpringF(L)` 几何力模型，只补 F；原线性/端点多模式已删除，作者当前已开启编译开关，无新增调试状态或观测页。接口见 [gas-spring.md](gas-spring.md)。
 - 多次计算保持单一中间量和短表达式；注释简短。循环索引在 `for` 内定义。
 - 2026-09-22 起只有一个模型 `networkzn1`（chuanliantui 起立策略）；推理路径由 `machine->rl.configured` 门控直接运行（`rl_control.infer_enable` 开关与旧手动遥操路径已删除）；训练关节与固件关节的映射在机器表 `.rl`，未配置整链门控关。接入说明与训练侧待提供清单见 **§八**。
 
-> 最后更新：2026-09-25
+> 结构更新：2026-10-10。数值参数以源码为准；早期参数和通道示例属于历史快照。
 > 参考实车：XYEGA_RM2026_WheelLeg_Infatry_RLdeploy（复旦 EGA 2026 国赛上场版）
 
 ---
@@ -76,12 +76,12 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 | `actuationTask` | 基础/LQR 1kHz；大机 RL 执行500Hz | TIM6 信号量 | 每拍仲裁与停机；按策略分频求解/下发 |
 | `policyTask` | 100Hz | TIM6 节拍 `MACHINE_POLICY_DIV` 分频信号量（变更 103） | 观测构建 → CubeAI 推理 → 写 action_state |
 | `imuTask` | 1kHz | osDelay(1ms) | HI229 新帧解析 → 姿态更新 → 写 imu_state |
-| `commTask` | 1kHz | osDelay | DM/DJI/DR16 解析 → 状态更新 → 在线检测 → 故障位 → VOFA（普通帧与策略追踪同口互斥） |
-| `defaultTask` | - | - | USB 初始化（保留） |
+| `commTask` | 1kHz | osDelay | DM/DJI/DR16解析 → 反馈/腿/遥控发布 → 故障/跌倒/使能及看门狗 |
+| `defaultTask` | 原循环延时 | osDelay(1) | USB初始化，普通VOFA 100Hz及灯效后台服务 |
 
-**单写者模型**：每个共享状态只有一个任务写，32bit 对齐 float 在 M7 上读写原子，无需锁。
+**状态发布**：周期写入归对应任务；初始化和模型切换可复位相关状态。多字段一致性由Robot_Feedback_Read与发布临界区保证，电机与腿一起提交；策略和执行每周期只读一次反馈，最终实时安全门控保持。
 
-`freertos.c` 只维护任务初始化、循环和节拍等待。共享状态和公共控制接口位于 `robot_control.c/h`，各 `task_*.c` 实现对应任务的单周期逻辑。
+`freertos.c`只维护任务初始化、循环和节拍等待。共享实例定义于`robot_control.c`、声明于`robot_state.h`；公共任务接口位于`robot_control.h`，各`task_*.c`实现对应任务的单周期逻辑。
 
 **数据流向**：
 ```
@@ -90,7 +90,8 @@ IMU(四元数+陀螺仪) + 电机编码器(关节角) + DJI轮速 + 遥控指令
 [ISR] TIM6  → ctrl_tick_sem (基础控制拍，两机均1kHz)
 
 imuTask     → imu_state {quat, eul, gyr, acc, online}
-commTask    → motor_state/leg_state; ctrl_fault; VOFA
+commTask    → motor_state/leg_state/rc_command; ctrl_fault及使能保护
+defaultTask → VOFA 100Hz; 灯效
 policyTask  → action_state {a[6], last_ok_tick, updated, rl_ready}
 actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 ```
@@ -117,7 +118,7 @@ actuationTask → torque_output_t → DM/DJI 力矩 → CAN
 
 **输出**：`leg_output_t` 含 thigh_angle/l0/phi0/virtual_shank/各雅可比/force_map/valid
 
-普通 VOFA 当前为 38 通道状态、观测与四髋检查布局；末尾为四髋电机侧反馈力矩、力矩指令和左右腿长。策略追踪仍为 32 通道，帧结构不同。字段与切换方法见 [vofa_policy_trace.md](vofa_policy_trace.md)。
+普通VOFA为39通道，包含LQR状态、目标、补偿及四髋检查；字段见[vofa-debug.md](vofa-debug.md)。
 
 DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `output_sign` 在 `dm.c` 边界取反，使逻辑侧正力矩与左右实体电机的正运动方向一致。
 
@@ -183,11 +184,11 @@ DM 反馈层已对右侧电机取反（`feedback_sign`），力矩下发按 `out
 - 左右轮极性在 `dji.c` 驱动边界按 `dji_sign.out` 处理，调用方不再取反
 - `task_actuation.c::output_dispatch()` 按左右原序调用 `Dji_Send_Wheel_Torque(...)`；驱动按反馈 ID 写入 `0x200` 对应电流槽
 
-PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。控制器在总初始化和模型切换时逐个调用 `PID_struct_init`，不做运行时参数同步。气弹簧现仅使用独立 `gas_spring.c` 内的 Leg3 同机 `Leg_SpringF(L)`：恒定轴向推力经挂点几何传动比得到等效腿长力，`Gas_Spring_Apply` 将负 Fs 映射为四髋增量并叠加，再由控制器做原限幅。作者已确认参数同机直接使用，原物理极性、零点和量程不变。原线性模型、训练角端点模型及多模式调试状态已删除；只保留默认关闭的编译开关，大机器启用后生效，小机器旁路。详见 [gas-spring.md](gas-spring.md)。
+PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。控制器在总初始化和模型切换时按关节索引调用PID_struct_init，不做运行时参数同步。气弹簧现仅使用独立 `gas_spring.c` 内的 Leg3 同机 `Leg_SpringF(L)`：恒定轴向推力经挂点几何传动比得到等效腿长力，`Gas_Spring_Apply` 将负 Fs 映射为四髋增量并叠加，再由控制器做原限幅。作者已确认参数同机直接使用，原物理极性、零点和量程不变。原线性模型、训练角端点模型及多模式调试状态已删除；只保留默认关闭的编译开关，大机器启用后生效，小机器旁路。详见 [gas-spring.md](gas-spring.md)。
 
 **PD 与限幅**：增益以 `RL_Torque_Param_Init()` 为准，本次不改增益。腿 PD 公式 `τ = Kp·wrap(目标 − q) − Kd·q̇`，轮公式 `τ = Kp_w·(目标速度 − q̇)`。部署侧虚拟关节层与最终电机层统一使用机器表 `dm_trq_clamp` / `dji_trq_clamp`，原训练上限不再单独收窄输出。
 
-**已修正**：DJI 力矩常数的减速比因子已修——`per_raw` 按 `machine->dji_gear_ratio` 缩放（见 `dji.c` 的 `Dji_Torque_To_Current`）。剩余：**Kt 绝对值仍待台架实测**（悬臂挂砝码/弹簧秤法）。型号/刻度/减速比已集中到 `imcalib/user-lib/machine_config.h`。
+**已修正**：DJI 力矩常数的减速比因子已修——`per_raw` 按 `machine->dji_gear_ratio` 缩放（见 `dji.c` 的 `Dji_Torque_To_Current`）。剩余：**Kt 绝对值仍待台架实测**（悬臂挂砝码/弹簧秤法）。型号/刻度/减速比已集中到 `imcalib/config/machine_config.h`。
 
 ### 3.5 遥控映射 (`task_policy`)
 
@@ -208,10 +209,10 @@ PID 参数按模型存表，具体数值以 `RL_Torque_Param_Init()` 为准。�
 |------|------|
 | 投入判定 | 读 `output_task_rl_engaged()`：左拨杆上 + 右拨杆中 + 电机使能 + 遥控在线（拨杆语义仍只在 `task_actuation.c`）。未投入：清历史、发零动作、`rl_ready=0`；观测仍照算一份预览供 VOFA（不进历史，变更 99） |
 | 指令 | 前进与偏航按右摇杆及 `RL_CMD_*` 量程映射。投入 RL 且遥控在线时，拨轮按速率累加机身高度目标，回中保持当前值，越界钳位；退出投入或离线恢复初始值。按 MACHINE_POLICY_DT 积分。目标经观测缩放送入网络，不是直接腿长 PID。 |
-| 观测 | `RL_Control_Update_Observation()`：源无效或 `.rl` 未配置 → 从头预热、零动作 |
+| 观测 | `RL_Control_Update_Observation(command, mode)`共用采集入口；PREVIEW清历史，HISTORY检查电机在线并更新历史；推理源无效或 `.rl` 未配置 → 从头预热、零动作 |
 | 预热 | 投入后前 `RL_WARMUP_STEPS`（10 步 = 0.1 s）发零动作（此间 `rl_ready=1` 但动作为零），PD 与历史照跑。训练是"首次任一轮接触力 > 1 N 后的下一策略步才推理"，实机轮本来就在地上，只留短预热 |
 | 推理 | `RL_Policy_Run()` → 训练动作 → 裁剪 `RL_ACTION_CLIP` = 100（训练 clip_actions）→ 存 last_action（训练 obs 里也是 clip 后的动作）→ 乘 `.rl.sign` 变固件动作 → 发布，`rl_ready=1` |
-| 失败 | 推理失败：发零动作、`rl_ready=0`（零力矩），`run_fail++`（低 8 位进 VOFA ch2 状态位）；失败时同步将 `last_action` 记为零动作（2026-09-25）。执行侧同语义：`solve_rl()` 不再无条件置 `valid=1`，`RL_Torque_Compute()` 返回 0 时置 `torque->valid=0` 直接返回，由 `output_dispatch` 走零力矩（`Dm_Send_Zero` + `Dji_All_Stop`），成功才 `valid=1`（`imcalib/task/task_actuation.c:148`） |
+| 失败 | 推理失败：发零动作、`rl_ready=0`（零力矩），run_fail++（Watch计数；当前VOFA ch2为故障掩码）；失败时同步将 `last_action` 记为零动作（2026-09-25）。执行侧同语义：`solve_rl()` 不再无条件置 `valid=1`，`RL_Torque_Compute()` 返回 0 时置 `torque->valid=0` 直接返回，由 `output_dispatch` 走零力矩（`Dm_Send_Zero` + `Dji_All_Stop`），成功才 `valid=1`（`imcalib/task/task_actuation.c:148`） |
 
 `task_actuation.c::solve_rl()` 的出力前提：遥控使能 + 电机使能 + 两腿 valid + `rl_ready`，且 `RL_Torque_Compute()` 返回成功（失败即 `valid=0` 零力矩，见上）。policyTask 每 10 ms 发布一次动作（未投入时也发零动作保持新鲜）；`FAULT_ACTION` 只在左拨杆上位（RL 挡）时判定，两条判据（`task_comm.c::Robot_Fault_Update`）：①动作心跳过期（`action_state` ≥100 ms 不新鲜/停发）；②已投入（`output_task_rl_engaged()`）但 `action_state.rl_ready == 0` 持续 ≥100 ms，即观测无效/推理失败持续（2026-09-25 新增）。
 
@@ -271,7 +272,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 | RL 观测 | rl_observation.c/h | ✅ 缩放/默认角已按训练侧填（configured=1）+ ±100 裁剪；🟡 关节映射 `.rl` 大机器已按候选 A 填（configured=1），待台架核对 |
 | CubeAI 推理 | rl_policy.c/h | ✅ 单模型 networkzn1（2 输入 2 输出）+ 耗时/成败计数；✅ 已接进 policyTask 推理路径（`machine->rl.configured` 门控）；🟡 待台架 |
 | 力矩执行 | rl_torque.c/h | ✅ PID + 雅可比映射 + DM/DJI 分离输出 + 轮子 PID；已上机验证 |
-| 任务框架 | task/robot_control.c + task_*.c | ✅ 4 任务体、共享状态、使能机、故障门、VOFA 32ch（上限 32）；已上机验证 |
+| 任务框架 | task/robot_control.c + task_*.c | ✅ 5任务、公共反馈快照、使能机与故障门、后台VOFA 39ch；本轮结构调整待台架 |
 | 遥控映射 | task_policy.c | ✅ 推理路径（投入 → 预热 → 推理 → 映射发布）；手动遥操路径已删除（历史） |
 | 力矩下发 | task_actuation.c | ✅ torque_output_t 左右原序下发，DJI 驱动按反馈 ID 选电流槽；待台架复核 |
 | 离线测试 | tests/offline_test.c | ⚠️ 已移除（文件已不存在，历史记录） |
@@ -280,7 +281,7 @@ LQR 链路（`lqr_balance.c` + `leg_balance.c`）与 RL 控制逻辑分开，只
 
 | 项目 | 位置 | 说明 | 优先级 |
 |------|------|------|--------|
-| **关节映射 `.rl`** | `machine_config.c` | ✅ 已按候选 A 填（变更 98，作者定，`configured=1`）；🟡 台架核对默认站姿 ch11 / ch13 读数与 ch21~24 ≈ 0（ch 号为历史 RL 帧布局，当前 VOFA 帧见 `task_comm.c` 注释） | 🟡 P0 |
+| **关节映射 `.rl`** | `machine_config.c` | ✅ 已按候选 A 填（变更 98，作者定，`configured=1`）；🟡 台架核对默认站姿 ch11 / ch13 读数与 ch21~24 ≈ 0（ch 号为历史 RL 帧布局，当前VOFA帧见[vofa-debug.md](vofa-debug.md)） | 🟡 P0 |
 | **PD 增益 / 力矩上限** | `rl_torque.c::RL_Torque_Param_Init()` / 机器表 | ✅ 增益以代码为准；部署侧虚拟与实际力矩均取机器表满量程限幅，实际输出待台架 | 🟡 |
 | **指令 / 预热 / 动作裁剪** | `rl_policy.h` | ✅ 作者确认保留当前前进与偏航上限，拨轮累加高度目标保留；已核验指令进入网络输入与历史，模型响应待台架 | 🟡 P1 |
 | **DJI 力矩常数** | `dji.h DJI_NM_FULL_*` + `dji_gear_ratio` | ✅ 减速比因子已修正；Kt 绝对值待实测（悬臂挂砝码法） | 🟢 P2 |
@@ -325,7 +326,7 @@ Leg_Solve 当前已完成以下验证：
 
 后续 RL 整链路仍按以下顺序进行，任何一步失败则停止：
 
-（下列 ch 号为历史 RL 调试帧布局，不能用于当前采集；当前上电使用普通 VOFA JustFloat，通道定义见 [vofa_policy_trace.md](vofa_policy_trace.md)。）
+（下列 ch 号为历史 RL 调试帧布局，不能用于当前采集；当前上电使用普通 VOFA JustFloat，通道定义见 [vofa-debug.md](vofa-debug.md)。）
 
 ```
 ① .rl 已按候选 A 填 (变更 98); 台架核对 (左拨杆上, 不投入即可, 变更 99 起有观测预览):
@@ -419,6 +420,6 @@ Leg_Solve 当前已完成以下验证：
 
 ### 8.3 VOFA
 
-当前固件上电经 UART8 发送普通 38 通道 JustFloat；USB CDC 默认留给关节 JID1，失能且无 JID1 流时可切为 VOFA USB 遥测。失能且发送完成时写 `vofa_trace_requested=1` 切到策略追踪，见 [vofa_policy_trace.md](vofa_policy_trace.md)。
+普通39通道JustFloat默认经机器表UART发送，失能且发送空闲时可切USB CDC；不再提供策略追踪或USB关节命令。字段见[vofa-debug.md](vofa-debug.md)。
 
 历史（RL 调试帧，`task_comm.c` 内已注释留档）：RL 模式（推理路径且左拨杆上位）曾复用 LQR 无意义的通道，下标不动：ch3~5 投影重力、ch6 RL 状态位、ch7~9 观测角速度（策略机体系，已镜像、×0.25）、ch10~13 固件原始 thigh / vs、ch15~20 观测关节速度（×0.05）、ch21~24 观测关节角、ch25~30 力矩命令（总输出关也有值）、ch31 推理耗时。

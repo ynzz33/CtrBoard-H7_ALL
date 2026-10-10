@@ -4,7 +4,7 @@
 
 > 2026-10-09：所有自起/翻身腿长目标在腿长PD计算前调用公共Ramp_Target_Update，斜率使用standup_param.length_rate，伸腿与收腿共用；正常LQR独立使用machine->lqr.len_rate。左右各保存斜坡输出，首次从实际腿长起步，此后从上一拍输出推进；length_cmd仍是原始最终目标，阶段到位与超时判断保持。len_history_ready只预置PD历史，不重置已初始化的斜坡；Standup_Reset重新初始化控制器。Watch查看length_pid[i].set[NOW]或length_ramp[i].out获得实际送入PD的目标。软件核验不代表实机效果。
 
-> 2026-10-08当前交接：自起到位持稳后，同拍直接交给原LQR求解及唯一输出口。blend、blend_time及渐入函数已删除，不保留对照开关。新的39通道自起诊断页及到位阻塞位见 [VOFA通道定义](vofa_policy_trace.md)。下文历史参数快照中的blend字段不再适用。
+> 2026-10-08当前交接：自起到位持稳后，同拍直接交给原LQR求解及唯一输出口。blend、blend_time及渐入函数已删除，不保留对照开关。新的39通道自起诊断页及到位阻塞位见 [VOFA通道定义](vofa-debug.md)。下文历史参数快照中的blend字段不再适用。
 
 > 当前摆正到位：腿长到位由RETRACT的retract_ready_len门槛保证。SWING只检查两腿实际／指令摆角，持稳满足stable_time后接管；腿长环仍持续向retract_len出力，后续实际腿长变化不清到位计时。length_tol及roll到位参数和相应阻塞位已移除，旧参数快照不适用。
 
@@ -74,7 +74,7 @@ DONE之前，Standup_Update输出准备力矩。SWING到位条件连续满足sta
 
 当前初始化默认 `standup_control.enabled=1`，左中＋右中进入自起／LQR选择；失能时设为0可回到原平衡路径。Watch看standup_param、standup_control的phase／fault／need／retry／pose／ready_block、length_cmd、angle_cmd、angle_speed_cmd、force、tp、support及三组PID历史。ready_block由实际到位判据生成，不改变判据；DONE／FAILED保留最后检查值。旧active／done／param／handoff／blend字段已移除。
 
-普通VOFA沿用Robot_Control_Send_Vofa发送39通道，现完整记录控制摆角／速度、目标、F/Tp、支撑、交接、pitch及最终髋／轮命令。完整通道定义见 [VOFA全过程](vofa_policy_trace.md)。旧离线留证通道已替换，但原内部锁存继续工作。数据用于比较响应和阶段时限，不直接据图形观感调参。
+普通VOFA由defaultTask后台发送39通道，包含LQR状态/目标、补偿和最终四髋命令，字段见[vofa-debug.md](vofa-debug.md)。自起phase、fault、F/Tp和支撑等在Watch查看standup_control，当前帧未包含全部自起内部量；不能沿用早期自起专用通道号。
 
 `Standup_Fail` 保留第一次失败的fault、elapsed、stable及最后一拍控制量，prepare仍立即清零；FAILED期间不会继续计时或计算。退出投入位置会Reset，清这些记录，因此采集要包含退出前的失败帧。phase=4、fault=2且elapsed接近3000/4000ms分别对应收腿／摆腿超时，当前阈值以源码为准。若在线掩码ch0／故障掩码ch2同时变化，结合fault区分自起超时与外部失能。公开模块接口仍是Init、Reset、Fail、Update四个。
 
@@ -173,7 +173,7 @@ RETRACT／SWING从首拍直接给左右length_cmd=retract_len（当前0.15m）�
 
 ## 当前中断诊断页
 
-当前39通道VOFA已替换为四髋反馈年龄／错误码和FDCAN1 FIFO／错误计数／协议状态页，保留阶段、姿态、长度、几何角与最终髋命令；旧全过程映射为历史。参见vofa_policy_trace.md当前表。本轮控制逻辑和参数均未修改。
+当前39通道VOFA已替换为四髋反馈年龄／错误码和FDCAN1 FIFO／错误计数／协议状态页，保留阶段、姿态、长度、几何角与最终髋命令；旧全过程映射为历史。参见vofa-debug.md当前表。本轮控制逻辑和参数均未修改。
 
 
 ## 后摆预先位置

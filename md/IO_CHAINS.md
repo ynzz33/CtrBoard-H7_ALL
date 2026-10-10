@@ -53,7 +53,7 @@ task_imu.c: imu_task_body() @ 约 1kHz (imuTask osDelay(1))
     │
     ▼
 消费端:
-  task_comm.c: imu_state.pitch_world / pitch_world_valid → 普通 VOFA ch29/30
+  imu_state.pitch_world / pitch_world_valid → 控制快照及Watch；普通VOFA字段见vofa-debug.md
     (另用于自起姿态判断／fallen; 模块在 task/pitch_world.c/h，控制pitch不替换)
   task_policy.c:
     imu_state.online       → 观测有效门控
@@ -350,7 +350,7 @@ task_policy.c (RL, 左拨杆上位 + 右拨杆中位):
 
 ## 5. 状态聚合层
 
-三个聚合结构体：motor_state / robot_state 由 commTask 写入、其他任务只读；input_command 目前是死状态（见下）。
+motor_state/robot_state由commTask发布，IMU由imuTask发布。策略和执行通过Robot_Feedback_Read每周期读取一次；电机与左右腿同一临界区提交。input_command的RL高度是策略任务累加状态，其余目标用于Watch；mode由通信发布。
 
 ### motor_state — 电机状态
 
@@ -384,7 +384,7 @@ motor_state_t motor_state:
    obs 关节角/速度来自 leg_solver 输出经 RL_Joint_Map 映射, 见 §7)
 ```
 
-### input_command — 遥控指令（当前为死状态：只写不读）
+### input_command — RL目标累加与调试
 
 ```
 写点:
@@ -392,10 +392,10 @@ motor_state_t motor_state:
   task_comm.c:77         Remote_Control_Update() → mode = s1
   字段 thigh_delta_cmd[2] / shin_delta[2] 无任何读写 (早期手动遥操遗留)
 
-读点: 无（全机无消费端）
+读点: task_policy.c::RL_Command_From_Rc读取height_cmd累加高度；mode参与原策略观测判断
   早期文档记的 "task_policy.c → obs.command[6..8]"、"Manual_Action_Apply (手动测试)"
   均已不存在：obs 的 command[3] 直接取 RL_Command_From_Rc 的局部数组，不经过 input_command。
-  结构体仍留在 robot_control.h（未删）；是否保留待作者确认。
+  结构体声明归robot_state.h，保持原Watch符号。
 ```
 
 ### robot_state — 机器人状态
@@ -514,7 +514,7 @@ task_comm.c:
 | force_det / force_valid | 行列式 / 有效位 | 解算内部，force_valid 供 Force_Map_Forward 门控 |
 | point_jac[2][2] | P 点雅可比 | **无人消费**（计算后死输出） |
 
-**VOFA 观测：**普通帧是 38 路 JustFloat，含状态、25 维观测、四髋电机侧反馈力矩/指令与左右腿长（周期测试启用时只覆盖 ch26～27）；策略追踪为独立 32 路布局。字段见 [vofa_policy_trace.md](vofa_policy_trace.md)，打包源为 `task_comm.c::Robot_Control_Send_Vofa()`。
+**VOFA 观测：**普通39路JustFloat，由defaultTask后台服务调用task/vofa_debug.c打包，默认100Hz；字段见[vofa-debug.md](vofa-debug.md)。
 
 ---
 

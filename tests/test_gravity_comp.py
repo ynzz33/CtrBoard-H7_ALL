@@ -1,6 +1,7 @@
 """Real gravity model and geometry; independent potential and force checks."""
 import os
 from pathlib import Path
+from test_gas_spring_integration import ARM_MATH_SHIM, read, without_includes
 import re
 import shutil
 import subprocess
@@ -16,7 +17,7 @@ HARNESS = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 
 static void near(float a, float b)
 {
@@ -115,10 +116,47 @@ static void adapter(void)
     assert(!Gravity_Comp_Apply(&left,&right,angles,NULL,raw,&result));
     assert(!Gravity_Comp_Apply(&left,&right,angles,base,NULL,&result));
 }
+static void compensation_chain(void)
+{
+    leg_state_t left,right;
+    compensation_debug_t debug;
+    gravity_comp_result_t gravity;
+    float base[4],raw[4],output[4],spring[4],angles[2],limit;
+    unsigned sample,i;
+    uint8_t saturated;
+    Leg_Init(&left);left.config.configured=1;left.config.lu=.21f;left.config.lg=.25f;
+    left.input.hip_f=2.6f;left.input.hip_b=.4f;right=left;right.input.hip_f=2.4f;
+    assert(Leg_Solve(&left)&&Leg_Solve(&right));
+    for(sample=0;sample<256;sample++) {
+        angles[0]=sample*.05f-6;angles[1]=3-sample*.03f;
+        limit=sample%3 ? 40 : .1f;
+        for(i=0;i<4;i++) {base[i]=(sample*.2f-25)*(i%2 ? -1 : 1);}
+        assert(Gas_Spring_Apply(&left,&right,base,raw));
+        for(i=0;i<4;i++) {spring[i]=raw[i]-base[i];}
+        assert(Gravity_Comp_Apply(&left,&right,angles,raw,raw,&gravity));
+        memset(&debug,0xff,sizeof(debug));
+        assert(Leg_Compensation_Apply(&left,&right,angles,base,limit,output,&debug));
+        assert(!memcmp(raw,debug.raw_dm,sizeof(raw)));
+        assert(!memcmp(spring,debug.spring_dm,sizeof(spring)));
+        assert(!memcmp(&gravity,&debug.gravity,sizeof(gravity)));
+        saturated=0;
+        for(i=0;i<4;i++) {
+            assert(output[i]==clampf(raw[i],-limit,limit));
+            saturated|=output[i]!=raw[i];
+        }
+        assert(debug.saturated==saturated && !debug.bench);
+    }
+    base[0]=NAN;
+    memset(&debug,0xff,sizeof(debug));
+    assert(!Leg_Compensation_Apply(&left,&right,angles,base,limit,output,&debug));
+    assert(!debug.gravity.valid && !debug.saturated && !debug.bench);
+    for(i=0;i<4;i++) {assert(debug.spring_dm[i]==0 && debug.raw_dm[i]==0);}
+}
 int main(int argc,char **argv)
 {
     assert(argc==2);
-    if(atoi(argv[1])==0) {table_and_potential();} else {adapter();}
+    if(atoi(argv[1])==0) {table_and_potential();}
+    else if(atoi(argv[1])==1) {adapter();} else {compensation_chain();}
     return 0;
 }
 """
@@ -134,7 +172,10 @@ class GravityCompTest(unittest.TestCase):
         cls.addClassCleanup(cls.temp.cleanup)
         folder = Path(cls.temp.name)
         source = folder / "gravity.c"
-        source.write_text(HARNESS, encoding="utf-8")
+        (folder / "arm_math.h").write_text(ARM_MATH_SHIM, encoding="utf-8")
+        source.write_text('#include "gas_spring.h"\n#include "machine_config.h"\n#include "arm_math.h"\n'
+                          + without_includes(read("imcalib/Algorithm/gas_spring.c"))
+                          + HARNESS, encoding="utf-8")
         cls.environment = os.environ.copy()
         cls.environment["PATH"] = str(Path(compiler).parent) + os.pathsep + cls.environment.get("PATH", "")
         cls.executables = []
@@ -142,9 +183,10 @@ class GravityCompTest(unittest.TestCase):
             exe = folder / f"gravity_{machine}.exe"
             result = subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                 "-DLEG_TRIG_LIBM=1", f"-DMACHINE_DEFAULT={machine}",
-                "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/user-lib"),
+                "-I", str(folder), "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
                 str(source), str(ROOT / "imcalib/Algorithm/gravity_comp.c"),
-                str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/user-lib/machine_config.c"),
+                str(ROOT / "imcalib/Algorithm/leg_compensation.c"),
+                str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/config/machine_config.c"),
                 "-lm", "-o", str(exe)], capture_output=True, text=True, env=cls.environment)
             if result.returncode:
                 raise AssertionError(result.stdout + result.stderr)
@@ -162,10 +204,13 @@ class GravityCompTest(unittest.TestCase):
     def test_zero_axial_force_alias_atomic_errors_and_small_bypass(self):
         self.run_case(1)
 
+    def test_shared_chain_matches_original_sequence_bit_for_bit(self):
+        self.run_case(2)
+
     def test_model_is_exact_existing_accepted_snapshot(self):
         text = (ROOT / "tools/matlab/reference/leg3_leg_data.m").read_text(encoding="utf-8")
         rows = re.findall(r"^\s*([\d.]+),\s*([\d.]+),\s*([\d.]+),", text, re.M)[:17]
-        config = (ROOT / "imcalib/user-lib/machine_config.c").read_text(encoding="utf-8")
+        config = (ROOT / "imcalib/config/machine_config.c").read_text(encoding="utf-8")
         table = config.split("gravity_nodes_big[] = {", 1)[1].split("};", 1)[0]
         actual = re.findall(r"\{([\d.]+)f, ([\d.]+)f, ([\d.]+)f\}", table)
         self.assertEqual([[float(v) for v in row] for row in actual], [[float(v) for v in row] for row in rows])

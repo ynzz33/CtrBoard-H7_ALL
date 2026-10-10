@@ -63,21 +63,21 @@ int main(void)
     lqr_state.leg_len_tgt[0]=.15f;
     lqr_state.leg_len_tgt[1]=.30f;
     Torque_Output_Clear(&torque);
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     close_length(leg_balance.leg_len[0].set[NOW],.30f-step_length);
     close_length(leg_balance.leg_len[1].set[NOW],.15f+step_length);
     close_length(leg_balance.leg_len[0].dout,0);
     assert(lqr_state.leg_len_tgt[0]==.15f && lqr_state.leg_len_tgt[1]==.30f);
     previous=leg_balance.leg_len[0].set[NOW];
     leg_l.output.virtual_leg_length=.25f;
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     close_length(leg_balance.leg_len[0].set[NOW],previous-step_length);
     lqr_state.leg_len_tgt[0]=.31f;
     previous=leg_balance.leg_len[0].set[NOW];
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     close_length(leg_balance.leg_len[0].set[NOW],previous+step_length);
     Leg_Balance_Reset(&leg_balance);
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     close_length(leg_balance.leg_len[0].set[NOW],.25f+step_length);
 
     /* Self righting uses the same ramp; PID history priming cannot reset it. */
@@ -106,7 +106,7 @@ int main(void)
     Leg_Balance_Reset(&leg_balance);
     lqr_state.leg_len_tgt[0]=.15f;
     lqr_state.leg_len_tgt[1]=.30f;
-    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,MACHINE_LQR_DT,&torque));
+    assert(Leg_Balance_Compute(&leg_balance,&lqr_state,&leg_l,&leg_r,&lqr_debug,MACHINE_LQR_DT,&torque));
     close_length(leg_balance.leg_len[0].set[NOW],.20f-machine->lqr.len_rate*MACHINE_LQR_DT);
     close_length(leg_balance.leg_len[1].set[NOW],.15f+machine->lqr.len_rate*MACHINE_LQR_DT);
     return 0;
@@ -125,13 +125,13 @@ class LegLengthRampTest(unittest.TestCase):
         env=os.environ.copy()
         env['PATH']=str(Path(compiler).parent)+os.pathsep+env.get('PATH','')
         content=PREFIX
-        for path in ('imcalib/user-lib/rc_command.h','imcalib/Algorithm/torque_output.h',
+        for path in ('imcalib/task/inc/rc_command.h','imcalib/Algorithm/torque_output.h',
                      'imcalib/Algorithm/lqr_balance.h','imcalib/Algorithm/leg_balance.h',
                      'imcalib/Algorithm/gas_spring.h','imcalib/Algorithm/standup.h'):
             content+='\n'+without_includes(read(path))
-        content+='\n'+without_includes(read('imcalib/user-lib/machine_config.c')).split('const machine_cfg_t *const machine')[0]
+        content+='\n'+without_includes(read('imcalib/config/machine_config.c')).split('const machine_cfg_t *const machine')[0]
         for path in ('imcalib/Algorithm/lqr_balance.c','imcalib/Algorithm/leg_balance.c',
-                     'imcalib/Algorithm/gas_spring.c','imcalib/Algorithm/gravity_comp.c','imcalib/Algorithm/standup.c'):
+                     'imcalib/Algorithm/gas_spring.c','imcalib/Algorithm/gravity_comp.c', "imcalib/Algorithm/leg_compensation.c",'imcalib/Algorithm/standup.c'):
             content+='\n'+without_includes(read(path))
         content+='\n'+FIXTURE+check
         with tempfile.TemporaryDirectory(prefix='length-ramp-') as temp:
@@ -143,10 +143,10 @@ class LegLengthRampTest(unittest.TestCase):
                     exe=folder/f'check{machine_id}.exe'
                     dependencies=('imcalib/Algorithm/lqr_gain_table.c','imcalib/Algorithm/lqr_gain_big.c',
                                   'imcalib/Algorithm/lqr_gain_small.c','imcalib/Algorithm/leg_solver.c',
-                                  'imcalib/user-lib/pid.c','imcalib/user-lib/simple-function.c')
+                                  'imcalib/common/pid.c','imcalib/common/simple-function.c')
                     r=subprocess.run([compiler,'-std=c99','-Wall','-Wextra','-Werror','-DLEG_TRIG_LIBM=1',
                         f'-DMACHINE_DEFAULT={machine_id}','-I',str(folder),'-I',str(ROOT/'imcalib/Algorithm'),
-                        '-I',str(ROOT/'imcalib/user-lib'),str(source),*[str(ROOT/p) for p in dependencies],
+                        "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),str(source),*[str(ROOT/p) for p in dependencies],
                         '-lm','-o',str(exe)],capture_output=True,text=True,env=env)
                     self.assertEqual(r.returncode,0,r.stdout+r.stderr)
                     r=subprocess.run([str(exe)],capture_output=True,text=True,env=env)

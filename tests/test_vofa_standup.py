@@ -35,28 +35,32 @@ volatile air_detection_t air_debug;
 static uint32_t ctrl_fault;
 static compensation_debug_t compensation_debug;
 static float rl_output_dm_cmd_nm[4];
-#define taskENTER_CRITICAL() ((void)0)
-#define taskEXIT_CRITICAL() ((void)0)
+static unsigned reads, critical;
+#define taskENTER_CRITICAL() ((void)critical++)
+#define taskEXIT_CRITICAL() (assert(critical), (void)critical--)
 static machine_cfg_t fixture_machine;
 const machine_cfg_t *const machine=&fixture_machine;
-static uint8_t lqr_engaged, dma_ready=1;
+static uint8_t lqr_engaged, dma_ready=1, submit_ok=1;
 static uint8_t *dma_buffer;
 static uint16_t dma_length;
 static unsigned send_count;
 static const uint8_t tail[4]={0,0,0x80,0x7f};
-static uint8_t DR16_Online(void) { return 1; }
-static uint8_t Dm_Is_Enabled(uint8_t i) { return motor_state.dm.online[i]; }
+static rc_command_t rc_command = {.online=1};
+static uint64_t now_ns;
+static uint64_t Mono_Ns_Get(void) { return now_ns; }
+static uint8_t Vofa_Transport_Update(uint8_t permit) { assert(critical);(void)permit;return 0; }
+static uint8_t Dm_Is_Enabled(uint8_t i) { assert(critical);if(i==0) {reads++;}return motor_state.dm.online[i]; }
 static uint8_t output_task_lqr_engaged(void) { return lqr_engaged; }
 static uint8_t output_task_rl_engaged(void) { return 0; }
 static uint8_t Vofa_Transport_Ready(void) { return dma_ready; }
 static uint8_t Vofa_Transport_Send(uint8_t *data,uint16_t len)
-{ assert(dma_ready);dma_buffer=data;dma_length=len;send_count++;dma_ready=0;return 1; }
+{ assert(dma_ready);if(!submit_ok) {return 0;}dma_buffer=data;dma_length=len;send_count++;dma_ready=0;return 1; }
 """
 
 CHECK = r"""
 static void frame(float out[39])
 {
-    dma_ready=1;Robot_Control_Send_Vofa();
+    dma_ready=1;now_ns+=10000000u;Vofa_Debug_Tick();
     assert(dma_length==160 && memcmp(dma_buffer+156,tail,4)==0);
     memcpy(out,dma_buffer,156);
 }
@@ -91,7 +95,7 @@ int main(void)
     for(i=24;i<36;i++) { assert(out[i]==0); }
     assert(out[36]==leg_l.output.virtual_leg_length && out[37]==leg_r.output.virtual_leg_length && out[38]==0);
     memcpy(prior,dma_buffer,160);count=send_count;
-    lqr_state.a_fwd=2;Robot_Control_Send_Vofa();
+    lqr_state.a_fwd=2;Vofa_Debug_Tick();
     assert(send_count==count && memcmp(prior,dma_buffer,160)==0);
     lqr_engaged=1;ctrl_fault=4;frame(out);assert(out[1]==509 && out[2]==4 && out[23]==2);
     lqr_state.x[LQR_X_THB]=NAN;frame(out);assert(isnan(out[11]));
@@ -123,20 +127,44 @@ int main(void)
 """
 
 
+SCHEDULE_CHECK = r"""
+int main(void)
+{
+    unsigned count;
+    now_ns=0;Vofa_Debug_Tick();assert(send_count==1 && reads==1);
+    dma_ready=1;now_ns=9999999;Vofa_Debug_Tick();assert(send_count==1 && reads==1);
+    now_ns=10000000;dma_ready=0;count=reads;
+    Vofa_Debug_Tick();assert(send_count==1 && reads==count);
+    now_ns=90000000;lqr_state.x[0]=42;Vofa_Debug_Tick();assert(reads==count);
+    dma_ready=1;submit_ok=0;Vofa_Debug_Tick();assert(send_count==1 && vofa_service.sent==1);
+    submit_ok=1;lqr_state.x[0]=77;Vofa_Debug_Tick();assert(send_count==2);
+    assert(vofa_service.last_sent_ns==90000000 && vofa_service.frame[3]==77);
+    dma_ready=1;Vofa_Debug_Tick();assert(send_count==2);
+    now_ns=100000000;Vofa_Debug_Tick();assert(send_count==3);
+    return 0;
+}
+"""
+
 class VofaStandupTest(unittest.TestCase):
     def test_packing(self):
+        self.run_checks(CHECK)
+
+    def test_first_send_period_busy_and_submission_failure(self):
+        self.run_checks(SCHEDULE_CHECK)
+
+    def run_checks(self, checks):
         compiler=os.environ.get('CC') or shutil.which('gcc')
         if compiler is None:self.skipTest('set CC to host gcc')
         env=os.environ.copy();env['PATH']=str(Path(compiler).parent)+os.pathsep+env.get('PATH','')
         headers=PREFIX
-        for path in ('imcalib/Algorithm/leg_solver.h','imcalib/Algorithm/imu_state.h','imcalib/user-lib/pid.h',
-                     'imcalib/user-lib/rc_command.h',
-                     'imcalib/user-lib/simple-function.h','imcalib/user-lib/kalman.h','imcalib/Algorithm/lqr_gain_table.h',
+        for path in ('imcalib/Algorithm/leg_solver.h','imcalib/Algorithm/imu_state.h','imcalib/common/pid.h',
+                     'imcalib/task/inc/rc_command.h',
+                     'imcalib/common/simple-function.h','imcalib/common/kalman.h','imcalib/Algorithm/lqr_gain_table.h',
                      'imcalib/Algorithm/torque_output.h','imcalib/Algorithm/lqr_balance.h','imcalib/Algorithm/leg_balance.h',
                      'imcalib/Algorithm/standup.h'):
             headers+='\n'+without_includes(read(path))
-        content=headers+'\n'+FIXTURE+'\n'+production_function(read('imcalib/user-lib/Vofa_send.c'),'Vofa_Send')
-        content+='\n'+production_function(read('imcalib/task/task_comm.c'),'Robot_Control_Send_Vofa')+'\n'+CHECK
+        content=headers+'\n'+FIXTURE+'\n'+production_function(read('imcalib/bsp/Vofa_send.c'),'Vofa_Send')
+        content+='\n'+without_includes(read('imcalib/task/vofa_debug.c'))+'\n'+checks
         with tempfile.TemporaryDirectory(prefix='vofa-standup-') as temp:
             folder=Path(temp);(folder/'arm_math.h').write_text(ARM_MATH_SHIM,encoding='utf-8')
             source=folder/'vofa_standup.c';source.write_text(content,encoding='utf-8')
@@ -144,7 +172,7 @@ class VofaStandupTest(unittest.TestCase):
                 with self.subTest(machine=machine):
                     exe=folder/f'vofa_standup{machine}.exe'
                     r=subprocess.run([compiler,'-std=c99','-Wall','-Wextra','-Werror',f'-DMACHINE_DEFAULT={machine}',
-                                      '-I',str(ROOT/'imcalib/Algorithm'),'-I',str(ROOT/'imcalib/user-lib'),
+                                      '-I',str(ROOT/'imcalib/Algorithm'),"-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
                                       str(source),'-lm','-o',str(exe)],capture_output=True,text=True,env=env)
                     self.assertEqual(r.returncode,0,r.stdout+r.stderr)
                     r=subprocess.run([str(exe)],capture_output=True,text=True,env=env)

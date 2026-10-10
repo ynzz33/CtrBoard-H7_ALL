@@ -3,8 +3,7 @@
 
 #include <string.h>
 #include <stdint.h>
-#include "dm.h"
-#include "dji.h"
+#include "motor_types.h"
 
 /* 力矩命令: 各控制器 (LQR / 手动腿测 / RL) 的统一产物, 只由 task_actuation.c 的 output_dispatch() 下发
  *   dm[]   四髋 (前左/后左/前右/后右, DM 驱动索引), N·m

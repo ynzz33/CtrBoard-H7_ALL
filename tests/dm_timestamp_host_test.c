@@ -6,7 +6,7 @@
 #define __get_PRIMASK() 0u
 #define __disable_irq() ((void)0)
 #define __set_PRIMASK(value) ((void)(value))
-#include "../imcalib/user-lib/dm.c"
+#include "../imcalib/drivers/dm.c"
 
 static uint64_t mock_ns;
 static uint32_t mock_tick;
@@ -19,6 +19,21 @@ const machine_cfg_t *const machine = &test_machine;
 
 uint64_t Mono_Ns_Get(void) { return mock_ns; }
 uint32_t HAL_GetTick(void) { return mock_tick; }
+
+FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus)
+{
+    (void)bus; return NULL;
+}
+bool Can_Bus_Register(FDCAN_HandleTypeDef *handle, uint32_t id,
+                     can_parse_fn_t fn, void *ctx)
+{
+    (void)handle; (void)id; (void)fn; (void)ctx; return true;
+}
+HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *handle, uint32_t id,
+                                  const uint8_t *data, uint8_t len)
+{
+    (void)handle; (void)id; (void)data; (void)len; return HAL_OK;
+}
 
 int main(void)
 {

@@ -164,8 +164,8 @@ static void control(void)
     for(j=0;j<60;j++) {
         st.air_control=(j/10)%2;
         st.leg_len_tgt[0]-=.0001f;ground.leg_len_tgt[0]=st.leg_len_tgt[0];
-        assert(Leg_Balance_Compute(&balance,&st,&legs[0],&legs[1],.001f,&cmd));
-        assert(Leg_Balance_Compute(&reference,&ground,&legs[0],&legs[1],.001f,&reference_cmd));
+        assert(Leg_Balance_Compute(&balance,&st,&legs[0],&legs[1],&lqr_debug,.001f,&cmd));
+        assert(Leg_Balance_Compute(&reference,&ground,&legs[0],&legs[1],&lqr_debug,.001f,&reference_cmd));
         near(balance.F[0],reference.F[0],1e-6f);near(balance.F[1],reference.F[1],1e-6f);
         assert(!memcmp(&balance.leg_len,&reference.leg_len,sizeof(balance.leg_len)));
         assert(!memcmp(&balance.length_ramp,&reference.length_ramp,sizeof(balance.length_ramp)));
@@ -196,19 +196,19 @@ class AirDetectionTest(unittest.TestCase):
         folder = Path(cls.temp.name)
         (folder / "arm_math.h").write_text(ARM_MATH_SHIM)
         source = PREFIX + '\n#include "air_detection.h"\n#include "Attitude_Algorithm.h"\n#include "slip.h"\n'
-        for path in ("imcalib/user-lib/rc_command.h", "imcalib/Algorithm/torque_output.h",
+        for path in ("imcalib/task/inc/rc_command.h", "imcalib/Algorithm/torque_output.h",
                      "imcalib/Algorithm/lqr_balance.h", "imcalib/Algorithm/leg_balance.h",
                      "imcalib/Algorithm/gas_spring.h", "imcalib/Algorithm/lqr_balance.c",
                      "imcalib/Algorithm/leg_balance.c", "imcalib/Algorithm/gas_spring.c",
-                     "imcalib/Algorithm/gravity_comp.c", "imcalib/Algorithm/Attitude_Algorithm.c",
+                     "imcalib/Algorithm/gravity_comp.c", "imcalib/Algorithm/leg_compensation.c", "imcalib/Algorithm/Attitude_Algorithm.c",
                      "imcalib/Algorithm/air_detection.c"):
             source += '\n' + without_includes(read(path))
         harness = folder / 'air.c'
         harness.write_text(source + CHECK, encoding='utf-8')
-        dependencies = ('imcalib/user-lib/machine_config.c', 'imcalib/Algorithm/lqr_gain_table.c',
+        dependencies = ('imcalib/config/machine_config.c', 'imcalib/Algorithm/lqr_gain_table.c',
                         'imcalib/Algorithm/lqr_gain_big.c', 'imcalib/Algorithm/lqr_gain_small.c',
                         'imcalib/Algorithm/leg_solver.c', 'imcalib/Algorithm/slip.c',
-                        'imcalib/user-lib/pid.c', 'imcalib/user-lib/simple-function.c')
+                        'imcalib/common/pid.c', 'imcalib/common/simple-function.c')
         cls.env = os.environ.copy()
         cls.env['PATH'] = str(Path(cc).parent) + os.pathsep + cls.env.get('PATH', '')
         cls.executables = []
@@ -216,7 +216,7 @@ class AirDetectionTest(unittest.TestCase):
             exe = folder / f'air{machine}.exe'
             result = subprocess.run([cc, '-std=c99', '-Wall', '-Wextra', '-Werror',
                 '-DLEG_TRIG_LIBM=1', f'-DMACHINE_DEFAULT={machine}', '-I', str(folder),
-                '-I', str(ROOT/'imcalib/Algorithm'), '-I', str(ROOT/'imcalib/user-lib'),
+                '-I', str(ROOT/'imcalib/Algorithm'), "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
                 str(harness), *[str(ROOT/p) for p in dependencies], '-lm', '-o', str(exe)],
                 capture_output=True, text=True, env=cls.env)
             if result.returncode:

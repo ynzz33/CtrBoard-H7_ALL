@@ -266,7 +266,7 @@ tools/matlab/
 |---|---|
 | 现表（板上） | `CtrBoard-H7_ALL/imcalib/Algorithm/lqr_gain_table.c/.h` |
 | 板上求值与状态定义 | `CtrBoard-H7_ALL/imcalib/Algorithm/lqr_balance.c/.h` |
-| 板上机器表 | `CtrBoard-H7_ALL/imcalib/user-lib/machine_config.c/.h` |
+| 板上机器表 | `CtrBoard-H7_ALL/imcalib/config/machine_config.c/.h` |
 | Leg2 建模主脚本 | `Leg2_v1(1)/Leg2_v1/轮腿上交建模MATLAB/WBR_modeling.mlx`（zip 内 `matlab/document.xml` 的 CDATA） |
 | Leg2 A/B 缓存写法 | 同目录 `AB_WBR_gen.m`、`PSO_LQR_Tuning_v2.m` Section 2 |
 | Leg2 真实层仿真 | `PSO_LQR_Tuning_v2.m` 的 `sim_wbr_real` |

@@ -1,3 +1,4 @@
+#include "math_utils.h"
 #include "rl_policy.h"
 
 #include <math.h>
@@ -26,25 +27,6 @@ static void RL_Policy_Clear_Action(float action[RL_ACTION_SIZE])
     {
         memset(action, 0, RL_ACTION_SIZE * sizeof(float));
     }
-}
-
-/* 检查数组 */
-static uint8_t RL_Policy_Array_Valid(const float *data, uint32_t count)
-{
-    uint32_t i;
-
-    if (data == NULL)
-    {
-        return 0u;
-    }
-    for (i = 0u; i < count; i++)
-    {
-        if (!isfinite(data[i]))
-        {
-            return 0u;
-        }
-    }
-    return 1u;
 }
 
 /* 初始化网络: 只有 networkzn1 */
@@ -148,8 +130,8 @@ uint8_t RL_Policy_Run(rl_policy_t *policy,
     if (policy == NULL || observation == NULL || !policy->ready
         || !observation->valid || !observation->history_ready
         || policy->selected_model >= RL_MODEL_COUNT
-        || !RL_Policy_Array_Valid(observation->obs, RL_OBS_SIZE)
-        || !RL_Policy_Array_Valid(observation->history, RL_OBS_HISTORY_SIZE))
+        || !Float_Array_Finite(observation->obs, RL_OBS_SIZE)
+        || !Float_Array_Finite(observation->history, RL_OBS_HISTORY_SIZE))
     {
         return 0u;
     }
@@ -184,7 +166,7 @@ uint8_t RL_Policy_Run(rl_policy_t *policy,
 
     memcpy(action, action_output, RL_ACTION_SIZE * sizeof(float));
     memcpy(policy->latent, latent_output, RL_LATENT_SIZE * sizeof(float));
-    if (!RL_Policy_Array_Valid(action, RL_ACTION_SIZE))
+    if (!Float_Array_Finite(action, RL_ACTION_SIZE))
     {
         RL_Policy_Clear_Action(action);
         policy->run_fail++;

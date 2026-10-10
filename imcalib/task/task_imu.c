@@ -1,4 +1,5 @@
 #include "robot_control.h"
+#include "robot_state.h"
 #include "hi229.h"
 #include "Attitude_Algorithm.h"
 #include "machine_config.h"
@@ -17,18 +18,16 @@ void imu_task_body(void)
     hi229_data_t sample;
     imu_state_t next = imu_state;
     const imu_cfg_t *cfg;
-    uint32_t primask;
+    feedback_sample_t received = {0u, 0u};
     uint8_t i;
 
     HI229_Process();
     if (!HI229_Online())
     {
-        primask = __get_PRIMASK();
-        __disable_irq();
-        imu_state.online = 0u;
-        imu_state.pitch_world = 0.0f;
-        imu_state.pitch_world_valid = 0u;
-        __set_PRIMASK(primask);
+        next.online = 0u;
+        next.pitch_world = 0.0f;
+        next.pitch_world_valid = 0u;
+        Robot_Feedback_Publish_Imu(&next, received);
         return;
     }
     sample = HI229_Snapshot();
@@ -63,8 +62,7 @@ void imu_task_body(void)
                                                  next.quat, &next.pitch_world) ? 1u : 0u;
     }
     next.last_timestamp_ms = sample.ts;
-    primask = __get_PRIMASK();
-    __disable_irq();
-    imu_state = next;
-    __set_PRIMASK(primask);
+    received.received_ns = sample.received_ns;
+    received.seen = 1u;
+    Robot_Feedback_Publish_Imu(&next, received);
 }

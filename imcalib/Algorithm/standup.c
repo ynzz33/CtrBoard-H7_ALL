@@ -1,6 +1,5 @@
 #include "standup.h"
 #include "machine_config.h"
-#include "gas_spring.h"
 
 #include <math.h>
 #include <string.h>
@@ -16,13 +15,13 @@ standup_param_t standup_param = {
     .pitch_max               = 1.0f,                            /* 翻身 rad */
 
     /* 伸腿与后摆 */
-    .length_rate             = 0.85f,                            /* 腿长 m/s */
+    .length_rate             = 0.75f,                            /* 腿长 m/s */
     .extend_len              = 0.25f,                           /* 目标 m */
     .extend_tol              = 0.01f,                           /* 容差 m */
     .extend_timeout          = 4.0f,                            /* 超时 s */
     .rear_angle              = -1.45f,                           /* 后点 rad */
     .rear_tol                = 0.1f,                            /* 容差 rad */
-    .rear_rate               = 6.2f,                            /* 目标 rad/s */
+    .rear_rate               = 5.7f,                            /* 目标 rad/s */
     .rear_timeout            = 1.0f,                            /* 超时 s */
 
     /* 收腿与站立 */
@@ -326,19 +325,13 @@ static uint8_t Standup_Ready(standup_ctx_t *st,
 static void Standup_Prime(pid_t *pid, float measured, float target)
 {
     float error;
-    uint8_t i;
 
     error = target - measured;
     if (pid->angle_wrap)
     {
         error = Standup_Wrap(error);
     }
-    for (i = 0u; i < 3u; i++)
-    {
-        pid->get[i] = measured;
-        pid->set[i] = target;
-        pid->err[i] = error;
-    }
+    PID_History_Set(pid, measured, target, error);
 }
 
 /* 恢复阶段 */
@@ -900,8 +893,6 @@ static uint8_t Standup_Torque_Output(standup_ctx_t *st,
                                     const leg_state_t *const leg[2])
 {
     float base[DM_MOTOR_NUM];
-    float raw[DM_MOTOR_NUM];
-    float limit;
     float world_angle[2];
     uint8_t i;
 
@@ -919,28 +910,12 @@ static uint8_t Standup_Torque_Output(standup_ctx_t *st,
             return 0u;
         }
     }
-    if (!Gas_Spring_Apply(leg[0], leg[1], base, raw))
+    if (!Leg_Compensation_Apply(leg[0], leg[1], world_angle, base,
+        machine->dm_trq_clamp, st->prepare.dm, &st->compensation))
     {
         return 0u;
     }
-    for (i = 0u; i < DM_MOTOR_NUM; i++)
-    {
-        st->compensation.spring_dm[i] = raw[i] - base[i];
-    }
-    if (!Gravity_Comp_Apply(leg[0], leg[1], world_angle, raw, raw,
-        &st->compensation.gravity))
-    {
-        memset(&st->compensation, 0, sizeof(st->compensation));
-        return 0u;
-    }
-    memcpy(st->compensation.raw_dm, raw, sizeof(raw));
-    limit = machine->dm_trq_clamp;
-    for (i = 0u; i < DM_MOTOR_NUM; i++)
-    {
-        st->raw_dm[i] = raw[i];
-        st->prepare.dm[i] = clampf(raw[i], -limit, limit);
-        st->compensation.saturated |= (uint8_t)(st->prepare.dm[i] != raw[i]);
-    }
+    memcpy(st->raw_dm, st->compensation.raw_dm, sizeof(st->raw_dm));
     st->prepare.valid = 1u;
     return 1u;
 }

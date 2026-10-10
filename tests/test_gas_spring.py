@@ -273,9 +273,9 @@ class GasSpringTest(unittest.TestCase):
             result = subprocess.run([
                 compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", "-DLEG_TRIG_LIBM=1",
                 *defines, "-I", str(folder), "-I", str(ROOT / "imcalib/Algorithm"),
-                "-I", str(ROOT / "imcalib/user-lib"), str(folder / "harness.c"),
+                "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"), str(folder / "harness.c"),
                 str(folder / "gas_spring_host.c"), str(folder / "reference.c"),
-                str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/user-lib/machine_config.c"), "-lm", "-o", str(executable),
+                str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/config/machine_config.c"), "-lm", "-o", str(executable),
             ], capture_output=True, text=True, env=cls.environment)
             if result.returncode:
                 raise AssertionError(result.stdout + result.stderr)

@@ -1,6 +1,6 @@
 # 系统辨识数据交付说明（给强化学习训练端）
 
-> **历史资料，当前不可按此操作。** 现行关节 USB 测试见 [新流程](../joint-usb-sysid.md)。
+> **历史资料，当前不可按此操作。** USB关节试验及旧辨识固件已移除。
 
 > 大机器测试专用，`SYSID_ENABLE=1` 时生效。
 
@@ -19,7 +19,7 @@
 | 协议 | JustFloat（VOFA+） |
 | 每帧 | **37 × float32 小端 + 4 字节帧尾** `00 00 80 7F` = **152 字节**（`SYSID_LOG_FRAME_N=37`） |
 | 发送频率 | 设计值 **250 Hz**（commTask 1 kHz ÷ `SYSID_TX_DIV`，默认 4）。**现状**：`task_comm.c` 当前没有调用 `Sysid_Log_Send_Pump()`，sysid 帧只进环形缓冲、不上串口；且快照按 1 kHz 推入、发送泵最多 250 Hz 取出，接回后环形缓冲必然溢出（`drop_cnt` 涨、`seq` 跳号）。再次启用前须先定"推帧抽取"方案并接回发送泵，见 §5.3 |
-| 串口 | 由 `imcalib/user-lib/Vofa_send.h` 的 `VOFA_PORT` 宏选择：`1` = USART1（当前），`8` = UART8 |
+| 串口 | 由 `imcalib/bsp/Vofa_send.h` 的 `VOFA_PORT` 宏选择：`1` = USART1（当前），`8` = UART8 |
 | 波特率 | **1152000**（CubeMX 配置，Vofa+ 侧必须一致） |
 
 ### 1.2 列定义（37 列）
@@ -174,7 +174,7 @@ phase_or_event 为正数时，表示当前 run 内的段号（从 1 起），用
 
 ## 2. 坐标系与单位定义（给训练端）
 
-本节所有定义均从代码（`imcalib/Algorithm/leg_solver.c`、`imcalib/user-lib/machine_config.c`、`imcalib/task/robot_control.c`）直接读取。
+本节所有定义均从代码（`imcalib/Algorithm/leg_solver.c`、`imcalib/config/machine_config.c`、`imcalib/task/robot_control.c`）直接读取。
 
 ### 2.1 五连杆闭链几何
 
@@ -504,7 +504,7 @@ leg_r.input.hip_b = motor_state.dm.pos_zero_rad[后右]
 **上机前还必须确认这两个开关：**
 
 - `imcalib/task/robot_control.c` 的 `torque_output_enabled` 必须为 **1**（若为 0，全局只发零力矩，sysid 会立刻判定"不安全"并中止 —— 这是刻意的安全设计）
-- `imcalib/user-lib/Vofa_send.h` 的 `VOFA_PORT`（`8` = UART8 / `1` = USART1）要和 VOFA+ 实际接的那个口一致
+- `imcalib/bsp/Vofa_send.h` 的 `VOFA_PORT`（`8` = UART8 / `1` = USART1）要和 VOFA+ 实际接的那个口一致
 - **发送泵目前没接**：`task_comm.c` 里没有 `Sysid_Log_Send_Pump()` 的调用，也没有"测试模式停发 32 路"的分支；再次启用前要把这两处接回（属代码改动，需作者授权）
 - **1 kHz 推帧 vs 250 Hz 发送**：`Sysid_Mode_Run()` 每个 1 ms 周期推一帧，`SYSID_TX_DIV=4` 只能每 4 ms 发一帧；152 B × 1 kHz = 152 kB/s 也超过 1152000 波特的 115 kB/s 线速。接回发送泵前需先定"每 N 拍推一帧"之类的抽取方案，否则 `drop_cnt` 必涨、`seq` 必跳号
 

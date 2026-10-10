@@ -67,8 +67,8 @@
 | `imcalib/Algorithm/lqr_balance.c/h` | 10 维状态估计 + 增益求值 + 状态反馈求和 + 遥控目标 |
 | `imcalib/Algorithm/leg_balance.c/h` | 腿长/横滚 PID + 力向量合成 + 力域映射 + 限幅；防劈叉与手动腿测已移除 |
 | `imcalib/Algorithm/torque_output.h` | 公共输出结构（从 `rl_torque.h` 搬出，两边共用） |
-| `imcalib/user-lib/simple-function.c/h` | 一阶低通 + 斜坡函数 |
-| `imcalib/user-lib/kalman.c/h` | 带加速度输入的一维卡尔曼（照抄 Leg2_v1 `kalman.c`，速度估计用） |
+| `imcalib/common/simple-function.c/h` | 一阶低通 + 斜坡函数 |
+| `imcalib/common/kalman.c/h` | 带加速度输入的一维卡尔曼（照抄 Leg2_v1 `kalman.c`，速度估计用） |
 
 ### 2.2 控制链路（全部在 `actuationTask` @1 kHz；2026-09-22 变更 93 起为 估计 → 求解 → 分发 三层，`output_dispatch()` 是全文件唯一的 `Dm_Send / Dji_Send` 调用点）
 
@@ -151,7 +151,7 @@ x[1]   = vel_src ? ds_kf : ds_lpf(α=0.3)
 - 加速度输入用机器表符号处理后的 `imu_state.acc_g` 与 `quat`，两者符号是否自洽只能台架看（下面第 1 步）。
 - 投入瞬间不复位卡尔曼（同"滤波器常跑"原则），只清位移。
 
-台架验收（`ds_kf` / `a_fwd` 在调试器 Watch 里看 `lqr_state`；文中 VOFA 通道号为历史快照——ch12/13 曾让给 Leg2 腿长对照（变更 84，该对照已移除），ch26 = `x[1]` 为当时布局——当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准）：
+台架验收（`ds_kf` / `a_fwd` 在调试器 Watch 里看 `lqr_state`；文中 VOFA 通道号为历史快照——ch12/13 曾让给 Leg2 腿长对照（变更 84，该对照已移除），ch26 = `x[1]` 为当时布局——当前布局以 [vofa-debug.md](vofa-debug.md)为准）：
 1. 车着地静止不投入：`a_fwd` ≈ 0（±0.1 m/s²）、`ds_kf` ≈ 0 且 30 s 不漂；手把车身前后倾着不动，`a_fwd` 仍 ≈ 0。不为 0 → 机器表 `quat_sign` 与 `acc_sign` 不自洽，报现象、作者定。
 2. 手推车向前：`a_fwd` 起步为正、停下为负；`ds_kf` 与 ch26 同向同量级、更早起、不过冲。加速度反了 → 调试器把 `acc_fwd_sign` 置 −1，定后写死。
 3. 都过再投入 LQR 对比晃动；要退回旧低通把 `vel_src` 置 0。
@@ -184,7 +184,7 @@ rc_command ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg
 - 投入条件：使能 + 两腿解算有效，**腿长不限**（小机器零力矩架空时腿垂到机械限位 ≈0.20 m，正好压在区间上沿，浮点略超就会被"区间内才投入"拒掉；趴地则缩到 0.10 以下。`LQR_Enable_Latch(manual=1)` 现在不查区间；LQR 仍要求 0.13~0.20）。投入时腿长目标锁到当前实测、摆角目标清零、PID 历史清零；目标在区间外时拨轮只能往区间里拨，进区间后不再出去。右拨杆在手动腿测与 LQR 之间切换时会重新锁存。VOFA ch1 bit8 = 已投入（`output_task_lqr_engaged()`）；未投入时 `leg_balance.F/Tp/cmd` 清零。
 - 腿长定义：髋心到轮轴的距离 `|OP|`，**不含轮径**。Leg2_v1 的 `Leg_Position` 同一定义（两者逐点差 3e−9），Leg2 把它直接喂给 `LQR_K_WBR()`，K 表就是按这个腿长拟合的；轮径只进速度估计 `ω·R_w`。不要把轮径加进腿长。
 - `lqr_debug.hip_enable` / `len_pid_enable` / `trq_max_hip` 对这条链同样有效；`wheel_enable` 无关（轮恒为 0）。
-- 观测（变量名，VOFA 帧按测试阶段换内容，通道表以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准）：摆角 `leg_l/r.output.virtual_leg_angle`、腿长 `.virtual_leg_length`、目标 `lqr_state.leg_ang_tgt[]` / `leg_len_tgt[]`、力向量 `leg_balance.F[]` / `Tp[]`、四髋命令 `leg_balance.cmd.dm[0..3]`（前左/后左/前右/后右）、髋反馈 `motor_state.dm.trq_nm[]`。
+- 观测（变量名，VOFA 帧按测试阶段换内容，通道表以 [vofa-debug.md](vofa-debug.md)为准）：摆角 `leg_l/r.output.virtual_leg_angle`、腿长 `.virtual_leg_length`、目标 `lqr_state.leg_ang_tgt[]` / `leg_len_tgt[]`、力向量 `leg_balance.F[]` / `Tp[]`、四髋命令 `leg_balance.cmd.dm[0..3]`（前左/后左/前右/后右）、髋反馈 `motor_state.dm.trq_nm[]`。
 - 台架步骤见 §六 ⓪。
 
 ### 2.9 腿长解算与 Leg2_v1 并排对照 + 三角函数改 CMSIS-DSP（2026-09-21，作者：并排跑，看是否是解算问题）【并排对照部分已移除】
@@ -192,7 +192,7 @@ rc_command ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg
 作者照抄 Leg2 的零点与摆角偏置后腿长仍读 0.10~0.20，怀疑解算。数值核验（13912 姿态）两边几何逐点一致（差 3e−9 m，来源只是 Leg2 把 2·lu·lg 四舍五入成 0.0398891754），腿长闭式 `L = lu·cos(Δ/2) + √(lg² − lu²·sin²(Δ/2))`、`Δ = hip_b − hip_f` 只吃前后髋角差，`leg_off_phi0` 与两髋共模零点都不进腿长。为把"解算"这个嫌疑在台架上关掉，做两件事：
 
 - **并排对照【历史 / 已移除】**：`Leg_Position_Leg2(phi1, phi4)` 已从 `leg_solver.c` 删除。当时做法：逐行照抄 Leg2 `Matlab/Leg_Position.c`（杆长常数写死），只出腿长，不进控制。VOFA ch12/13 每拍发它算的左/右腿长，喂法同 Leg2 `leg.c:28-31`：左 `(pos[前左] + π, pos[后左])`；右 `(−pos[后右] + π, −pos[前右])`——负号是撤销本机驱动层对右侧的取反，回到 Leg2 直读的电机角，再按 Leg2 的前后互换。预期 ch12 与 ch9、ch13 与 ch10 全程重合；不重合才是解算问题。
-- **三角函数改 CMSIS-DSP**（仍在用）：`leg_solver.c` 的 `cosf/sinf/sqrtf` 改为 `arm_cos_f32/arm_sin_f32/arm_sqrt_f32`（同 Leg2 查表版），`LEG_TRIG_LIBM=1` 编译即退回 math.h（`leg_solver.c:5-22`）。查表与 libm 的腿长差 ≤ 4e−6 m。DSP 以源码方式进工程（`user-lib/arm_sin_f32.c` 等三个文件），接法见 AGENTS.md 关键约束。
+- **三角函数改 CMSIS-DSP**（仍在用）：`leg_solver.c` 的 `cosf/sinf/sqrtf` 改为 `arm_cos_f32/arm_sin_f32/arm_sqrt_f32`（同 Leg2 查表版），`LEG_TRIG_LIBM=1` 编译即退回 math.h（`leg_solver.c:5-22`）。查表与 libm 的腿长差 ≤ 4e−6 m。DSP 以源码方式进工程（`common/arm_sin_f32.c` 等三个文件），接法见 AGENTS.md 关键约束。
 
 台架【历史 / 已移除，依赖已删除的 `Leg_Position_Leg2`】：`dm_zero` 保持作者当前值，腿从趴地到垂到限位慢慢摆一遍，看 ch9/ch12、ch10/ch13 两对是否重合；同时记 ch3~6 四髋角与卷尺量的髋轴到轮轴距离，按 Δ 换算零点差模（对照表在 2026-09-21 对话）。
 
@@ -282,7 +282,7 @@ rc_command ──► LQR_Target_Update(manual=1)   拨轮按速率积分 → leg
 
 ## 六、台架验证顺序（任何一步不过就停）
 
-> 本文 VOFA 通道号为编写时的布局快照，当前布局以 `task_comm.c::Robot_Control_Send_Vofa()` 上方注释为准。涉及已删除功能（手动腿测、Sysid、Leg2 并排对照、`ds_alt`、`pitch_off`）的步骤标注【已移除 / 历史】，原步骤保留、不新编。
+> 本文 VOFA 通道号为编写时的布局快照，当前布局以 [vofa-debug.md](vofa-debug.md)为准。涉及已删除功能（手动腿测、Sysid、Leg2 并排对照、`ds_alt`、`pitch_off`）的步骤标注【已移除 / 历史】，原步骤保留、不新编。
 
 ```
 ⓪ 手动腿测（左拨杆中位、右拨杆上或下位，`ctrl_strategy` = 3）【已移除 / 历史：手动腿测与该挡位已从固件删除】。下面的量按变量名看（VOFA 帧内容随阶段变，见 `task_comm.c` 注释）：

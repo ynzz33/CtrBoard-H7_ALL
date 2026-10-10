@@ -94,8 +94,8 @@ class LqrAccelerationTest(unittest.TestCase):
                 with self.subTest(machine=machine):
                     exe=folder/f'lqr_accel{machine}.exe'
                     r=subprocess.run([compiler,'-std=c99','-Wall','-Wextra','-Werror',f'-DMACHINE_DEFAULT={machine}',
-                        '-I',str(ROOT/'imcalib/Algorithm'),'-I',str(ROOT/'imcalib/user-lib'),str(source),
-                        str(ROOT/'imcalib/user-lib/machine_config.c'),str(ROOT/'imcalib/Algorithm/slip.c'),
+                        '-I',str(ROOT/'imcalib/Algorithm'),"-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),str(source),
+                        str(ROOT/'imcalib/config/machine_config.c'),str(ROOT/'imcalib/Algorithm/slip.c'),
                         '-lm','-o',str(exe)],capture_output=True,text=True)
                     self.assertEqual(r.returncode,0,r.stdout+r.stderr)
                     r=subprocess.run([str(exe)],capture_output=True,text=True)

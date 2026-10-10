@@ -2,11 +2,11 @@
 #define RL_OBSERVATION_H
 
 #include <stdint.h>
+#include "rl_types.h"
 
 #define RL_OBS_SIZE           25u
 #define RL_OBS_HISTORY_FRAMES 5u
 #define RL_OBS_HISTORY_SIZE   (RL_OBS_SIZE * RL_OBS_HISTORY_FRAMES)
-#define RL_ACTION_SIZE        6u
 
 /* 训练侧观测参数 (chuanliantui_standup, 训练侧说明 2026-09-22) */
 #define RL_OBS_GYRO_SCALE        0.25f

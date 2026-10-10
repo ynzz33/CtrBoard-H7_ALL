@@ -1,7 +1,7 @@
 #include "rl_torque.h"
 #include "gas_spring.h"
 #include "machine_config.h"
-#include "robot_control.h"
+#include "math_utils.h"
 
 #include <math.h>
 #include <string.h>
@@ -21,23 +21,6 @@ enum {
     VJ_R_WHEEL = 5,
     VJ_NUM     = 6,
 };
-
-/* 检查数组 */
-static uint8_t RL_Torque_Array_Finite(const float *data, uint32_t count)
-{
-    if (data == NULL)
-    {
-        return 0u;
-    }
-    for (uint32_t i = 0u; i < count; i++)
-    {
-        if (!isfinite(data[i]))
-        {
-            return 0u;
-        }
-    }
-    return 1u;
-}
 
 /* 初始化参数: chuanliantui 起立策略 (networkzn1)
  * dof_pos = 训练默认角映射到固件关节 (zero + sign × 默认角, 见机器表 .rl)
@@ -71,35 +54,32 @@ void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
 void RL_Torque_State_Init(rl_torque_state_t *state,
                           const rl_torque_param_t *param)
 {
+    uint8_t joint;
+    uint8_t side;
+
     if (state == NULL || param == NULL)
     {
         return;
     }
     memset(state, 0, sizeof(*state));
-    /* 腿 PID 只放 P (D 项在 Compute 用关节速度算, 同仿真) */
-    PID_struct_init(&state->controller[VJ_L_THIGH], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[VJ_L_THIGH], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[VJ_L_SHANK], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[VJ_L_SHANK], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[VJ_L_WHEEL], POSITION_PID, 1000.0f,
-        0.0f, param->wheel_pid[0][0], param->wheel_pid[0][1], param->wheel_pid[0][2], 0.0f, 0.0f);
-    PID_struct_init(&state->controller[VJ_R_THIGH], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[VJ_R_THIGH], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[VJ_R_SHANK], POSITION_PID, 1000.0f,
-        0.0f, param->p_gains[VJ_R_SHANK], 0.0f, 0.0f, 0.0f, 0.0f);
-    PID_struct_init(&state->controller[VJ_R_WHEEL], POSITION_PID, 1000.0f,
-        0.0f, param->wheel_pid[1][0], param->wheel_pid[1][1], param->wheel_pid[1][2], 0.0f, 0.0f);
-    /* 关节 PID 开启角度环绕 */
-    state->controller[VJ_L_THIGH].angle_wrap = 1u;
-    state->controller[VJ_L_SHANK].angle_wrap = 1u;
-    state->controller[VJ_R_THIGH].angle_wrap = 1u;
-    state->controller[VJ_R_SHANK].angle_wrap = 1u;
-
-    /* pos_target 初始化为静息位 */
-    state->pos_target[VJ_L_THIGH] = param->dof_pos[VJ_L_THIGH];
-    state->pos_target[VJ_L_SHANK] = param->dof_pos[VJ_L_SHANK];
-    state->pos_target[VJ_R_THIGH] = param->dof_pos[VJ_R_THIGH];
-    state->pos_target[VJ_R_SHANK] = param->dof_pos[VJ_R_SHANK];
+    for (joint = 0u; joint < VJ_NUM; joint++)
+    {
+        if (joint == VJ_L_WHEEL || joint == VJ_R_WHEEL)
+        {
+            side = joint == VJ_L_WHEEL ? 0u : 1u;
+            PID_struct_init(&state->controller[joint], POSITION_PID, 1000.0f,
+                0.0f, param->wheel_pid[side][0], param->wheel_pid[side][1],
+                param->wheel_pid[side][2], 0.0f, 0.0f);
+        }
+        else
+        {
+            /* 腿部仅P */
+            PID_struct_init(&state->controller[joint], POSITION_PID, 1000.0f,
+                0.0f, param->p_gains[joint], 0.0f, 0.0f, 0.0f, 0.0f);
+            state->controller[joint].angle_wrap = 1u;
+            state->pos_target[joint] = param->dof_pos[joint];
+        }
+    }
 }
 
 /* 计算力矩 */
@@ -120,6 +100,10 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     float leg_limit;
     float wheel_limit;
 
+    if (torque == NULL)
+    {
+        return 0u;
+    }
     torque->dm[DM_MOTOR_LEG_F_LFT] = 0.0f;
     torque->dm[DM_MOTOR_LEG_B_LFT] = 0.0f;
     torque->dm[DM_MOTOR_LEG_F_RGT] = 0.0f;
@@ -128,7 +112,7 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     torque->dji[DJI_MOTOR_WHEEL_RGT] = 0.0f;
 
     if (leg_l == NULL || leg_r == NULL || param == NULL || state == NULL
-        || wheel_vel == NULL || action == NULL || torque == NULL)
+        || wheel_vel == NULL || action == NULL)
     {
         return 0u;
     }
@@ -136,8 +120,8 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     {
         return 0u;
     }
-    if (!RL_Torque_Array_Finite(action, RL_ACTION_SIZE)
-        || !RL_Torque_Array_Finite(wheel_vel, 2u))
+    if (!Float_Array_Finite(action, RL_ACTION_SIZE)
+        || !Float_Array_Finite(wheel_vel, 2u))
     {
         return 0u;
     }

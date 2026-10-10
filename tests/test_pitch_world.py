@@ -10,9 +10,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 HEADERS = {
+    "robot_state.h": "",
     "robot_control.h": """
 #include <stdint.h>
 #include "imu_state.h"
+#include "../task/inc/feedback_snapshot.h"
 extern imu_state_t imu_state;
 uint32_t __get_PRIMASK(void);
 void __disable_irq(void);
@@ -22,7 +24,7 @@ void __set_PRIMASK(uint32_t mask);
 #include <stdint.h>
 typedef struct {
     float quat[4], eul[3], gyr[3], acc[3];
-    uint32_t ts;
+    uint32_t ts;uint64_t received_ns;
 } hi229_data_t;
 void HI229_Process(void);
 uint8_t HI229_Online(void);
@@ -38,12 +40,17 @@ HARNESS = r"""
 #include <string.h>
 #include "pitch_world.h"
 #include "Attitude_Algorithm.h"
+#include "../task/inc/feedback_snapshot.h"
 #include "machine_config.h"
 #include "hi229.h"
 
 #define TEST_PI 3.14159265358979323846f
 #define TEST_PITCH_IDX ATTITUDE_ROLL
 imu_state_t imu_state;
+uint32_t __get_PRIMASK(void);
+void __disable_irq(void);
+void __set_PRIMASK(uint32_t mask);
+void Robot_Feedback_Publish_Imu(const imu_state_t *next, feedback_sample_t sample) { uint32_t mask=__get_PRIMASK(); __disable_irq();imu_state=*next;__set_PRIMASK(mask);(void)sample; }
 static hi229_data_t sample;
 static uint8_t online;
 static uint32_t irq_mask, publications;
@@ -289,11 +296,11 @@ class PitchWorldTest(unittest.TestCase):
         for machine in (0, 1):
             exe = folder / (f"pitch_world_{machine}" + (".exe" if os.name == "nt" else ""))
             sources = ["imcalib/task/pitch_world.c", "imcalib/task/task_imu.c",
-                       "imcalib/Algorithm/Attitude_Algorithm.c", "imcalib/user-lib/machine_config.c"]
+                       "imcalib/Algorithm/Attitude_Algorithm.c", "imcalib/config/machine_config.c"]
             result = subprocess.run(
                 [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", f"-DMACHINE_DEFAULT={machine}",
                  "-I", str(folder), "-I", str(ROOT / "imcalib/task"),
-                 "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/user-lib"),
+                 "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
                  str(harness), *[str(ROOT / p) for p in sources], "-lm", "-o", str(exe)],
                 capture_output=True, text=True, encoding="utf-8", errors="replace", env=cls.environment)
             if result.returncode:

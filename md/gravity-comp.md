@@ -6,6 +6,8 @@
 
 ## 模型与接口
 
+2026-10-10职责整理：台架、自起和LQR统一调用`leg_compensation.c/h`的`Leg_Compensation_Apply`组合原弹簧、重力、调试记录及调用方原限幅；`gravity_comp.c/h`仅保留重力模型及增量接口。原计算顺序、模型接口和物理量保持。公共入口与调试顺序见[code-maintenance.md](code-maintenance.md)。
+
 `machine->gravity` 绑定只读模型，大机采用当前 H7的单腿质量及既有 `tools/matlab/reference/leg3_leg_data.m` 中当前 K采用的有效节点，只复制腿长、质心偏角和髋到质心距离。来源、质量、惯量和 K均不改；小机未绑定，正常控制原样通过。
 
 世界腿角 alpha前摆正，表偏角 delta沿用来源约定。完整补偿 `Tg=m*g*r(L)*sin(alpha-delta)`，单位 N·m，已属于本机 Tp，不再套 `Tp=-uHip` 或 Leg3右腿镜像。通过原 `Leg_Force_Map_Forward(leg,0,Tg)` 分配到两髋，轴向力增量为零。现有气弹簧仍补负 Fs轴向力。
@@ -17,11 +19,11 @@
 - 台架 `solve_compensation`：零基础 → 原弹簧 Apply → 重力 Apply → 原机器限幅 → 唯一 `output_dispatch`。
 - 自起 `Standup_Torque_Output`：原 F/Tp映射 → 弹簧 → 完整重力 → 原机器限幅。alpha取本拍实际腿角减 `pitch_world`；原 tp_max仅限制基础摆矩，重力随后叠加。
 - LQR `Leg_Balance_Output`：原 F/Tp映射 → 弹簧 → 完整重力 → 原髋限幅。alpha取本拍LQR世界腿角。`lb->F/Tp`保留基础值，重力另记；hip_enable只关基础LQR摆矩，补偿保留。
-- 自起交接后只由最终LQR路径发布一次补偿。RL和关节USB不新增重力项。
+- 自起交接后只由最终LQR路径发布一次补偿。RL不新增重力项。
 
 运行时旧弹簧台架标志删除。统一仲裁直接判断在线左中右上，选择 `CTRL_STRATEGY_COMPENSATION`，只出弹簧与完整重力、轮零；不执行LQR目标/控制、腿长/横滚PID、自起求解、RL力矩求解或推理。估计与观测预览仍可运行。两模型必须可用且弹簧编译开关开启，不依赖K就绪，缺配置不回落LQR。
 
-左中右中为自起/LQR并加重力，左中右下零力矩，左上右中原RL，左下/离线失能。USB锁优先，未释放不能进台架。原在线、故障、翻倒和总输出保护保留；台架没有自起翻倒恢复许可。小机不开放该组合台架挡。失败或退出时发零并清本拍已发布有效状态。
+左中右中为自起/LQR并加重力，左中右下零力矩，左上右中原RL，左下/离线失能。原在线、故障、翻倒和总输出保护保留；台架没有自起翻倒恢复许可。小机不开放该组合台架挡。失败或退出时发零并清本拍已发布有效状态。
 
 ## VOFA与Watch
 

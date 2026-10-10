@@ -26,7 +26,7 @@ def without_includes(source):
 
 
 def production_function(source, name):
-    match = re.search(r"^(?:static\s+)?(?:void|float|uint8_t|int16_t|uint16_t)\s+" + name + r"\([^)]*\)\s*\{", source, re.M)
+    match = re.search(r"^(?:static\s+)?(?:void|float|uint8_t|int16_t|uint16_t|HAL_StatusTypeDef)\s+" + name + r"\([^)]*\)\s*\{", source, re.M)
     if match is None:
         raise AssertionError("missing production function: " + name)
     depth, end = 1, match.end()
@@ -48,20 +48,21 @@ HEADERS = r"""
 #include <math.h>
 #include <float.h>
 #include "arm_math.h"
+#include "math_utils.h"
+#include "motor_types.h"
+#include "rc_types.h"
+#include "rl_types.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "machine_config.h"
 #include "gas_spring.h"
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 #include "pid.h"
 #include "simple-function.h"
 #include "kalman.h"
-#define RL_ACTION_SIZE 6
 #define CTRL_DT MACHINE_CTRL_DT
-typedef int rl_model_t;
-typedef struct { int unused; } rc_command_t;
 typedef struct { int unused; } imu_state_t;
 """
 
@@ -252,7 +253,7 @@ static void make_lqr(lqr_state_t *state, leg_balance_t *balance)
 static uint8_t run_lqr(lqr_state_t *state, leg_balance_t *balance, torque_output_t *torque)
 {
     Torque_Output_Clear(torque);
-    torque->valid = Leg_Balance_Compute(balance, state, &left_leg, &right_leg, CTRL_DT, torque);
+    torque->valid = Leg_Balance_Compute(balance, state, &left_leg, &right_leg,&lqr_debug, CTRL_DT, torque);
     return torque->valid;
 }
 
@@ -643,6 +644,82 @@ static void rl_control_period(void)
     near(controller.controller[VJ_L_WHEEL].iout,2.0f*0.4f*error*expected_dt);
 }
 
+static void rl_pid_initialization(void)
+{
+    const unsigned leg_indices[4] = {0,1,3,4};
+    rl_torque_state_t controller;
+    unsigned i,j;
+
+    fixture_setup();
+    for(i=0;i<6;i++) {
+        parameters.p_gains[i]=10+i;
+        parameters.d_gains[i]=90+i;
+        parameters.dof_pos[i]=.2f*(i+1);
+    }
+    for(i=0;i<2;i++) {
+        for(j=0;j<3;j++) {parameters.wheel_pid[i][j]=1+i*3+j;}
+    }
+    memset(&controller,0xa5,sizeof(controller));
+    RL_Torque_State_Init(&controller,&parameters);
+    for(i=0;i<4;i++) {
+        j=leg_indices[i];
+        near(controller.controller[j].p,parameters.p_gains[j]);
+        near(controller.controller[j].i,0);near(controller.controller[j].d,0);
+        assert(controller.controller[j].angle_wrap);
+        near(controller.pos_target[j],parameters.dof_pos[j]);
+    }
+    near(controller.controller[2].p,1);near(controller.controller[2].i,2);near(controller.controller[2].d,3);
+    near(controller.controller[5].p,4);near(controller.controller[5].i,5);near(controller.controller[5].d,6);
+    assert(!controller.controller[2].angle_wrap && !controller.controller[5].angle_wrap);
+    near(controller.pos_target[2],0);near(controller.pos_target[5],0);
+    for(i=0;i<6;i++) {
+        near(controller.controller[i].MaxOutput,1000);
+        near(controller.controller[i].pos_out,0);
+    }
+    assert(!controller.last_torque.valid);
+}
+
+static void leg_runtime_config(void)
+{
+    lqr_state_t state;
+    leg_balance_t balance;
+    torque_output_t torque;
+    lqr_runtime_config_t config;
+
+    fixture_setup();
+    make_lqr(&state,&balance);
+    config=lqr_debug;
+    config.wheel_enable=1;config.hip_enable=0;config.len_pid_enable=0;
+    config.trq_max_wheel=.25f;
+    lqr_debug.wheel_enable=0;lqr_debug.hip_enable=1;lqr_debug.len_pid_enable=1;
+    lqr_debug.trq_max_hip=lqr_debug.trq_max_wheel=0;
+    Torque_Output_Clear(&torque);
+    assert(Leg_Balance_Compute(&balance,&state,&left_leg,&right_leg,&config,CTRL_DT,&torque));
+    near(torque.dji[0],.25f);near(torque.dji[1],-.25f);
+    near(balance.Tp[0],0);near(balance.Tp[1],0);
+    near(balance.F[0],machine->lqr.support_force[0]);
+    near(balance.F[1],machine->lqr.support_force[1]);
+    config.wheel_enable=0;
+    assert(Leg_Balance_Compute(&balance,&state,&left_leg,&right_leg,&config,CTRL_DT,&torque));
+    near(torque.dji[0],0);near(torque.dji[1],0);
+    assert(!Leg_Balance_Compute(&balance,&state,&left_leg,&right_leg,NULL,CTRL_DT,&torque));
+}
+
+static void rl_null_output(void)
+{
+    torque_output_t torque;
+    unsigned i;
+
+    fixture_setup();
+    assert(!RL_Torque_Compute(&left_leg,&right_leg,&parameters,
+        wheel_velocity,actions,NULL,NULL));
+    memset(&torque,0xa5,sizeof(torque));
+    assert(!RL_Torque_Compute(NULL,&right_leg,&parameters,
+        wheel_velocity,actions,NULL,&torque));
+    for(i=0;i<4;i++) {near(torque.dm[i],0);}
+    for(i=0;i<2;i++) {near(torque.dji[i],0);}
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
@@ -657,6 +734,9 @@ int main(int argc, char **argv)
     case 6: production_output_gate(); break;
     case 7: full_motor_output(); break;
     case 8: rl_control_period(); break;
+    case 9: rl_pid_initialization(); break;
+    case 10: rl_null_output(); break;
+    case 11: leg_runtime_config(); break;
     default: assert(0); break;
     }
     return 0;
@@ -681,25 +761,26 @@ class GasSpringIntegrationTest(unittest.TestCase):
         rl_source = read("imcalib/Algorithm/rl_torque.c")
         rl_preamble = "\n".join(re.findall(r"^#define RL_TQ_\w+[^\n]*", rl_source, re.M))
         rl_preamble += "\n" + re.search(r"enum\s*\{[^}]*\bVJ_NUM\b[^}]*\};", rl_source).group()
-        dji_defines = "\n".join(re.findall(r"^#define DJI_\w+\s+[^\n]+", read("imcalib/user-lib/dji.h"), re.M))
+        dji_defines = "\n".join(re.findall(r"^#define DJI_\w+\s+[^\n]+", read("imcalib/drivers/dji.h"), re.M))
         content = [
             HEADERS,
-            production_enum(read("imcalib/user-lib/dm.h"), "dm_motor_idx_t"),
-            production_enum(read("imcalib/user-lib/dji.h"), "dji_motor_type_t"),
+
+
             dji_defines,
-            without_includes(read("imcalib/user-lib/machine_config.c")).split("const machine_cfg_t *const machine")[0],
+            without_includes(read("imcalib/config/machine_config.c")).split("const machine_cfg_t *const machine")[0],
             without_includes(read("imcalib/Algorithm/torque_output.h")),
             without_includes(read("imcalib/Algorithm/rl_torque.h")),
             without_includes(read("imcalib/Algorithm/lqr_balance.h")),
             without_includes(read("imcalib/Algorithm/leg_balance.h")),
             STUBS,
-            production_function(read("imcalib/user-lib/dji.c"), "Dji_Torque_To_Current"),
-            production_function(read("imcalib/user-lib/dm.c"), "Dm_Float_To_Uint"),
+            production_function(read("imcalib/drivers/dji.c"), "Dji_Torque_To_Current"),
+            production_function(read("imcalib/drivers/dm.c"), "Dm_Float_To_Uint"),
             without_includes(read("imcalib/Algorithm/gas_spring.c")),
             without_includes(read("imcalib/Algorithm/gravity_comp.c")),
+            without_includes(read("imcalib/Algorithm/leg_compensation.c")),
             rl_preamble,
             *[production_function(rl_source, name) for name in (
-                "RL_Torque_Array_Finite", "RL_Torque_State_Init", "RL_Torque_Compute")],
+                "RL_Torque_State_Init", "RL_Torque_Compute")],
             without_includes(read("imcalib/Algorithm/leg_balance.c")),
             "static compensation_debug_t pending_compensation;\nstatic uint8_t ctrl_strategy;\n"
             "static struct { uint8_t drive; } control_frame = {1};\nstatic uint32_t ctrl_fault;\n"
@@ -718,9 +799,9 @@ class GasSpringIntegrationTest(unittest.TestCase):
                     compiler, "-std=c99", "-Wall", "-Wextra", "-Werror", "-DLEG_TRIG_LIBM=1",
                     f"-DMACHINE_DEFAULT={machine_id}", f"-DGAS_SPRING_COMP_ENABLE={enabled}",
                     "-I", str(folder), "-I", str(ROOT / "imcalib/Algorithm"),
-                    "-I", str(ROOT / "imcalib/user-lib"), str(harness),
-                    str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/user-lib/pid.c"),
-                    str(ROOT / "imcalib/user-lib/simple-function.c"),
+                    "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"), str(harness),
+                    str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/common/pid.c"),
+                    str(ROOT / "imcalib/common/simple-function.c"),
                     "-lm", "-o", str(executable),
                 ], capture_output=True, text=True, env=cls.environment)
                 if result.returncode:
@@ -761,10 +842,19 @@ class GasSpringIntegrationTest(unittest.TestCase):
     def test_rl_pid_uses_its_own_execution_period(self):
         self.run_case(8)
 
+    def test_rl_pid_initialization_preserves_leg_and_wheel_roles(self):
+        self.run_case(9)
+
+    def test_rl_rejects_null_output_before_writing(self):
+        self.run_case(10)
+
+    def test_leg_control_uses_supplied_config_instead_of_globals(self):
+        self.run_case(11)
+
     def test_normal_vofa_layout_has_no_gas_page_hook(self):
-        source = read("imcalib/task/task_comm.c")
-        normal = production_function(source, "Robot_Control_Send_Vofa")
-        self.assertIn("lqr_state.x", normal)
+        source = read("imcalib/task/vofa_debug.c")
+        normal = production_function(source, "Vofa_Debug_Send")
+        self.assertIn("lqr_state.x", source)
         self.assertIn("Vofa_Send(dbg,", normal)
         self.assertNotIn("Robot_Control_Gas_Vofa", source)
 

@@ -4,7 +4,7 @@
 #include "leg_solver.h"
 #include "imu_state.h"
 #include "torque_output.h"
-#include "gravity_comp.h"
+#include "leg_compensation.h"
 #include "pid.h"
 #include "simple-function.h"
 

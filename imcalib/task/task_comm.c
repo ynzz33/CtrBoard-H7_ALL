@@ -1,20 +1,11 @@
 #include "robot_control.h"
-#include "Attitude_Algorithm.h"
+#include "robot_state.h"
 #include "dr16.h"
 #include "dm.h"
 #include "dji.h"
 #include "can_bus.h"
 #include "machine_config.h"
-#include "standup.h"
-#include "air_detection.h"
-#include "Vofa_send.h"
-#include "uart_idle.h"
-#include "ws2812.h"
 #include "mono_ns.h"
-#include "task.h"
-#include "../Telemetry/vofa_trace.h"
-#include "../Telemetry/joint_usb.h"
-#include "usbd_cdc_if.h"
 
 #include <math.h>
 #include <string.h>
@@ -49,35 +40,29 @@ static void Motor_State_Update(motor_state_t *next)
     next->updated = 1u;
 }
 
+/* 更新单腿 */
+static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, leg_state_t *leg)
+{
+    if (map->configured
+        && (uint8_t)map->dm_front < DM_MOTOR_NUM && (uint8_t)map->dm_rear < DM_MOTOR_NUM)
+    {
+        leg->input.hip_f = motor->dm.pos_zero_rad[map->dm_front] + LEG_PI;
+        leg->input.hip_b = motor->dm.pos_zero_rad[map->dm_rear];
+        leg->input.d_hip_f = motor->dm.vel_rad_s[map->dm_front];
+        leg->input.d_hip_b = motor->dm.vel_rad_s[map->dm_rear];
+        (void)Leg_Solve(leg);
+    }
+    else
+    {
+        memset(&leg->output, 0, sizeof(leg->output));
+    }
+}
+
 /* 更新腿部状态 */
 static void Leg_State_Update(const motor_state_t *motor, leg_state_t *left, leg_state_t *right)
 {
-    if (leg_map_l.configured
-        && (uint8_t)leg_map_l.dm_front < DM_MOTOR_NUM && (uint8_t)leg_map_l.dm_rear < DM_MOTOR_NUM)
-    {
-        left->input.hip_f = motor->dm.pos_zero_rad[leg_map_l.dm_front] + LEG_PI;
-        left->input.hip_b = motor->dm.pos_zero_rad[leg_map_l.dm_rear];
-        left->input.d_hip_f = motor->dm.vel_rad_s[leg_map_l.dm_front];
-        left->input.d_hip_b = motor->dm.vel_rad_s[leg_map_l.dm_rear];
-        (void)Leg_Solve(left);
-    }
-    else
-    {
-        memset(&left->output, 0, sizeof(left->output));
-    }
-    if (leg_map_r.configured
-        && (uint8_t)leg_map_r.dm_front < DM_MOTOR_NUM && (uint8_t)leg_map_r.dm_rear < DM_MOTOR_NUM)
-    {
-        right->input.hip_f = motor->dm.pos_zero_rad[leg_map_r.dm_front] + LEG_PI;
-        right->input.hip_b = motor->dm.pos_zero_rad[leg_map_r.dm_rear];
-        right->input.d_hip_f = motor->dm.vel_rad_s[leg_map_r.dm_front];
-        right->input.d_hip_b = motor->dm.vel_rad_s[leg_map_r.dm_rear];
-        (void)Leg_Solve(right);
-    }
-    else
-    {
-        memset(&right->output, 0, sizeof(right->output));
-    }
+    Leg_Side_Update(motor, &leg_map_l, left);
+    Leg_Side_Update(motor, &leg_map_r, right);
 }
 
 /* 更新遥控: 指令解算 + 使能 */
@@ -86,17 +71,16 @@ static void Remote_Control_Update(void)
     dr16_t remote;
     rc_command_t next;
     uint8_t rc_enable;
+    feedback_sample_t received;
 
     DR16_Process();
     remote = DR16_Snapshot();
     next = rc_command;
     Rc_Command_Update(&next, &remote);
     rc_enable = strategy_rc_enable(&next);
-    taskENTER_CRITICAL();
-    rc_command = next;
-    robot_state.rc_enable = rc_enable;
-    input_command.mode = remote.online ? remote.s1 : 0u;
-    taskEXIT_CRITICAL();
+    received.received_ns = remote.received_ns;
+    received.seen = remote.online;
+    Robot_Feedback_Publish_Rc(&next, rc_enable, remote.online ? remote.s1 : 0u, received);
 }
 
 
@@ -213,115 +197,14 @@ static void Robot_Enable_Update(void)
     }
 }
 
-static void Robot_Control_Send_Vofa(void)
-{
-    static float dbg[VOFA_MAX_CH];
-    uint8_t online_mask;
-    uint16_t state_bits;
-    struct {
-        compensation_debug_t compensation;
-        float command[DM_MOTOR_NUM];
-        float feedback[DM_MOTOR_NUM];
-        float length[2];
-        air_detection_t air;
-    } snapshot;
-    uint8_t motor_index;
-    uint8_t compensation_bits;
-
-    memset(dbg, 0, sizeof(dbg));
-    /* ch0 在线掩码 */
-    online_mask  = imu_state.online ? 0x01u : 0x00u;
-    online_mask |= DR16_Online() ? 0x02u : 0x00u;
-    online_mask |= motor_state.dm.online[0] ? 0x04u : 0x00u;
-    online_mask |= motor_state.dm.online[1] ? 0x08u : 0x00u;
-    online_mask |= motor_state.dm.online[2] ? 0x10u : 0x00u;
-    online_mask |= motor_state.dm.online[3] ? 0x20u : 0x00u;
-    online_mask |= motor_state.dji.online[0] ? 0x40u : 0x00u;
-    online_mask |= motor_state.dji.online[1] ? 0x80u : 0x00u;
-    dbg[0] = (float)online_mask;
-
-    /* ch1 状态位: 使能/跌倒/左腿有效/右腿有效/四髋使能/已投入 */
-    state_bits  = robot_state.motor_enabled ? 0x01u : 0x00u;
-    state_bits |= robot_state.fallen ? 0x02u : 0x00u;
-    state_bits |= leg_l.output.valid ? 0x04u : 0x00u;
-    state_bits |= leg_r.output.valid ? 0x08u : 0x00u;
-    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_LFT) ? 0x10u : 0x00u;
-    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_LFT) ? 0x20u : 0x00u;
-    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_F_RGT) ? 0x40u : 0x00u;
-    state_bits |= Dm_Is_Enabled(DM_MOTOR_LEG_B_RGT) ? 0x80u : 0x00u;
-    state_bits |= output_task_lqr_engaged() ? 0x100u : 0x00u;
-    state_bits |= output_task_rl_engaged() ? 0x200u : 0x00u;
-    dbg[1] = (float)state_bits;
-    dbg[2] = (float)ctrl_fault;
-
-
-    for(int i = 0;i<10;i++)
-    {
-        dbg[i + 3] = lqr_state.x[i];
-    }
-    for(int i = 0;i<10;i++)
-    {
-        dbg[i + 13] = lqr_state.target[i];
-    }
-    dbg[23] = lqr_state.a_fwd;
-    taskENTER_CRITICAL();
-    snapshot.compensation = compensation_debug;
-    for (motor_index = 0u; motor_index < DM_MOTOR_NUM; motor_index++)
-    {
-        snapshot.command[motor_index] = rl_output_dm_cmd_nm[motor_index];
-        snapshot.feedback[motor_index] = motor_state.dm.trq_nm[motor_index];
-    }
-    snapshot.length[0] = leg_l.output.virtual_leg_length;
-    snapshot.length[1] = leg_r.output.virtual_leg_length;
-    snapshot.air = air_debug;
-    taskEXIT_CRITICAL();
-    for (motor_index = 0u; motor_index < 2u; motor_index++)
-    {
-        dbg[24u + motor_index] = snapshot.compensation.gravity.leg[motor_index].torque;
-        dbg[26u + motor_index] = snapshot.compensation.gravity.leg[motor_index].world_angle;
-    }
-    for (motor_index = 0u; motor_index < DM_MOTOR_NUM; motor_index++)
-    {
-        dbg[28u + motor_index] = snapshot.command[motor_index];
-        dbg[32u + motor_index] = snapshot.feedback[motor_index];
-    }
-    dbg[36] = snapshot.length[0];
-    dbg[37] = snapshot.length[1];
-    compensation_bits = snapshot.compensation.gravity.valid ? 0x01u : 0u;
-    compensation_bits |= snapshot.compensation.bench ? 0x02u : 0u;
-    compensation_bits |= snapshot.compensation.gravity.leg[0].clamped ? 0x04u : 0u;
-    compensation_bits |= snapshot.compensation.gravity.leg[1].clamped ? 0x08u : 0u;
-    compensation_bits |= snapshot.compensation.saturated ? 0x10u : 0u;
-    dbg[38] = (float)compensation_bits;
-    if (air_param.vofa_page)
-    {
-        dbg[24] = snapshot.air.leg[0].force;
-        dbg[25] = snapshot.air.leg[1].force;
-        dbg[26] = snapshot.air.mean_force;
-        dbg[27] = (float)snapshot.air.flight;
-        dbg[28] = snapshot.air.elapsed;
-        dbg[29] = air_param.force_off;
-        dbg[30] = air_param.force_on;
-        dbg[31] = (float)(snapshot.air.valid | (snapshot.air.fault << 1u)
-            | (snapshot.air.applied << 2u) | (snapshot.air.flight << 3u)
-            | (snapshot.air.armed << 4u));
-        dbg[32] = snapshot.air.leg[0].motor_force;
-        dbg[33] = snapshot.air.leg[1].motor_force;
-        dbg[34] = snapshot.air.leg[0].pressure;
-        dbg[35] = snapshot.air.leg[1].pressure;
-        dbg[36] = snapshot.air.leg[0].wheel_acceleration;
-        dbg[37] = snapshot.air.leg[1].wheel_acceleration;
-        dbg[38] = (float)air_param.control_enabled;
-    }
-    (void)Vofa_Send(dbg, VOFA_MAX_CH);
-}
-
 /* 通信单周期 */
 void comm_task_body(void)
 {
     motor_state_t next_motor;
     leg_state_t next_left;
     leg_state_t next_right;
+    feedback_sample_t received[DM_MOTOR_NUM + DJI_MOTOR_NUM];
+    uint8_t i;
 
     Dm_Parse();
     Dji_Parse();
@@ -330,32 +213,21 @@ void comm_task_body(void)
     next_right = leg_r;
     Motor_State_Update(&next_motor);
     Leg_State_Update(&next_motor, &next_left, &next_right);
-    taskENTER_CRITICAL();
-    motor_state = next_motor;
-    leg_l = next_left;
-    leg_r = next_right;
-    taskEXIT_CRITICAL();
+    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        received[i].received_ns = dm_motor_feedback[i].parsed_rx_ns;
+        received[i].seen = dm_motor_feedback[i].parsed_seen;
+    }
+    for (i = 0u; i < DJI_MOTOR_NUM; i++)
+    {
+        received[DM_MOTOR_NUM + i].received_ns = dji_motor_feedback[i].parsed_rx_ns;
+        received[DM_MOTOR_NUM + i].seen = dji_motor_feedback[i].parsed_seen;
+    }
+    Robot_Feedback_Publish_Motor(&next_motor, &next_left, &next_right, received);
 
-    WS2812_RainbowBlink();
     Remote_Control_Update();
-    JointUsb_Process();
     Robot_Fault_Update();
     Robot_Fallen_Update();
     Robot_Enable_Update();
-    JointUsb_Pump();
-    /* 策略追踪与普通 VOFA 同口互斥 */
-    if (Vofa_Transport_Update((uint8_t)(!robot_state.motor_enabled
-        && !JointUsb_ModeLock() && !JointUsb_StreamRequested())))
-    {
-        Vofa_Trace_Discard();
-    }
-    if (!Vofa_Trace_Pump())
-    {
-        Robot_Control_Send_Vofa();
-    }
     
-    // Dm_Send_Command(0, DM_CMD_SET_ZERO);
-    // Dm_Send_Command(1, DM_CMD_SET_ZERO); 
-    // Dm_Send_Command(2, DM_CMD_SET_ZERO);
-    // Dm_Send_Command(3, DM_CMD_SET_ZERO); 
 }

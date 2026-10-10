@@ -13,9 +13,6 @@ from test_gas_spring_integration import (
 
 
 FIXTURE = r"""
-#define DR16_SW_UP 1
-#define DR16_SW_DOWN 2
-#define DR16_SW_MID 3
 static leg_state_t leg_l, leg_r;
 static rc_command_t rc_command;
 static struct { uint8_t rc_enable, motor_enabled, fallen; } robot_state;
@@ -24,7 +21,8 @@ static uint32_t ctrl_fault;
 #define Robot_Control_Vofa_Diag_Update(request) ((void)(request))
 #define taskENTER_CRITICAL() ((void)0)
 #define taskEXIT_CRITICAL() ((void)0)
-static struct { struct { float trq_nm[4]; uint64_t parsed_rx_ns[4]; uint8_t online[4]; } dm; struct { float vel_rad_s[2]; } dji; } motor_state;
+static motor_state_t motor_state;
+static struct { uint8_t mode; } input_command;
 static imu_state_t imu_state;
 static struct { uint8_t rl_ready; float a[6]; } action_state;
 static struct {
@@ -35,23 +33,21 @@ static struct {
 static lqr_state_t lqr_state;
 static leg_balance_t leg_balance;
 static ctrl_strategy_t ctrl_strategy;
-static unsigned rl_calls, lqr_calls, usb_calls;
-static uint8_t usb_lock;
+static unsigned rl_calls, lqr_calls;
 static int htim6;
 static int HAL_TIM_Base_Start_IT(int *timer) { (void)timer; return HAL_OK; }
 static void Error_Handler(void) { assert(0); }
 static uint64_t Mono_Ns_Get(void) { return 1; }
-static uint8_t JointUsb_ModeLock(void) { return usb_lock; }
-static uint8_t JointUsb_EnableAllowed(void) { return 1; }
+
+
 static int Dm_All_Enable(void) { return HAL_OK; }
 static uint8_t Dm_Is_Enabled(uint8_t i) { return i < 4; }
 static int Dm_All_Disable(void) { return HAL_OK; }
 static void Dm_Enable_Watchdog(void) {}
 static void Dm_Disable_Watchdog(void) {}
-static uint8_t JointUsb_StreamRequested(void) { return 0; }
-static void JointUsb_Compute(torque_output_t *t) { (void)t; usb_calls++; }
-static void JointUsb_ActuationTick(const torque_output_t *t, uint64_t ns, uint8_t ok)
-{ (void)t; (void)ns; (void)ok; }
+
+
+
 #define LQR_Gain_Compatible() (machine->lqr_configured)
 #define LQR_Ready() (machine->lqr_configured)
 #define LQR_State_Update(a,b,c,d,e,f) ((void)(e),(void)(f),(a)->valid=(b)->online && (c)->output.valid && (d)->output.valid,(a)->valid)
@@ -61,7 +57,7 @@ static void JointUsb_ActuationTick(const torque_output_t *t, uint64_t ns, uint8_
 #define Leg_Balance_Reset(a) ((void)(a))
 #define LQR_Target_Update(a,b,c) ((void)(a),(void)(b),(void)(c),0)
 #define LQR_Control_Update(a) ((void)(a),++lqr_calls)
-#define Leg_Balance_Compute(a,b,c,d,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),(void)(f),0)
+#define Leg_Balance_Compute(a,b,c,d,config,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(config),(void)(e),(void)(f),0)
 #define RL_Torque_Compute(a,b,c,d,e,f,g) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),(void)(f),(void)(g),++rl_calls,0)
 """
 
@@ -72,7 +68,7 @@ static void tick(uint8_t expect_output)
     float delta[2];
     const leg_state_t *leg[2] = {&leg_l, &leg_r};
     output_task_body();
-    assert(!rl_calls && !lqr_calls && !usb_calls);
+    assert(!rl_calls && !lqr_calls);
     assert(!output_task_lqr_engaged());
     if (ctrl_strategy == CTRL_STRATEGY_COMPENSATION) { assert(!output_task_rl_engaged()); }
     assert(fixture_sent_wheel[0] == 0 && fixture_sent_wheel[1] == 0);
@@ -100,9 +96,7 @@ int main(void)
     ctrl_fault = 1; Robot_Enable_Update(); assert(!robot_state.motor_enabled);
     ctrl_fault = 0; robot_state.fallen = 1;
     Robot_Enable_Update(); assert(!robot_state.motor_enabled);
-    robot_state.fallen = 0; usb_lock = 1;
-    Robot_Enable_Update(); assert(robot_state.motor_enabled);
-    usb_lock = 0;
+    robot_state.fallen = 0;
     fixture_machine = machine_table[MACHINE_DEFAULT];
     fixture_machine.dm_trq_clamp = 40;
     fixture_machine.rl.configured = fixture_machine.lqr_configured = 1;
@@ -143,16 +137,14 @@ int main(void)
         robot_state.motor_enabled = 0; tick(0); robot_state.motor_enabled = 1;
         robot_state.rc_enable = 0; tick(0); robot_state.rc_enable = 1;
     }
-    usb_lock = 1; tick(0); assert(ctrl_strategy == CTRL_STRATEGY_DISABLE); usb_lock = 0;
     rc_command.online = 0; tick(0); assert(!strategy_rc_enable(&rc_command));
     assert(!strategy_rc_enable(NULL));
     rc_command.online = 1; robot_state.rc_enable = 1;
     rc_command.s1 = DR16_SW_UP; rc_command.s2 = DR16_SW_MID;
     assert(strategy_from_remote(&rc_command) == CTRL_STRATEGY_RL);
     rc_command.s1 = DR16_SW_MID; assert(strategy_from_remote(&rc_command) == CTRL_STRATEGY_LQR);
-    usb_lock = 1; assert(strategy_from_remote(&rc_command) == CTRL_STRATEGY_DISABLE);
     rc_command.s1 = DR16_SW_UP; rc_command.s2 = DR16_SW_DOWN;
-    assert(strategy_from_remote(&rc_command) == CTRL_STRATEGY_JOINT_USB);
+    assert(strategy_from_remote(&rc_command) == CTRL_STRATEGY_RL);
     return 0;
 }
 """
@@ -164,14 +156,13 @@ static void normal_tick(unsigned expected)
     unsigned i;
     robot_state.rc_enable=strategy_rc_enable(&rc_command);
     Robot_Enable_Update();
-    rl_calls=lqr_calls=usb_calls=0;
+    rl_calls=lqr_calls=0;
     output_task_body();
     if (rl_calls!=(expected==2) || lqr_calls!=(expected==1)) {
         fprintf(stderr,"s1=%u s2=%u expected=%u rl=%u lqr=%u valid=%u fault=%u online=%u\n",
             rc_command.s1,rc_command.s2,expected,rl_calls,lqr_calls,lqr_state.valid,ctrl_fault,imu_state.online);
         assert(0);
     }
-    assert(!usb_calls);
     for(i=0;i<4;i++) { assert(fixture_sent_dm[i]==(float)expected); }
     for(i=0;i<2;i++) { assert(fabsf(fixture_sent_wheel[i]-0.1f*expected)<0.0001f); }
 }
@@ -314,8 +305,6 @@ int main(void)
         for(right=1;right<=3;right++) {
             rc_command.s1=left;rc_command.s2=right;
             mode=Control_Mode_Decode(&rc_command);
-            assert(mode.usb_permit==(left==DR16_SW_UP && right==DR16_SW_DOWN));
-            assert(mode.usb_reset==(left==DR16_SW_DOWN));
             if(left==DR16_SW_MID && right==DR16_SW_UP) {
                 assert(mode.strategy==(available?CTRL_STRATEGY_COMPENSATION:CTRL_STRATEGY_DISABLE));
                 assert(mode.engage);expected_enable=available;
@@ -330,12 +319,12 @@ int main(void)
             }
             assert(mode.rc_enable==expected_enable && strategy_rc_enable(&rc_command)==expected_enable);
             rc_command.online=0;mode=Control_Mode_Decode(&rc_command);
-            assert(mode.strategy==CTRL_STRATEGY_DISABLE && !mode.rc_enable && !mode.engage && !mode.usb_permit);
+            assert(mode.strategy==CTRL_STRATEGY_DISABLE && !mode.rc_enable && !mode.engage);
             rc_command.online=1;
         }
     }
     mode=Control_Mode_Decode(NULL);
-    assert(mode.strategy==CTRL_STRATEGY_DISABLE && !mode.rc_enable && !mode.engage && !mode.usb_permit && !mode.usb_reset);
+    assert(mode.strategy==CTRL_STRATEGY_DISABLE && !mode.rc_enable && !mode.engage);
     fixture_machine.lqr_configured=0;rc_command.s1=DR16_SW_MID;rc_command.s2=DR16_SW_UP;
     mode=Control_Mode_Decode(&rc_command);assert(mode.rc_enable==available);
     return 0;
@@ -371,8 +360,8 @@ class GasSpringBenchTest(unittest.TestCase):
             "#define LQR_Control_Update(a) ((void)(a),++lqr_calls)",
             "#define LQR_Control_Update(a) ((a)->gain_valid=1,++lqr_calls)")
         fixture = fixture.replace(
-            "#define Leg_Balance_Compute(a,b,c,d,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),(void)(f),0)",
-            "#define Leg_Balance_Compute(a,b,c,d,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),fixture_output(f,1))")
+            "#define Leg_Balance_Compute(a,b,c,d,config,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(config),(void)(e),(void)(f),0)",
+            "#define Leg_Balance_Compute(a,b,c,d,config,e,f) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(config),(void)(e),fixture_output(f,1))")
         fixture = fixture.replace(
             "#define RL_Torque_Compute(a,b,c,d,e,f,g) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),(void)(f),(void)(g),++rl_calls,0)",
             "#define RL_Torque_Compute(a,b,c,d,e,f,g) ((void)(a),(void)(b),(void)(c),(void)(d),(void)(e),(void)(f),++rl_calls,fixture_output(g,2))")
@@ -393,8 +382,8 @@ static uint8_t fixture_output(torque_output_t *t, float value)
             self.skipTest("no native C compiler; set CC to host gcc")
         environment = os.environ.copy()
         environment["PATH"] = str(Path(compiler).parent) + os.pathsep + environment.get("PATH", "")
-        headers = HEADERS.replace("int unused; } rc_command_t", "uint8_t online, s1, s2; float vel, yaw, len; } rc_command_t")
-        headers = headers.replace("typedef struct { int unused; } imu_state_t;", '#include "imu_state.h"\n#include "slip.h"\n#include "air_detection.h"')
+        headers = HEADERS
+        headers = headers.replace("typedef struct { int unused; } imu_state_t;", '#include "imu_state.h"\n#include "../task/inc/feedback_snapshot.h"\n#include "slip.h"\n#include "air_detection.h"')
         actuation = without_includes(read("imcalib/task/task_actuation.c"))
         actuation = actuation.replace("volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];", "")
         actuation = actuation.replace("volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];", "")
@@ -410,9 +399,9 @@ static uint8_t fixture_output(torque_output_t *t, float value)
             timing += "static int osSemaphoreRelease(int h) { (void)h; policy_releases++; return 0; }\n"
             timing += production_function(read("imcalib/task/robot_control.c"), "Policy_Tick_Div")
         content = [headers,
-                   without_includes(read("imcalib/user-lib/machine_config.c")).split("const machine_cfg_t *const machine")[0],
-                   production_enum(read("imcalib/user-lib/dm.h"), "dm_motor_idx_t"),
-                   "#define DJI_MOTOR_NUM 2\n#define DJI_MOTOR_WHEEL_LFT 0\n#define DJI_MOTOR_WHEEL_RGT 1",
+                   without_includes(read("imcalib/config/machine_config.c")).split("const machine_cfg_t *const machine")[0],
+
+
                    without_includes(read("imcalib/Algorithm/torque_output.h")),
                    without_includes(read("imcalib/Algorithm/rl_torque.h")),
                    without_includes(read("imcalib/Algorithm/lqr_balance.h")),
@@ -423,7 +412,9 @@ static uint8_t fixture_output(torque_output_t *t, float value)
                        read("imcalib/task/inc/robot_control.h")).group(),
                    timing, stubs, fixture, without_includes(read("imcalib/Algorithm/gas_spring.c")),
                    without_includes(read("imcalib/Algorithm/gravity_comp.c")),
+            without_includes(read("imcalib/Algorithm/leg_compensation.c")),
                    without_includes(read("imcalib/Algorithm/standup.c")),
+                   without_includes(read("imcalib/task/feedback_snapshot.c")),
                    actuation,
                    "static inline ctrl_strategy_t strategy_from_remote(const rc_command_t *cmd) { "
                    "rc_control_mode_t mode=Control_Mode_Decode(cmd); return strategy_from_mode(&mode); }",
@@ -440,8 +431,8 @@ static uint8_t fixture_output(torque_output_t *t, float value)
                         result = subprocess.run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
                             "-DLEG_TRIG_LIBM=1", f"-DMACHINE_DEFAULT={machine_id}",
                             f"-DGAS_SPRING_COMP_ENABLE={enabled}", "-I", str(folder),
-                            "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/user-lib"),
-                            str(source), str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/Algorithm/slip.c"), str(ROOT / "imcalib/Algorithm/air_detection.c"), str(ROOT / "imcalib/Algorithm/Attitude_Algorithm.c"), str(ROOT / "imcalib/user-lib/pid.c"), str(ROOT / "imcalib/user-lib/simple-function.c"), "-lm", "-o", str(exe)],
+                            "-I", str(ROOT / "imcalib/Algorithm"), "-I", str(ROOT / "imcalib/drivers"), "-I", str(ROOT / "imcalib/bsp"), "-I", str(ROOT / "imcalib/common"), "-I", str(ROOT / "imcalib/config"), "-I", str(ROOT / "imcalib/task/inc"),
+                            str(source), str(ROOT / "imcalib/Algorithm/leg_solver.c"), str(ROOT / "imcalib/Algorithm/slip.c"), str(ROOT / "imcalib/Algorithm/air_detection.c"), str(ROOT / "imcalib/Algorithm/Attitude_Algorithm.c"), str(ROOT / "imcalib/common/pid.c"), str(ROOT / "imcalib/common/simple-function.c"), "-lm", "-o", str(exe)],
                             capture_output=True, text=True, encoding="utf-8", errors="replace", env=environment)
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         result = subprocess.run([str(exe)], capture_output=True, text=True, encoding="utf-8", errors="replace", env=environment)

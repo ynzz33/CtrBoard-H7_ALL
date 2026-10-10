@@ -167,6 +167,7 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
+    background_task_body();
     osDelay(1);
   }
   /* USER CODE END StartDefaultTask */

@@ -3,11 +3,11 @@
 
 #include <stdint.h>
 
-#include "dm.h"
-#include "dji.h"
+#include "motor_types.h"
 #include "leg_solver.h"
 #include "pid.h"
-#include "rl_policy.h"
+#include "rl_types.h"
+#include "rl_observation.h"
 #include "torque_output.h"
 
 typedef struct {

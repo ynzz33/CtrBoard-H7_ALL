@@ -28,7 +28,7 @@
 | ch29 | `imu_state.pitch_world`，rad；替换左腿原始摆角 |
 | ch30 | `imu_state.pitch_world_valid`，0/1；替换右腿原始摆角 |
 
-其余普通通道及策略追踪 32 通道帧保持原布局。ch11 是控制状态更新时的读数，ch29 是最新 IMU 帧读数，两者跨任务时间不同；静止比较能排除这个时差。普通帧布局见 [双机 LQR](lqr-dual-machine.md)。
+下述通道号为历史布局，当前普通帧见[vofa-debug.md](vofa-debug.md)。ch11 是控制状态更新时的读数，ch29 是最新 IMU 帧读数，两者跨任务时间不同；静止比较能排除这个时差。普通帧布局见 [双机 LQR](lqr-dual-machine.md)。
 
 ## 验证
 

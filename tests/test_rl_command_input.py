@@ -37,6 +37,10 @@ HEADERS = r"""
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
+#include "motor_types.h"
+#include "rc_types.h"
+#include "../task/inc/feedback_snapshot.h"
+#include "rl_types.h"
 #include <stdio.h>
 #include <string.h>
 #include "rc_command.h"
@@ -44,15 +48,12 @@ HEADERS = r"""
 #include "imu_state.h"
 #include "machine_config.h"
 #include "rl_policy.h"
-#define DM_MOTOR_NUM 4
-#define DJI_MOTOR_NUM 2
-#define DJI_MOTOR_WHEEL_LFT 0
-#define DJI_MOTOR_WHEEL_RGT 1
 """
 
 
 STUBS = r"""
 static imu_state_t imu_state;
+static struct { uint8_t rc_enable; } robot_state;
 static motor_state_t motor_state;
 static leg_state_t leg_l, leg_r;
 static action_state_t action_state;
@@ -64,7 +65,7 @@ static struct {
     rl_policy_t policy;
 } rl_control;
 static uint8_t fixture_engaged, network_success;
-static unsigned network_calls, trace_calls, network_init_calls;
+static unsigned network_calls, network_init_calls;
 static uint32_t fixture_tick;
 static float captured_obs[RL_OBS_SIZE], captured_history[RL_OBS_HISTORY_SIZE];
 static const float network_action[RL_ACTION_SIZE] = {0.125f, -0.25f, 0.375f,
@@ -73,7 +74,9 @@ static uint32_t __get_PRIMASK(void) { return 0; }
 static void __disable_irq(void) {}
 static void __set_PRIMASK(uint32_t value) { (void)value; }
 static uint32_t HAL_GetTick(void) { return fixture_tick; }
-static uint64_t Mono_Ns_Get(void) { return (uint64_t)fixture_tick * 1000000; }
+static uint64_t Mono_Ns_Get(void) { return (uint64_t)fixture_tick*1000000; }
+#define taskENTER_CRITICAL() __disable_irq()
+#define taskEXIT_CRITICAL() __set_PRIMASK(0)
 static uint8_t output_task_rl_engaged(void) { return fixture_engaged; }
 uint8_t RL_Policy_Init(rl_policy_t *policy)
 {
@@ -97,19 +100,12 @@ uint8_t RL_Policy_Run(rl_policy_t *policy, const rl_observation_state_t *observa
     policy->run_us = 77;
     return 1;
 }
-static void Vofa_Trace_Record(const imu_state_t *imu,
-                              const rl_observation_state_t *observation,
-                              const float action[RL_ACTION_SIZE], uint64_t time_us,
-                              uint8_t engaged, uint8_t ready, float inference_us)
-{
-    (void)imu; (void)observation; (void)action; (void)time_us;
-    (void)engaged; (void)ready; (void)inference_us;
-    trace_calls++;
-}
+
 """
 
 
 HARNESS = r"""
+static const robot_feedback_t *feedback_current(void) { static robot_feedback_t f;Robot_Feedback_Read(&f);return &f; }
 static void near(float actual, float expected)
 {
     if (fabsf(actual - expected) > 1.0e-5f)
@@ -122,7 +118,7 @@ static void rc(int16_t yaw_raw, int16_t velocity_raw, int16_t height_raw,
                int16_t left_y_raw, uint8_t online)
 {
     dr16_t remote = {0};
-    remote.ch0 = yaw_raw;
+    remote.ch2 = yaw_raw;
     remote.ch1 = velocity_raw;
     remote.wheel = height_raw;
     remote.ch3 = left_y_raw;
@@ -165,7 +161,7 @@ static void setup(void)
     }
     fixture_engaged = 0;
     network_success = 1;
-    network_calls = trace_calls = network_init_calls = 0;
+    network_calls = network_init_calls = 0;
     fixture_tick = 1000;
     warmup_cnt = 0;
     rc(0, 0, 0, 0, 1);
@@ -176,7 +172,7 @@ static void setup(void)
 static void commands(float vx, float yaw, float height)
 {
     float command[3];
-    RL_Command_From_Rc(command);
+    RL_Command_From_Rc(&rc_command,command);
     near(command[0], vx); near(command[1], yaw); near(command[2], height);
     near(input_command.vx_cmd, vx);
     near(input_command.yaw_cmd, yaw);
@@ -185,11 +181,8 @@ static void commands(float vx, float yaw, float height)
 static void build(void)
 {
     float command[3];
-    imu_state_t used_imu;
-    uint64_t time_us;
-    RL_Command_From_Rc(command);
-    assert(RL_Control_Update_Observation(command, &used_imu, &time_us));
-    assert(time_us == (uint64_t)fixture_tick * 1000);
+    RL_Command_From_Rc(&rc_command,command);
+    assert(RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
 }
 static void all_actions_zero(void)
 {
@@ -214,7 +207,9 @@ int main(int argc, char **argv)
     unsigned i, frame;
     assert(argc == 2);
     setup();
-    if (strcmp(argv[1], "compensation_idle_no_inference") != 0)
+    if (strcmp(argv[1], "compensation_idle_no_inference") != 0
+        && strcmp(argv[1], "observation_modes") != 0
+        && strcmp(argv[1], "current_limits") != 0)
     {
         assert(RL_CMD_VX_MAX == 1.0f && RL_CMD_YAW_MAX == 3.0f);
     }
@@ -225,13 +220,13 @@ int main(int argc, char **argv)
         rc(-660, -660, -660, -660, 1); commands(-1.0f, -3.0f, RL_CMD_HEIGHT_INIT - 0.003f);
         rc(0, 0, 0, 0, 1); commands(0, 0, RL_CMD_HEIGHT_INIT - 0.003f);
         rc(-660, -660, -660, -660, 1);
-        for (i = 0; i < 100; i++) { RL_Command_From_Rc(command); }
+        for (i = 0; i < 100; i++) { RL_Command_From_Rc(&rc_command,command); }
         commands(-1.0f, -3.0f, RL_CMD_HEIGHT_MIN);
         rc(660, 660, 660, 660, 1); commands(1.0f, 3.0f, RL_CMD_HEIGHT_MIN + 0.003f);
-        for (i = 0; i < 100; i++) { RL_Command_From_Rc(command); }
+        for (i = 0; i < 100; i++) { RL_Command_From_Rc(&rc_command,command); }
         rc(1000, 1000, 1000, 1000, 1); commands(1.0f, 3.0f, RL_CMD_HEIGHT_MAX);
         rc(-1000, -1000, -1000, -1000, 1);
-        for (i = 0; i < 100; i++) { RL_Command_From_Rc(command); }
+        for (i = 0; i < 100; i++) { RL_Command_From_Rc(&rc_command,command); }
         rc(-1000, -1000, -1000, -1000, 1); commands(-1.0f, -3.0f, RL_CMD_HEIGHT_MIN);
     }
     else if (strcmp(argv[1], "deadband_and_offline") == 0)
@@ -288,13 +283,16 @@ int main(int argc, char **argv)
         assert(network_calls == 1 && action_state.updated && action_state.rl_ready);
         assert(action_state.last_ok_tick == fixture_tick);
         near(captured_obs[6], 2.0f); near(captured_obs[7], 0.75f);
-        near(captured_obs[8], RL_CMD_HEIGHT_MAX * 5.0f);
+        near(captured_obs[8], 1.315f);
         near(captured_obs[9], -0.34f); near(captured_obs[10], 0.40f);
         near(captured_obs[11], 0.14f); near(captured_obs[12], -0.20f);
         for (frame = 0; frame < RL_OBS_HISTORY_FRAMES; frame++)
         {
-            assert(!memcmp(&captured_history[frame * RL_OBS_SIZE], captured_obs,
-                           sizeof(captured_obs)));
+            for (i=0;i<RL_OBS_SIZE;i++)
+            {
+                near(captured_history[frame*RL_OBS_SIZE+i],
+                    i==8 ? (.251f+.003f*frame)*5.0f : captured_obs[i]);
+            }
         }
         for (i = 0; i < RL_ACTION_SIZE; i++)
         {
@@ -339,7 +337,7 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "preview_no_inference") == 0)
     {
         rc(-660, 660, -660, 0, 1); ctrl_task_body();
-        assert(network_calls == 0 && trace_calls == 1 && warmup_cnt == 0);
+        assert(network_calls == 0 && warmup_cnt == 0);
         assert(!action_state.rl_ready && !rl_control.observation.history_ready);
         all_actions_zero();
         near(rl_control.observation.obs[6], 2.0f);
@@ -377,7 +375,7 @@ int main(int argc, char **argv)
         float pos[4], vel[6];
         const float expected_pos[4] = {-0.4f, 0.5f, 0.2f, -0.3f};
         const float expected_vel[6] = {-3, -4, 6, 1, 2, -5};
-        assert(RL_Joint_Map(pos, vel));
+        assert(RL_Joint_Map(feedback_current(),pos, vel));
         for (i = 0; i < 4; i++) { near(pos[i], expected_pos[i]); }
         for (i = 0; i < 6; i++) { near(vel[i], expected_vel[i]); }
     }
@@ -390,6 +388,51 @@ int main(int argc, char **argv)
         build();
         for (i = 9; i < 13; i++) { near(rl_control.observation.obs[i], 0); }
     }
+    else if (strcmp(argv[1], "current_limits") == 0)
+    {
+        float command[3];
+        assert(RL_CMD_VX_MAX==0 && RL_CMD_YAW_MAX==0);
+        fixture_engaged=1;rc(660,660,660,0,1);
+        RL_Command_From_Rc(&rc_command,command);
+        near(command[0],0);near(command[1],0);near(command[2],.233f);
+        rc(-660,-660,-660,0,1);RL_Command_From_Rc(&rc_command,command);
+        near(command[0],0);near(command[1],0);near(command[2],.23f);
+        build();near(rl_control.observation.obs[6],0);near(rl_control.observation.obs[7],0);
+    }
+    else if (strcmp(argv[1], "observation_modes") == 0)
+    {
+        float command[3] = {0,0,RL_CMD_HEIGHT_INIT};
+        motor_state.dm.online[3] = 0;
+        fixture_engaged = 0; ctrl_task_body();
+        assert(rl_control.observation.valid && !rl_control.observation.history_ready);
+        assert(!action_state.rl_ready && !network_calls);
+        fixture_engaged = 1; ctrl_task_body();
+        assert(!rl_control.observation.valid && !rl_control.observation.history_ready);
+        assert(!action_state.rl_ready && !warmup_cnt);
+        motor_state.dm.online[3] = 1;
+        assert(RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        assert(rl_control.observation.history_ready);
+        (void)RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_PREVIEW);
+        assert(rl_control.observation.valid && !rl_control.observation.history_ready);
+        for(i=0;i<RL_OBS_HISTORY_SIZE;i++) {near(rl_control.observation.history[i],0);}
+        imu_state.quat[0]=2;imu_state.quat[2]=2;
+        assert(RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        near(rl_control.observation.obs[3],1);
+        near(rl_control.observation.obs[4],0);
+        near(rl_control.observation.obs[5],0);
+        memset(imu_state.quat,0,sizeof(imu_state.quat));
+        assert(!RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        assert(!rl_control.observation.valid && !rl_control.observation.history_ready);
+        imu_state.quat[0]=1;imu_state.quat[2]=NAN;
+        assert(!RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        imu_state.quat[2]=0;imu_state.quat[0]=1e-7f;
+        assert(!RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        imu_state.quat[0]=INFINITY;
+        assert(!RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        imu_state.quat[0]=1;
+        assert(RL_Control_Update_Observation(feedback_current(),command, RL_OBSERVATION_HISTORY));
+        near(rl_control.observation.obs[5],-1);
+    }
     else { assert(!"unknown scenario"); }
     puts(argv[1]); return 0;
 }
@@ -400,26 +443,31 @@ class RlCommandInputTest(unittest.TestCase):
     def test_real_rc_observation_and_publication_with_network_double(self):
         self.run_scenarios(("command_range", "deadband_and_offline", "observation_and_history",
                             "inference_publication", "command_changes", "preview_no_inference", "invalid_source",
-                            "network_failure", "joint_roles", "default_pose"))
+                            "network_failure", "joint_roles", "default_pose"), training_limits=True)
+
+    def test_current_production_limits(self):
+        self.run_scenarios(("current_limits",))
 
     def test_compensation_idle_suppresses_inference_and_restores_warmup(self):
         self.run_scenarios(("compensation_idle_no_inference",))
 
-    def run_scenarios(self, scenarios):
+    def test_preview_history_online_gates_and_quaternion_errors(self):
+        self.run_scenarios(("observation_modes",))
+
+    def run_scenarios(self, scenarios, training_limits=False):
         compiler = os.environ.get("CC") or shutil.which("gcc")
         if compiler is None:
             self.skipTest("no native C compiler; set CC to host gcc")
-        header = (ROOT / "imcalib/task/inc/robot_control.h").read_text(encoding="utf-8")
+        header = (ROOT / "imcalib/task/inc/robot_state.h").read_text(encoding="utf-8")
         source = (ROOT / "imcalib/task/task_policy.c").read_text(encoding="utf-8")
         source = re.sub(r"^#include[^\n]*", "", source, flags=re.M)
         parts = [HEADERS]
-        for name in ("dm_motor_state_t", "dji_motor_state_t", "motor_state_t",
-                     "action_state_t", "input_command_t"):
+        for name in ("action_state_t", "input_command_t"):
             parts.append(production_type(header, name))
         parts.extend([STUBS, production_function(
-            (ROOT / "imcalib/user-lib/dr16.c").read_text(encoding="utf-8"), "DR16_Deadline"),
-            production_function((ROOT / "imcalib/user-lib/pid.c").read_text(encoding="utf-8"),
-                                "Angle_Wrap_180"), source, HARNESS])
+            (ROOT / "imcalib/drivers/dr16.c").read_text(encoding="utf-8"), "DR16_Deadline"),
+            production_function((ROOT / "imcalib/common/pid.c").read_text(encoding="utf-8"),
+                                "Angle_Wrap_180"), re.sub(r"^#include[^\n]*", "", (ROOT / "imcalib/task/feedback_snapshot.c").read_text(encoding="utf-8"), flags=re.M), source, HARNESS])
         environment = os.environ.copy()
         if os.name == "nt":
             resolved = shutil.which(compiler) or compiler
@@ -434,11 +482,16 @@ class RlCommandInputTest(unittest.TestCase):
             (folder / "ai_platform.h").write_text(
                 "typedef void *ai_handle;\ntypedef struct { void *data; } ai_buffer;\n",
                 encoding="utf-8")
+            if training_limits:
+                policy_header = (ROOT / "imcalib/Algorithm/rl_policy.h").read_text(encoding="utf-8")
+                policy_header = re.sub(r"(#define RL_CMD_VX_MAX\s+)\S+", r"\g<1>1.0f", policy_header)
+                policy_header = re.sub(r"(#define RL_CMD_YAW_MAX\s+)\S+", r"\g<1>3.0f", policy_header)
+                (folder / "rl_policy.h").write_text(policy_header, encoding="utf-8")
             command = [compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
-                       "-I" + str(folder), "-I" + str(ROOT / "imcalib/user-lib"),
+                       "-I" + str(folder), "-I" + str(ROOT / "imcalib/drivers"), "-I" + str(ROOT / "imcalib/bsp"), "-I" + str(ROOT / "imcalib/common"), "-I" + str(ROOT / "imcalib/config"), "-I" + str(ROOT / "imcalib/task/inc"),
                        "-I" + str(ROOT / "imcalib/Algorithm"), str(host),
-                       str(ROOT / "imcalib/user-lib/rc_command.c"),
-                       str(ROOT / "imcalib/user-lib/machine_config.c"),
+                       str(ROOT / "imcalib/task/rc_command.c"),
+                       str(ROOT / "imcalib/config/machine_config.c"),
                        str(ROOT / "imcalib/Algorithm/rl_observation.c"),
                        "-lm", "-o", str(executable)]
             result = subprocess.run(command, capture_output=True, text=True, env=environment)
