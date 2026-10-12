@@ -1,3 +1,5 @@
+> 2026-10-11：作者已要求清理未使用的VOFA传输标识与切换逻辑，当前VOFA仅经机器配置选定的串口DMA发送。下文USB VOFA流程为历史说明；USB设备基础代码保留，不再接入当前Vofa_Send。现状见vofa-debug.md。
+
 # USB CDC普通VOFA发送（MC02H7）
 
 2026-10-09：独立策略追踪、USB关节试验及宿主策略协议已移除。保留普通VOFA经UART或USB CDC发送，USB接收不再解析控制命令。字段见[vofa-debug.md](vofa-debug.md)。

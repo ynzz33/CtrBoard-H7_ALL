@@ -1,3 +1,12 @@
+/*
+ * 文件职责：五连杆运动学、速度和力映射（leg_solver.h）。
+ * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
+ * 输入/来源：机器表几何与左右腿前/后髋角度、角速度。
+ * 输出/去向：求虚拟腿长/腿角、关节速度、雅可比，并在轴向力/摆矩和两髋力矩间转换。
+ * 关键边界：几何有效与力映射有效分开；奇异/非有限输入拒绝映射；实体极性和零点在驱动/配置层处理。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #ifndef LEG_SOLVER_H
 #define LEG_SOLVER_H
 
@@ -56,10 +65,10 @@ typedef struct {
     float qb;           /* 后髋角 */
     float vf;           /* 前髋速度 */
     float vb;           /* 后髋速度 */
-    float lu;
-    float lg;
-    float phi_a;        /* 前杆角度 */
-    float phi_b;        /* 后杆角度 */
+    float lu;           /* 上杆长 */
+    float lg;           /* 下杆长 */
+    float phi_a;        /* 前下杆AP角 */
+    float phi_b;        /* 后下杆BP角 */
     float virtual_leg_angle_abs;    /* 虚拟腿摆角绝对值 */
 } leg_solver_cache_t;
 

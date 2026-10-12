@@ -1,10 +1,17 @@
+/*
+ * 文件职责：DR16遥控协议校验与在线管理（dr16.c）。
+ * 输入/来源：uart_idle交出的接收字节和时间戳。
+ * 输出/去向：解析通道/拨杆/鼠标键盘、缓存有效帧并提供协议快照/在线状态。
+ * 关键边界：驱动不决定LQR/RL模式，也不直接控制电机；统一指令转换由rc_command处理。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "dr16.h"
 #include "uart_idle.h"
 #include "usart.h"
 #include <string.h>
 
 dr16_t dr16 = {0};
-static volatile bool dr16_parsing = false;
 
 /* 数据校验 */
 static bool DR16_Validate(const dr16_t *r)
@@ -47,12 +54,10 @@ static void DR16_Parse(const uint8_t *buf, uint64_t received_ns)
     if (!DR16_Validate(&parsed))
         return;
 
-    dr16_parsing       = true;
     parsed.online      = true;
     parsed.last_rx_tick = HAL_GetTick();
     parsed.received_ns = received_ns;
     dr16               = parsed;
-    dr16_parsing       = false;
 }
 
 /* 回调桩 */
@@ -104,10 +109,8 @@ int16_t DR16_Deadline(int16_t input, uint16_t deadline)
     return 0;
 }
 
-/* 快照: 正在接收则跳过，避免跨帧混值 */
+/* 快照: 返回 dr16 副本 */
 dr16_t DR16_Snapshot(void)
 {
-    if (dr16_parsing)
-        return dr16;
     return dr16;
 }

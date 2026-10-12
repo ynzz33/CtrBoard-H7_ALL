@@ -1,5 +1,5 @@
-ctrboard-h7_all\can_bus.o: ../imcalib/user-lib/can_bus.c
-ctrboard-h7_all\can_bus.o: ../imcalib/user-lib/can_bus.h
+ctrboard-h7_all\can_bus.o: ../imcalib/bsp/can_bus.c
+ctrboard-h7_all\can_bus.o: ../imcalib/bsp/can_bus.h
 ctrboard-h7_all\can_bus.o: ../Core/Inc/main.h
 ctrboard-h7_all\can_bus.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\can_bus.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -44,6 +44,7 @@ ctrboard-h7_all\can_bus.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd
 ctrboard-h7_all\can_bus.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\can_bus.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
 ctrboard-h7_all\can_bus.o: ../Core/Inc/fdcan.h
+ctrboard-h7_all\can_bus.o: ../imcalib/common/motor_types.h
 ctrboard-h7_all\can_bus.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
 ctrboard-h7_all\can_bus.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
 ctrboard-h7_all\can_bus.o: ../Core/Inc/FreeRTOSConfig.h

@@ -1,3 +1,11 @@
+/*
+ * 文件职责：离地/落地状态估计（air_detection.c）。
+ * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩/接收时刻与IMU。
+ * 输出/去向：发布支持力、armed/valid/flight及压缩诊断，执行层决定是否切换控制。
+ * 关键边界：新反馈才推进计时；输入无效保留flight并清连续计时；不直接改腿长目标或电机输出。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "air_detection.h"
 #include "Attitude_Algorithm.h"
 #include "gas_spring.h"
@@ -7,7 +15,8 @@
 #include <string.h>
 
 air_param_t air_param = {
-    .enabled = 1u, .control_enabled = 1u, .vofa_page = 0u,
+    .enabled = 1u, .control_enabled = 1u, .vofa_page = 4u,
+    .landing_enabled = 1u, .compression_enabled = 1u,
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
     .wheel_mass = 0.65f, .force_off = 20.0f, .force_on = 35.0f,
     .hip_max = 10.0f,
@@ -18,11 +27,16 @@ air_param_t air_param = {
     .time_off = 0.01f, .time_on = 0.02f,
     .sample_timeout = 0.05f, .sample_skew = 0.005f,
     .derivative_tau = 0.01f, .force_tau = 0.01f,
+    .compression_on = 0.01f, .compression_time = 0.05f,
 };
 air_detection_t air_detection;
 volatile air_detection_t air_debug;
 
 /* 重新等待样本 */
+/*
+ * 清空本次检测所有历史，包括armed、flight、样本时间和悬空峰值。
+ * 许可/模式退出调用此接口；再次投入必须重新确认初次支撑，不能把清零当作真实落地事件。
+ */
 void Air_Detection_Reset(air_detection_t *state)
 {
     if (state != NULL)
@@ -31,17 +45,33 @@ void Air_Detection_Reset(air_detection_t *state)
     }
 }
 
+/*
+ * 按enabled/control_enabled/flight决定是否选择空中控制。
+ * valid表示观测是否新鲜，不等同于接地；短暂无效期间仍可保留上次AIR状态。
+ */
 uint8_t Air_Detection_Active(const air_detection_t *state)
 {
     return (uint8_t)(state != NULL && air_param.enabled && air_param.control_enabled
         && state->flight);
 }
 
+/* 清条件计时 */
+static void Air_Timer_Reset(air_detection_t *state)
+{
+    state->elapsed = 0.0f;
+    state->landing[0].elapsed = 0.0f;
+    state->landing[1].elapsed = 0.0f;
+}
+
 /* 失效不算接地 */
+/*
+ * 观测失效时清连续条件计时并保留flight和悬空峰值。
+ * valid_ns用于判断持续失效是否报fault；恢复时重新播种差分，不能借用失效时间确认接地。
+ */
 static void Air_Invalid(air_detection_t *state, uint64_t now)
 {
     state->valid = 0u;
-    state->elapsed = 0.0f;
+    Air_Timer_Reset(state);
     if (state->valid_ns == 0u)
     {
         state->valid_ns = now;
@@ -65,10 +95,18 @@ static uint8_t Air_Params_Valid(void)
         && isfinite(air_param.sample_skew) && air_param.sample_skew >= 0.0f
         && isfinite(air_param.derivative_tau) && air_param.derivative_tau >= 0.0f
         && isfinite(air_param.force_tau) && air_param.force_tau >= 0.0f
-        && isfinite(air_param.hip_max) && air_param.hip_max > 0.0f);
+        && isfinite(air_param.hip_max) && air_param.hip_max > 0.0f
+        && (!air_param.compression_enabled
+            || (isfinite(air_param.compression_on) && air_param.compression_on > 0.0f
+                && isfinite(air_param.compression_time) && air_param.compression_time > 0.0f)));
 }
 
 /* 单腿支持力 */
+/*
+ * 由同侧前后髋反馈反解电机轴向力/摆矩，计回实体弹簧并扣除自重摆矩。
+ * 将力投影到世界竖直方向，再用机体/腿投影加速度估计轮重动态项；滤波得到本腿FN。
+ * 首帧没有可靠差分，必须先播种；这里计算的是支持力估计，不是长度PID给定或发送力矩。
+ */
 static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,
     const air_input_t *input, uint8_t side, uint8_t seeded, float az)
 {
@@ -134,10 +172,18 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,
 }
 
 /* 均值迟滞计时 */
-static void Air_State_Update(air_detection_t *state, float dt)
+/*
+ * 先确认初次支撑armed，再按低支持力的连续时间确认离地。
+ * AIR有效新样本更新各腿峰值；压缩模式使用每腿独立计时，任一腿达时即可恢复整机接地。
+ * landing_enabled关闭时只观察峰值/压缩，不退出AIR；非压缩模式才使用高支持力落地。
+ */
+static void Air_State_Update(air_detection_t *state, const air_input_t *input,
+    float dt, const float leg_dt[2])
 {
     float duration;
+    float length;
     uint8_t condition;
+    uint8_t side;
 
     if (!state->armed)
     {
@@ -149,6 +195,37 @@ static void Air_State_Update(air_detection_t *state, float dt)
         }
         return;
     }
+    if (state->flight)
+    {
+        for (side = 0u; side < 2u; side++)
+        {
+            length = input->leg[side]->output.virtual_leg_length;
+            state->landing[side].peak_length = fmaxf(state->landing[side].peak_length, length);
+            state->landing[side].compression = state->landing[side].peak_length - length;
+        }
+        if (!air_param.landing_enabled)
+        {
+            Air_Timer_Reset(state);
+            return;
+        }
+        if (air_param.compression_enabled)
+        {
+            for (side = 0u; side < 2u; side++)
+            {
+                state->landing[side].elapsed = state->landing[side].compression >= air_param.compression_on
+                    ? state->landing[side].elapsed + leg_dt[side] : 0.0f;
+            }
+            state->elapsed = fmaxf(state->landing[0].elapsed, state->landing[1].elapsed);
+            if (state->elapsed + 1.0e-6f >= air_param.compression_time)
+            {
+                state->flight = 0u;
+                state->elapsed = 0.0f;
+            }
+            return;
+        }
+        state->landing[0].elapsed = 0.0f;
+        state->landing[1].elapsed = 0.0f;
+    }
     condition = state->flight ? (uint8_t)(state->mean_force > air_param.force_on)
         : (uint8_t)(state->mean_force < air_param.force_off);
     duration = state->flight ? air_param.time_on : air_param.time_off;
@@ -157,10 +234,23 @@ static void Air_State_Update(air_detection_t *state, float dt)
     {
         state->flight = (uint8_t)!state->flight;
         state->elapsed = 0.0f;
+        if (state->flight)
+        {
+            memset(state->landing, 0, sizeof(state->landing));
+            for (side = 0u; side < 2u; side++)
+            {
+                state->landing[side].peak_length = input->leg[side]->output.virtual_leg_length;
+            }
+        }
     }
 }
 
 /* 新反馈才推进 */
+/*
+ * 完整入口：许可/参数/IMU检查 → 四髋时间龄和偏差检查 → 双腿新样本检查 → 估力 → 状态机。
+ * 以反馈接收时间计算dt，不以任务被调用次数累计；双腿的最早髋样本都要更新才推进。
+ * 旧帧直接返回；无效恢复先播种且dt=0。算法只更新state，执行层负责真实控制切换。
+ */
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
 {
     air_leg_t next[2];
@@ -172,6 +262,7 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
     uint8_t fresh;
     uint8_t seeded;
     float dt;
+    float leg_dt[2];
     float az;
 
     if (state == NULL || input == NULL)
@@ -187,7 +278,7 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
     {
         state->valid = 0u;
         state->fault = 1u;
-        state->elapsed = 0.0f;
+        Air_Timer_Reset(state);
         return;
     }
     if (input->imu == NULL || !input->imu->online
@@ -236,6 +327,8 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
     seeded = state->valid;
     for (side = 0u; side < 2u; side++)
     {
+        leg_dt[side] = seeded
+            ? (float)((double)(next[side].sample_ns - state->leg[side].sample_ns) * 1.0e-9) : 0.0f;
         if (!Air_Estimate(&next[side], &state->leg[side], input, side, seeded, az))
         {
             Air_Invalid(state, input->now_ns);
@@ -251,5 +344,5 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
     state->valid = 1u;
     state->fault = 0u;
     state->valid_ns = input->now_ns;
-    Air_State_Update(state, dt);
+    Air_State_Update(state, input, dt, leg_dt);
 }

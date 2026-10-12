@@ -1,3 +1,11 @@
+/*
+ * 文件职责：两机参数、标定与编译选择（machine_config.c）。
+ * 输入/来源：作者台架标定、机械数据和既有控制参数。
+ * 输出/去向：向驱动/几何/IMU/RL/LQR提供同一只读machine配置和节拍宏。
+ * 关键边界：极性/零点/量程/几何只能按作者实测修改；当前FDCAN时序以Core/Src/fdcan.c实际初始化为准。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "machine_config.h"
 
 /* Leg3 原模型常量 */

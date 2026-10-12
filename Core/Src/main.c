@@ -1,4 +1,11 @@
 /* USER CODE BEGIN Header */
+/*
+ * 文件职责：上电初始化与主入口（main.c）。
+ * 输入/来源：HAL复位、时钟/外设配置、机器选择。
+ * 输出/去向：初始化通信/单调时钟/控制模块，创建RTOS并启动调度。
+ * 关键边界：USB DMA存储和MPU适配在用户区；FDCAN附加时序套用目前未调用，实际参数看fdcan.c。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -129,7 +136,7 @@ static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
   }
 }
 
-static void Machine_Apply_Fdcan_Data_Timing_By_Profile(void)
+static void FDCAN_Config(void)
 {
   Machine_Apply_Fdcan_Data_Timing(&hfdcan1);
   Machine_Apply_Fdcan_Data_Timing(&hfdcan3);
@@ -192,7 +199,7 @@ int main(void)
   MX_TIM6_Init();
   MX_UART8_Init();
   /* USER CODE BEGIN 2 */
-  Machine_Apply_Fdcan_Data_Timing_By_Profile();
+  FDCAN_Config();
   Mono_Ns_Init();   /* 单调 ns 时钟 */
   DR16_Init();
   HI229_Init();

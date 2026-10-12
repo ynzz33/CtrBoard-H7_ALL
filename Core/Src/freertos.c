@@ -1,4 +1,11 @@
 /* USER CODE BEGIN Header */
+/*
+ * 文件职责：RTOS任务创建与循环节拍（freertos.c）。
+ * 输入/来源：main启动和控制信号量。
+ * 输出/去向：创建default/comm/imu/policy/actuation任务并调用各单周期函数。
+ * 关键边界：本文件只管任务入口/等待/节拍；不要把协议、控制器或报文逻辑放进循环。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
 /**
   ******************************************************************************
   * File Name          : freertos.c
@@ -168,7 +175,7 @@ void StartDefaultTask(void const * argument)
   for(;;)
   {
     background_task_body();
-    osDelay(1);
+    osDelay(5);
   }
   /* USER CODE END StartDefaultTask */
 }

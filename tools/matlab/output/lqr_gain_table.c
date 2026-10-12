@@ -1,4 +1,12 @@
 /*
+ * 文件职责：历史单表生成结果（lqr_gain_table.c）。
+ * 输入/来源：此前MATLAB生成的增益多项式。
+ * 输出/去向：保留历史候选表供核对，当前双机运行入口见imcalib/Algorithm/lqr_gain_table.c。
+ * 关键边界：不要将此旧候选文件误当公共绑定实现或当前部署表。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
+/*
  * File: lqr_gain_table.c
  *
  * WBR LQR 最优反馈增益 K(lL, lR) —— 由 tools/matlab/run_all.m 生成, 勿手改。

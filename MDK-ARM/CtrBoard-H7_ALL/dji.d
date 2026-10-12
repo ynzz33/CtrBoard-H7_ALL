@@ -1,5 +1,5 @@
-ctrboard-h7_all\dji.o: ../imcalib/user-lib/dji.c
-ctrboard-h7_all\dji.o: ../imcalib/user-lib/dji.h
+ctrboard-h7_all\dji.o: ../imcalib/drivers/dji.c
+ctrboard-h7_all\dji.o: ../imcalib/drivers/dji.h
 ctrboard-h7_all\dji.o: ../Core/Inc/main.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\dji.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -43,7 +43,9 @@ ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart_ex
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\dji.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\dji.o: ../imcalib/user-lib/can_bus.h
+ctrboard-h7_all\dji.o: ../imcalib/bsp/can_bus.h
 ctrboard-h7_all\dji.o: ../Core/Inc/fdcan.h
+ctrboard-h7_all\dji.o: ../imcalib/common/motor_types.h
 ctrboard-h7_all\dji.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
-ctrboard-h7_all\dji.o: ../imcalib/user-lib/machine_config.h
+ctrboard-h7_all\dji.o: ../imcalib/config/machine_config.h
+ctrboard-h7_all\dji.o: ../imcalib/bsp/mono_ns.h

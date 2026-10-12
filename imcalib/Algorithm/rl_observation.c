@@ -1,3 +1,11 @@
+/*
+ * 文件职责：训练侧观测构建和历史队列（rl_observation.c）。
+ * 输入/来源：机体角速度/四元数、训练角色关节状态、遥控指令和上次动作。
+ * 输出/去向：构建25维观测、5帧125维历史；完成实体角色与训练角色互逆转换。
+ * 关键边界：缩放、裁剪、默认角和历史顺序需与训练一致；这里不推理、不选策略、不输出电机。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "math_utils.h"
 #include "rl_observation.h"
 
@@ -141,6 +149,10 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
 }
 
 /* 构建观测 */
+/*
+ * 按训练契约把角速度、投影重力、指令、关节角/速和上次动作组织为25维观测。
+ * 原训练缩放/角色顺序/裁剪保持；无效来源不构造可执行历史。
+ */
 uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              const rl_observation_param_t *param,
                              const float gyro_rad_s[3],
@@ -213,6 +225,10 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
 }
 
 /* 更新历史 */
+/*
+ * 按训练顺序移动历史并追加当前帧；首帧按既有规则填满5帧。
+ * history_ready与当前obs有效性共同决定推理输入是否可用。
+ */
 void RL_Observation_Update_History(rl_observation_state_t *state)
 {
     uint32_t i;  /* 循环索引 */

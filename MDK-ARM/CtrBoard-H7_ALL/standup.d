@@ -1,0 +1,14 @@
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/standup.c
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/standup.h
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/leg_solver.h
+ctrboard-h7_all\standup.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/imu_state.h
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/torque_output.h
+ctrboard-h7_all\standup.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
+ctrboard-h7_all\standup.o: ../imcalib/common/motor_types.h
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/leg_compensation.h
+ctrboard-h7_all\standup.o: ../imcalib/Algorithm/gravity_comp.h
+ctrboard-h7_all\standup.o: ../imcalib/config/machine_config.h
+ctrboard-h7_all\standup.o: ../imcalib/common/pid.h
+ctrboard-h7_all\standup.o: ../imcalib/common/simple-function.h
+ctrboard-h7_all\standup.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h

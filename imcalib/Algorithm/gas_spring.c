@@ -1,3 +1,11 @@
+/*
+ * 文件职责：气弹簧伸腿力模型与电机侧抵消（gas_spring.c）。
+ * 输入/来源：实测虚拟腿长、机器表启用项和腿部力映射。
+ * 输出/去向：估计实体弹簧伸腿力；将抵消力转换为四髋补偿力矩。
+ * 关键边界：Gas_Spring_Force是检测用物理模型值；Gas_Spring_Apply是命令补偿，两者含义不同。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "gas_spring.h"
 #include "machine_config.h"
 #include "../../Drivers/CMSIS/DSP/Include/arm_math.h"

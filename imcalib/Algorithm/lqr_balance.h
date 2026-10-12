@@ -1,3 +1,12 @@
+/*
+ * 文件职责：LQR状态构建、遥控目标和状态反馈（lqr_balance.h）。
+ * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
+ * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
+ * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
+ * 关键边界：腿长PID由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #ifndef LQR_BALANCE_H
 #define LQR_BALANCE_H
 
@@ -44,6 +53,7 @@ typedef struct {
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
     uint8_t len_pid_enable;    /* 腿长PID */
+    uint8_t air_release_enable; /* 空中释放 */
     uint8_t legacy_gain;       /* 小机旧表对照 */
     float   trq_max_wheel;     /* 轮限幅 */
     float   trq_max_hip;       /* 髋限幅 */
@@ -51,29 +61,31 @@ typedef struct {
 
 typedef lqr_runtime_config_t lqr_debug_t;
 
+/* LQR运行状态：最终长度目标、PID实际给定、实测长度是三个不同概念。 */
 typedef struct {
-    float x[LQR_X_NUM];             /* 状态 */
-    float target[LQR_X_NUM];        /* 目标 */
-    float u[LQR_U_NUM];             /* LQR 输出 */
-    float u_col[LQR_X_NUM];         /* 左轮各列贡献 (调试) */
-    float K[LQR_U_NUM][LQR_X_NUM];  /* 增益 */
-    float len[2];                   /* 实测腿长 */
-    float len_eval[2];              /* 上次增益求值腿长 */
+    float x[LQR_X_NUM]; /* 10维状态，顺序由LQR_X枚举固定 */
+    float target[LQR_X_NUM]; /* 与x同序的目标，长度目标不在这个数组内 */
+    float u[LQR_U_NUM]; /* 双轮及双腿摆矩输出N·m，尚未组合腿长力 */
+    float u_col[LQR_X_NUM]; /* 左轮每个状态列的力矩贡献N·m */
+    float K[LQR_U_NUM][LQR_X_NUM]; /* 增益矩阵，行输出/列状态 */
+    float len[2]; /* 左右实测虚拟腿长m，用于增益调度 */
+    float len_eval[2]; /* 上次求K使用的腿长m，只作重复计算判据 */
     float whl[2];                   /* 轮对地角速度 (调试) */
-    uint8_t gain_valid;
-    uint8_t gain_legacy;
+    uint8_t gain_valid; /* 本次增益/控制输出是否有效 */
+    uint8_t gain_legacy; /* 当前增益是否使用小机旧表对照 */
     uint8_t valid;                  /* 状态估计有效 */
     float ds_raw;                   /* 运动学速度 (未滤波) */
     float ds_kf;                    /* 融合速度 */
     float a_fwd;                    /* 前向加速度 m/s² */
-    float leg_len_tgt[2];           /* 腿长目标 */
+    float leg_len_tgt[2]; /* 左右最终长度目标m，原斜坡的终点 */
     float pos;                      /* 位移积分 */
     uint8_t pos_armed;              /* 位置基准已锁 */
     float yaw_tgt;                  /* 偏航角目标 */
     float vel_tgt;                  /* 速度目标 */
     float roll;                     /* 机体横滚角 */
-    uint8_t air_control;
-    float air_hip_max;
+    uint8_t air_control; /* 执行层选择的AIR四列反馈/轮零模式 */
+    uint8_t air_release; /* 执行层选择的轴向释放，暂停长度/roll和弹簧抵消 */
+    float air_hip_max; /* 空中虚拟腿摆矩限幅N·m */
     lowpass1d_t lpf_omg_pitch;      /* 俯仰角速度低通 */
     lowpass1d_t lpf_omg_yaw;        /* 偏航角速度低通 */
 } lqr_state_t;
@@ -89,5 +101,6 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt);
 void    LQR_Control_Update(lqr_state_t *st);
+void    LQR_Landing_Target_Reset(lqr_state_t *st);
 
 #endif

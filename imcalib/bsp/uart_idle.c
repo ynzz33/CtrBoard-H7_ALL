@@ -1,3 +1,11 @@
+/*
+ * 文件职责：串口DMA环形接收与IDLE缓存交接（uart_idle.c）。
+ * 输入/来源：UART/DMA句柄、环形DMA位置、IDLE中断和接收时刻。
+ * 输出/去向：复制本次新字节及时间戳，由任务侧Take后交给协议解析。
+ * 关键边界：ISR负责取新字节与发布缓存，不做控制求解；跨环尾分两段复制，M7缓存由dma_cache维护。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "uart_idle.h"
 #include "dma_cache.h"
 #include "mono_ns.h"

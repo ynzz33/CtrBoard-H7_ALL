@@ -1,3 +1,11 @@
+/*
+ * 文件职责：FDCAN公共注册、接收分发与发送服务（can_bus.c）。
+ * 输入/来源：CubeMX FDCAN句柄、注册ID及驱动收发请求。
+ * 输出/去向：HAL中断读取帧并派发协议回调；统一构造发送帧、统计接收和错误。
+ * 关键边界：本层不解释DM/DJI物理协议或策略意图；HAL_OK仅表明发送入队调用成功。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "can_bus.h"
 #include "FreeRTOS.h"
 #include "task.h"

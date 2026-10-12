@@ -1,3 +1,12 @@
+/*
+ * 文件职责：跨任务共享状态的声明集合（robot_state.h）。
+ * 本头文件定义共享数据类型、常量或内联辅助，由引用方读取/调用，不单独创建任务或维护外设。
+ * 输入/来源：robot_control.c中定义的IMU/电机/腿/RL/LQR和许可状态。
+ * 输出/去向：给各任务提供统一extern声明、动作/机器人/输入状态类型。
+ * 关键边界：该头包含共享对象，算法层应接收参数而不是包含这个任务头；同帧读写使用快照接口。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #ifndef ROBOT_STATE_H
 #define ROBOT_STATE_H
 
@@ -46,9 +55,6 @@ typedef struct {
     float vx_cmd;
     float yaw_cmd;
     float height_cmd;
-    float thigh_delta_cmd[2];
-    float shin_delta[2];
-    uint8_t mode;
 } input_command_t;
 
 /* 写入归对应任务 */

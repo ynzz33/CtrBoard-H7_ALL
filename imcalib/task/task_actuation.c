@@ -1,3 +1,11 @@
+/*
+ * 文件职责：策略仲裁、控制求解及唯一电机输出出口（task_actuation.c）。
+ * 输入/来源：一致反馈快照、拨杆模式、驱动/正常/自救许可和最新RL动作。
+ * 输出/去向：选择补偿台架/LQR自起/RL/失能，统一门控后发送四髋/双轮力矩。
+ * 关键边界：离地检测只发布状态，本文件决定释放/有效落地；零输出/故障在最终出口仍需复查。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "robot_control.h"
 #include "robot_state.h"
 #include "machine_config.h"
@@ -37,6 +45,7 @@ typedef struct {
     uint8_t drive;
     uint8_t normal;
     uint8_t recovery;
+    uint8_t landed;
 } control_frame_t;
 
 static control_frame_t control_frame;
@@ -45,6 +54,10 @@ volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
 volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
 
 /* ================= 拨杆模式: 唯一解码 ================= */
+/*
+ * 集中解释拨杆策略和投入状态，含补偿台架挡位。
+ * 其他任务/算法只读取解码后的许可，不自行重复解释同一个挡位。
+ */
 rc_control_mode_t Control_Mode_Decode(const rc_command_t *cmd)
 {
     rc_control_mode_t mode;
@@ -120,12 +133,17 @@ uint8_t Robot_Control_Enable_Allowed(void)
 }
 
 /* 本拍快照与许可 */
+/*
+ * 读取已发布的反馈快照，再在短临界区收集本拍遥控模式和输出许可。
+ * landed只属于本控制拍，先清零；反馈发布时刻与传感器实际接收时刻分别保存。
+ */
 static void Control_Frame_Read(void)
 {
     static robot_feedback_t feedback;
     uint8_t i;
 
     (void)Robot_Feedback_Read(&feedback);
+    control_frame.landed = 0u;
 
     taskENTER_CRITICAL();
     control_frame.imu = feedback.imu;
@@ -172,6 +190,11 @@ uint8_t output_task_rl_engaged(void)
 
 /* ================= 3 分发层: 唯一下发点 ================= */
 /* valid=0 或总输出关 → 零力矩; 否则原样下发 (各路限幅已在控制器内做, 极性在驱动边界做) */
+/*
+ * 唯一电机输出口：发送前再次检查最新许可、有效性和所有力矩有限性。
+ * 不满足条件发送零力矩；正常才调用DM/DJI物理力矩接口，避免求解期间许可变化仍继续出力。
+ * 记录的是最终门控后的命令与HAL入队结果，不证明实体电机已经执行。
+ */
 static void output_dispatch(const torque_output_t *torque)
 {
     torque_output_t applied;
@@ -226,6 +249,11 @@ static void output_dispatch(const torque_output_t *torque)
 }
 
 /* 离地观测与切换 */
+/*
+ * 用本拍快照更新离地观测，把检测flight组合为LQR空中/轴向释放选择。
+ * 只有上次释放已生效且本次有效flight 1→0才触发0.20m目标复位；模式退出/检测复位不能伪造落地。
+ * 切换时重建停车/朝向基准；目前确认落地即直接恢复地面控制，没有额外缓冲阶段。
+ */
 static void Control_Air_Update(void)
 {
     air_input_t input;
@@ -233,6 +261,8 @@ static void Control_Air_Update(void)
     uint8_t i;
     uint8_t active;
     uint8_t was_active;
+    uint8_t was_flight;
+    uint8_t was_release;
 
     memset(&input, 0, sizeof(input));
     input.imu = &control_frame.imu;
@@ -252,8 +282,17 @@ static void Control_Air_Update(void)
         }
     }
     was_active = lqr_state.air_control;
+    was_flight = air_detection.flight;
+    was_release = lqr_state.air_release;
     Air_Detection_Update(&air_detection, &input);
     active = Air_Detection_Active(&air_detection);
+    control_frame.landed = (uint8_t)(was_release && was_flight && !air_detection.flight
+        && air_detection.valid && input.permit && air_param.control_enabled
+        && lqr_debug.air_release_enable);
+    if (control_frame.landed)
+    {
+        LQR_Landing_Target_Reset(&lqr_state);
+    }
     if (active != was_active)
     {
         lqr_state.pos = 0.0f;
@@ -261,11 +300,16 @@ static void Control_Air_Update(void)
         lqr_state.yaw_tgt = lqr_state.x[LQR_X_PHI];
     }
     lqr_state.air_control = active;
+    lqr_state.air_release = (uint8_t)(active && lqr_debug.air_release_enable);
     lqr_state.air_hip_max = air_param.hip_max;
     air_detection.applied = active;
 }
 
 /* 组装观测、速度补偿、位置积分 */
+/*
+ * 先构建LQR原始状态并更新接触检测，再选择是否接入轮速修正，最后回填融合速度。
+ * AIR停止轮速修正，仍用IMU预测；检测退出AIR的同拍恢复轮速修正，需与轮输出时序一起判读。
+ */
 static void Control_State_Update(uint8_t reset_velocity)
 {
     if (!LQR_State_Update(&lqr_state, &control_frame.imu,
@@ -275,6 +319,7 @@ static void Control_State_Update(uint8_t reset_velocity)
         Slip_Reset(&slip_control);
         Air_Detection_Reset(&air_detection);
         lqr_state.air_control = 0u;
+        lqr_state.air_release = 0u;
         return;
     }
     Control_Air_Update();
@@ -335,6 +380,7 @@ static void lqr_idle(void)
     Leg_Balance_Reset(&leg_balance);
     Air_Detection_Reset(&air_detection);
     lqr_state.air_control = 0u;
+    lqr_state.air_release = 0u;
 }
 
 /* ================= 2 求解层: 只写 torque, 不下发 ================= */
@@ -358,11 +404,19 @@ static void solve_compensation(torque_output_t *torque)
 }
 
 /* LQR 平衡: 目标 → 状态反馈 → 腿部力控 */
+/*
+ * 落地当拍屏蔽长度拨轮，AIR屏蔽速度/转向命令，再运行目标、LQR和腿部力控。
+ * 只求解torque并保存补偿诊断；不绕过最后输出口的许可检查。
+ */
 static void solve_lqr(torque_output_t *torque)
 {
     rc_command_t command;
 
     command = control_frame.rc;
+    if (control_frame.landed)
+    {
+        command.len = 0.0f;
+    }
     if (lqr_state.air_control)
     {
         command.vel = 0.0f;
@@ -390,6 +444,10 @@ static void solve_lqr(torque_output_t *torque)
 }
 
 /* 独立自起选路 */
+/*
+ * 自起返回BALANCE/PREPARE/STOP路由，执行层按路由决定LQR是否继续或退出。
+ * PREPARE使用自起独立力矩，DONE交给LQR；无效结果清零并标记失败，不能同时叠加两套控制。
+ */
 static void solve_lqr_standup(torque_output_t *torque)
 {
     uint8_t permit;
@@ -449,6 +507,11 @@ static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
 }
 
 /* ================= 主体: 估计 → 求解 → 分发 ================= */
+/*
+ * 单周期主链：反馈快照 → 估计/离地/速度融合 → 策略路由求解 → 诊断发布 → 唯一输出口。
+ * torque初始为无效零值；只有求解成功的分支能置valid。大机RL间隔拍可保留已发输出，退出/故障仍复查。
+ * RTOS节拍由freertos入口等待，本函数不创建任务或自行等待发送完成。
+ */
 void output_task_body(void)
 {
     float wheel_vel[2];

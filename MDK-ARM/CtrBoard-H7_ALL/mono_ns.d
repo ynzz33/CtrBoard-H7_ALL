@@ -1,5 +1,5 @@
-ctrboard-h7_all\mono_ns.o: ../imcalib/user-lib/mono_ns.c
-ctrboard-h7_all\mono_ns.o: ../imcalib/user-lib/mono_ns.h
+ctrboard-h7_all\mono_ns.o: ../imcalib/bsp/mono_ns.c
+ctrboard-h7_all\mono_ns.o: ../imcalib/bsp/mono_ns.h
 ctrboard-h7_all\mono_ns.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
 ctrboard-h7_all\mono_ns.o: ../Core/Inc/main.h
 ctrboard-h7_all\mono_ns.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h

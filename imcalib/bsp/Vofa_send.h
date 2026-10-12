@@ -1,3 +1,10 @@
+/*
+ * 文件职责：串口VOFA JustFloat发送接口。
+ * 输入：浮点通道数组及通道数量；输出：经所选UART的DMA提交一帧。
+ * 端口只由machine_config.h中的MACHINE_VOFA_PORT选择：大机UART8，小机USART1。
+ * 本接口不再维护UART/USB类型标识、运行时切换状态或切换许可。
+ * DMA忙时跳过，帧缓冲由实现文件持有；波特率与上位机保持一致。
+ */
 #ifndef VOFA_SEND_H
 #define VOFA_SEND_H
 
@@ -5,36 +12,18 @@
 #include "usart.h"
 #include "machine_config.h"
 
-#define VOFA_MAX_CH  39u  /* 普通调试 */
-#define VOFA_TRANSPORT_UART 1u
-#define VOFA_TRANSPORT_USB  0u
+#define VOFA_MAX_CH 39u /* 通道容量 */
 
-typedef struct {
-    volatile uint8_t requested;
-    volatile uint8_t active;
-} vofa_transport_t;
-
-extern vofa_transport_t vofa_transport;
-
-/* 默认 UART8，USB CDC 交给 JID1；requested/active: 1=UART，0=USB CDC。 */
-/* UART 端口随 MACHINE_DEFAULT 自动切换。 */
-/*   8 = UART8  (1152000, TX DMA 正常)                */
-/*   1 = USART1 (1152000, TX DMA 正常)                */
-/* 注意: UART7 被 HI229 占用且 TX DMA 是 CIRCULAR 模式; */
-/*       UART9 被 DR16 占用且没有 TX DMA, 都不能选。     */
-/* 波特率必须与 Vofa+ 一致 (CubeMX 里对应口已是 1152000)。*/
+/* 真正选择硬件串口，数字是端口号，不是传输类型。 */
 #if MACHINE_VOFA_PORT == 8u
-#define VOFA_UART   &huart8
+#define VOFA_UART (&huart8)
 #elif MACHINE_VOFA_PORT == 1u
-#define VOFA_UART   &huart1
+#define VOFA_UART (&huart1)
 #else
 #error "MACHINE_VOFA_PORT must be 8 (UART8) or 1 (USART1)"
 #endif
 
+/* 成功返回1表示DMA提交成功，不代表上位机已收到。 */
 uint8_t Vofa_Send(const float *data, uint8_t n);
-uint8_t Vofa_Transport_Ready(void);
-uint8_t Vofa_Transport_Idle(void);
-uint8_t Vofa_Transport_Update(uint8_t can_switch);
-uint8_t Vofa_Transport_Send(uint8_t *data, uint16_t len);
 
 #endif

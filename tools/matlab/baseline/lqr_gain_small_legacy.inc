@@ -1,4 +1,12 @@
 /*
+ * 文件职责：小机器历史LQR表对照（lqr_gain_small_legacy.inc）。
+ * 输入/来源：早期生成的左右腿长增益多项式。
+ * 输出/去向：被公共增益入口的小机历史对照分支包含。
+ * 关键边界：仅适用于显式legacy对照，不是大机器表；系数和原状态约定保持。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
+/*
  * File: lqr_gain_table.c
  *
  * WBR LQR 最优反馈增益 K(lL, lR) —— 由 tools/matlab/run_all.m 生成, 勿手改。

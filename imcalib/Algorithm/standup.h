@@ -1,3 +1,12 @@
+/*
+ * 文件职责：自起准备与倒置自救状态机（standup.h）。
+ * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
+ * 输入/来源：IMU/pitch_world、双腿几何、执行许可和上一拍阶段。
+ * 输出/去向：按阶段设置长度/摆角目标，运行独立PID，输出准备力矩及BALANCE/PREPARE/STOP路由。
+ * 关键边界：阶段切换、目标生成、PID和映射分层；DONE才交给LQR；轮组准备输出保持零。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #ifndef STANDUP_H
 #define STANDUP_H
 
@@ -9,16 +18,16 @@
 #include "simple-function.h"
 
 enum {
-    STANDUP_IDLE = 0,
-    STANDUP_RETRACT,
-    STANDUP_SWING,
-    STANDUP_DONE,
-    STANDUP_FAILED,
-    STANDUP_REAR,
-    STANDUP_EXTEND,
-    STANDUP_SETTLE,
-    STANDUP_TUCK,
-    STANDUP_FLIP,
+    STANDUP_IDLE = 0, /* 未开始/等待许可 */
+    STANDUP_RETRACT, /* 收腿准备 */
+    STANDUP_SWING, /* 摆腿使机身进入平衡姿态 */
+    STANDUP_DONE, /* 准备完成，交给地面LQR */
+    STANDUP_FAILED, /* 失败并按配置等待重试/停止 */
+    STANDUP_REAR, /* 沿连续展开角路径后摆 */
+    STANDUP_EXTEND, /* 先伸腿到准备长度 */
+    STANDUP_SETTLE, /* 倒置恢复：先稳定姿态 */
+    STANDUP_TUCK, /* 倒置恢复：收拢腿部 */
+    STANDUP_FLIP, /* 倒置恢复：翻转扫角 */
 };
 
 enum {
@@ -37,9 +46,9 @@ enum {
 };
 
 enum {
-    STANDUP_ROUTE_BALANCE = 0,
-    STANDUP_ROUTE_PREPARE,
-    STANDUP_ROUTE_STOP,
+    STANDUP_ROUTE_BALANCE = 0, /* 执行层选择LQR平衡结果 */
+    STANDUP_ROUTE_PREPARE, /* 执行层选择自起独立准备力矩 */
+    STANDUP_ROUTE_STOP, /* 执行层清输出，不能继续旧力矩 */
 };
 
 typedef struct {

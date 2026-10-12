@@ -1,3 +1,11 @@
+/*
+ * 文件职责：位置式/增量式PID、误差历史与前馈（pid.c）。
+ * 输入/来源：实测值、给定值、dt、增益/限幅/死区和角度环绕配置。
+ * 输出/去向：更新P/I/D、误差历史和输出，提供首拍历史预置。
+ * 关键边界：位置式D沿用误差逐拍差分，未除dt；改给定会影响D，首拍预置只消除初始化突变。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "pid.h"
 #include <math.h>
 
@@ -10,6 +18,10 @@ static float ABS(float num)
 }
 
 /* 预置历史 */
+/*
+ * 将测量/给定/误差三拍历史同步预置，避免投入或模式切换的首拍D突变。
+ * 只改历史，不改变增益、积分或输出限幅；运行中不能每拍预置，否则会消除真实阻尼。
+ */
 void PID_History_Set(pid_t *pid, float measured, float target, float error)
 {
     uint8_t i;
@@ -52,6 +64,11 @@ float Angle_Wrap_180(float angle)
 }
 
 /* 计算PID */
+/*
+ * 位置式误差=set-get；P响应当前误差，I按dt积分，D沿用误差的逐拍差分。
+ * D没有除dt，其增益对应现有离散节拍；给定突变和实测突变都能进入D。
+ * 计算后移位get/set/err历史，并分别限积分和总输出；角度环绕/死区按pid配置选择。
+ */
 float pid_calc(pid_t *pid, float get, float set, float delta_time)
 {
     pid->get[NOW] = get;

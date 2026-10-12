@@ -1,4 +1,11 @@
 /* USER CODE BEGIN Header */
+/*
+ * 文件职责：HAL毫秒时基的定时器适配（stm32h7xx_hal_timebase_tim.c）。
+ * 输入/来源：HAL时基初始化/暂停/恢复请求。
+ * 输出/去向：提供HAL_GetTick所依赖的tick更新与时基启停。
+ * 关键边界：HAL毫秒超时与Mono_Ns纳秒时间用途不同，不能互相当作传感器采样时刻。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
 /**
   ******************************************************************************
   * @file    stm32h7xx_hal_timebase_tim.c

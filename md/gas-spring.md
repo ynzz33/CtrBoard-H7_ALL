@@ -34,7 +34,7 @@
 
 来源：作者提供的 `Leg3_v2/Wheel_Leg/Code/Math/Leg_SpringF.c`，可读参数和推导在 `Leg3_v2/Matlab/Tool/Leg_SpringF.m`。模型正值代表弹簧助伸，适配层沿用其减去 Fs 的补偿语义；现有电机极性、零点与量程均保持原值。
 
-`tests/test_gas_spring.py` 核对模型与适配层；`tests/test_gas_spring_integration.py` 执行真实 RL/LQR/PID/分发，覆盖大小机和开关组合、仅补 F、合成后限幅及错误零输出。源码对拍使用相同 libm 数学替身，不等于 MCU 时序或实机验证。编译结果见变更记录；本次未烧录。
+此前已完成模型/适配和真实控制链的宿主核验；2026-10-11作者要求删除Python测试，后续不再生成。当前验证使用工程编译和VOFA台架数据；历史编译/核验记录见变更记录。
 
 2026-10-03 对照作者指定的 `leg3_big_ckp/Leg3_v2/Wheel_Leg` 当前源码：`Leg_SpringF` 的有限输入计算表达式和常量一致；直接以其原 C 文件做浮点对拍通过。在 9012 个工作区姿态下，同一几何角度的腿长与 `Leg_Pos` 一致，`Leg_Force_Map_Forward(-Fs,0)` 与参考 `Leg_Trq(-Fs,0)` 的每电机力矩最大差约 3.34e-6 N·m（均使用 libm 数学替身）。这验证弹簧项数学映射，不验证左右硬件极性和烧录版本。
 

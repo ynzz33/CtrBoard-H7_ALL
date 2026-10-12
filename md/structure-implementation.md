@@ -32,7 +32,7 @@
 - 对照实施前源码：1500个混合策略周期的观测、历史、动作、指令及网络输入共1947000字节逐位一致；双机与弹簧开关四组合共4096个RL/LQR控制周期的力矩、PID/斜坡及补偿状态逐位一致。PID函数指针按地址无关方式比较。网络使用测试替身，不宣称验证模型实机表现。
 - Keil含103个C源和1个启动汇编，源路径存在且无重复；另有网络报告及CubeAI库条目。旧目录没有源副本或转发头。
 
-宿主复验：确保原生gcc及其运行库可从PATH找到，再执行`python -m unittest discover -s tests -v`；CC可指定原生gcc。不能用ARM交叉gcc代替宿主编译器。
+2026-10-11：作者要求删除Python测试与工具，不再提供Python宿主复验命令。以上核验为历史记录；后续使用现有工程编译、MATLAB检查和VOFA台架记录，不能将编译通过当作动态稳定性证明。
 
 本机日志：`%TEMP%/s2rgap-structure-final-tests.log`、`s2rgap-structure-final-build.log`。最终构建产物目录由构建日志ARTIFACTS行给出；对照产物目录为`s2rgap-rl-equivalence-gfdgd3i9`和`s2rgap-control-boundary-replay-u96h788s`。
 
@@ -48,7 +48,7 @@
 
 正在运行的eIDE会用旧内存配置写回eide.yml，已复现；单纯修改磁盘文件不足以证明迁移完成。必须在正确配置落盘后重载项目/窗口，再核对srcDirs和incList均为drivers/bsp/common/config及原Algorithm/task，且无旧混合目录或已删除遥测目录。当前手工完整编译补齐新目录源，不能冒充编辑器内eIDE构建已验收。
 
-若旧配置再次写回，执行`python tools/sync_eide_layout.py`，然后在eIDE项目树“eide.yml已被更改，重新加载项目？”提示中选择“是”。脚本只修源/包含目录，不改其他设置。使用eIDE项目重载读入磁盘配置，避免旧实例保存缓存后再打开。
+旧Python同步工具已按作者要求删除。若eIDE旧配置再次写回，人工核对.eide/eide.yml的srcDirs/incList，再在项目树的重载提示中选择“是”或重载窗口，让工程读取磁盘配置，避免旧实例再次保存缓存。
 
 重载后的源码清单应为104个编译单元；生成的旧compile_commands/lnp/依赖文件属于缓存，重载/重新构建后更新。此项在确认重载前标为待完成。
 

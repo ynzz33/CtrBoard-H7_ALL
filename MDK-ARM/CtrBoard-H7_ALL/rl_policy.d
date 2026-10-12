@@ -1,12 +1,14 @@
 ctrboard-h7_all\rl_policy.o: ../imcalib/Algorithm/rl_policy.c
-ctrboard-h7_all\rl_policy.o: ../imcalib/Algorithm/rl_policy.h
+ctrboard-h7_all\rl_policy.o: ../imcalib/common/math_utils.h
+ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h
 ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
-ctrboard-h7_all\rl_policy.o: ../imcalib/Algorithm/rl_observation.h
-ctrboard-h7_all\rl_policy.o: ../Middlewares/ST/AI/Inc/ai_platform.h
 ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stddef.h
+ctrboard-h7_all\rl_policy.o: ../imcalib/Algorithm/rl_policy.h
+ctrboard-h7_all\rl_policy.o: ../imcalib/Algorithm/rl_observation.h
+ctrboard-h7_all\rl_policy.o: ../imcalib/common/rl_types.h
+ctrboard-h7_all\rl_policy.o: ../Middlewares/ST/AI/Inc/ai_platform.h
 ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\inttypes.h
 ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
-ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\math.h
 ctrboard-h7_all\rl_policy.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
 ctrboard-h7_all\rl_policy.o: ../Core/Inc/main.h
 ctrboard-h7_all\rl_policy.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
@@ -48,7 +50,7 @@ ctrboard-h7_all\rl_policy.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_u
 ctrboard-h7_all\rl_policy.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\rl_policy.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\rl_policy.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\rl_policy.o: ../imcalib/user-lib/mono_ns.h
+ctrboard-h7_all\rl_policy.o: ../imcalib/bsp/mono_ns.h
 ctrboard-h7_all\rl_policy.o: ../X-CUBE-AI/App/networkzn1.h
 ctrboard-h7_all\rl_policy.o: ../X-CUBE-AI/App/networkzn1_config.h
 ctrboard-h7_all\rl_policy.o: ../X-CUBE-AI/App/networkzn1_data.h

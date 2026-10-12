@@ -1,3 +1,11 @@
+/*
+ * 文件职责：BMI088加速度/陀螺仪寄存器驱动（BMI088driver.c）。
+ * 输入/来源：BMI088Middleware SPI/GPIO服务与寄存器定义。
+ * 输出/去向：初始化芯片并读取原驱动约定的加速度、角速度和温度。
+ * 关键边界：保留原寄存器量程/单位约定；是否启用由main初始化决定，不替代HI229通信任务。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "BMI088driver.h"
 #include "BMI088reg.h"
 #include "BMI088Middleware.h"

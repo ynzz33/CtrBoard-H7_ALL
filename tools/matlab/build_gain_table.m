@@ -1,3 +1,9 @@
+% 文件职责：腿长网格LQR设计、拟合、闭环检查与C表导出（build_gain_table.m）。
+% 输入/来源：run_all的配置/Q/R及machine_table/model_AB。
+% 输出/去向：扫描离散LQR，拟合K多项式，检查float32/延迟/饱和并输出报告/候选表。
+% 关键边界：生成检查通过只代表对应模型数值检查通过；实机稳定性仍需台架。
+% 阅读入口：md/file-guide.md；参数当前值以源码为准。
+
 function ok = build_gain_table(CFG, q, r)
 %BUILD_GAIN_TABLE 机器表 + Q/R → 腿长网格 c2d + dlqr → 多项式拟合 → 闭环检查 → 写 C → (通过) 覆盖板上文件
 %   ok = build_gain_table(CFG, q, r)     由 run_all 调用; 中间计算已验证 (变更 85), 不需要改

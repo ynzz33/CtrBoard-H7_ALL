@@ -1,3 +1,11 @@
+/*
+ * 文件职责：两机LQR增益表选择、兼容校验与求值（lqr_gain_table.c）。
+ * 输入/来源：编译选机、machine配置、两腿长度和可选小机历史表。
+ * 输出/去向：校验周期/几何/状态约定/工作域，再求40个状态优先排列的K系数。
+ * 关键边界：不能把某机K用于另一机；只夹增益求值域，不把实测腿长改成边界值。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "lqr_gain_table.h"
 #include <math.h>
 #include <string.h>

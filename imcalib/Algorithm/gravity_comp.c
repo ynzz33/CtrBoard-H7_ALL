@@ -1,3 +1,11 @@
+/*
+ * 文件职责：整条腿自重模型查询与摆矩补偿（gravity_comp.c）。
+ * 输入/来源：机器自重表、实测腿长和世界腿角。
+ * 输出/去向：插值质心半径/偏角，计算重力摆矩并经五连杆映射到电机。
+ * 关键边界：只负责重力，不叠加弹簧或最终限幅；超出表域夹到边界并记录clamped。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "gravity_comp.h"
 
 #include <math.h>
@@ -44,6 +52,10 @@ static uint8_t Gravity_Comp_Lookup(const machine_gravity_cfg_t *cfg,
 }
 
 /* 完整自重摆矩 */
+/*
+ * 由腿长查询/插值质心半径和偏角，按世界腿角计算自重摆矩。
+ * 超表域取边界并标记clamped；结果是摆矩，不是额外支撑轴向力。
+ */
 uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     float length, float world_angle, gravity_leg_result_t *result)
 {

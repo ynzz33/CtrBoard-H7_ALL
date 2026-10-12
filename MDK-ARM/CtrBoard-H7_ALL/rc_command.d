@@ -1,6 +1,9 @@
-ctrboard-h7_all\rc_command.o: ../imcalib/user-lib/rc_command.c
-ctrboard-h7_all\rc_command.o: ../imcalib/user-lib/rc_command.h
-ctrboard-h7_all\rc_command.o: ../imcalib/user-lib/dr16.h
+ctrboard-h7_all\rc_command.o: ../imcalib/task/rc_command.c
+ctrboard-h7_all\rc_command.o: ../imcalib/task/inc/rc_command.h
+ctrboard-h7_all\rc_command.o: ../imcalib/common/rc_types.h
+ctrboard-h7_all\rc_command.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
+ctrboard-h7_all\rc_command.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+ctrboard-h7_all\rc_command.o: ../imcalib/drivers/dr16.h
 ctrboard-h7_all\rc_command.o: ../Core/Inc/main.h
 ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\rc_command.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -9,7 +12,6 @@ ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h7xx.h
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Device/ST/STM32H7xx/Include/stm32h723xx.h
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Include/core_cm7.h
-ctrboard-h7_all\rc_command.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Include/cmsis_version.h
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Include/cmsis_compiler.h
 ctrboard-h7_all\rc_command.o: ../Drivers/CMSIS/Include/cmsis_armcc.h
@@ -44,4 +46,4 @@ ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_
 ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\rc_command.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\rc_command.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdbool.h
+ctrboard-h7_all\rc_command.o: ../imcalib/config/machine_config.h

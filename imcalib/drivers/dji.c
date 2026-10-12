@@ -1,3 +1,11 @@
+/*
+ * 文件职责：DJI轮电机反馈与力矩到电流发送（dji.c）。
+ * 输入/来源：CAN编码器/RPM/电流反馈、机器型号/减速比/极性与轮矩命令。
+ * 输出/去向：解析连续角和轮速；换算力矩对应raw电流，按反馈ID槽位发送。
+ * 关键边界：反馈极性与发送极性分别适用；零力矩是零电流指令，不代表轮子立即停止。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "dji.h"
 #include "machine_config.h"
 #include "mono_ns.h"
@@ -241,6 +249,10 @@ HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 }
 
 /* 按 ID 选槽 */
+/*
+ * 左右物理轮矩转换为电流raw，再按本机反馈ID映射到正确CAN槽位。
+ * 发送极性在此边界应用；左右ID在两机器上可能不同，不能直接假定数组槽位相同。
+ */
 HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
                                         float right_torque_nm)
 {

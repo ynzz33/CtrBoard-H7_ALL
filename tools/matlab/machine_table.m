@@ -1,3 +1,9 @@
+% 文件职责：MATLAB机械/惯性参数表（machine_table.m）。
+% 输入/来源：机器名与作者现有机械数据。
+% 输出/去向：返回动力学、几何、腿数据和采样周期配置。
+% 关键边界：与固件配置需核对几何/周期；来源和待实测项目不等于已上机标定。
+% 阅读入口：md/file-guide.md；参数当前值以源码为准。
+
 function m = machine_table(name)
 %MACHINE_TABLE 机器参数表 — 与 machine_config.c 两份表对应, 不常改
 %   m = machine_table('small_wheelleg') | machine_table('big_wheelleg')

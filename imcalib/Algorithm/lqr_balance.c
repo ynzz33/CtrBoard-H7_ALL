@@ -1,3 +1,11 @@
+/*
+ * 文件职责：LQR状态构建、遥控目标和状态反馈（lqr_balance.c）。
+ * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
+ * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
+ * 关键边界：腿长PID由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "lqr_balance.h"
 #include "lqr_gain_table.h"
 #include "machine_config.h"
@@ -54,6 +62,7 @@ void LQR_Init(lqr_state_t *st)
     lqr_debug.wheel_enable = machine->lqr.wheel_enable;
     lqr_debug.hip_enable = machine->lqr.hip_enable;
     lqr_debug.len_pid_enable = machine->lqr.len_pid_enable;
+    lqr_debug.air_release_enable = 1u;
     lqr_debug.trq_max_wheel = machine->dji_trq_clamp;
     lqr_debug.trq_max_hip = machine->dm_trq_clamp;
     st->len_eval[0] = -1.0f;
@@ -108,6 +117,10 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
 
 /* 使能边沿: 腿长目标锁默认值, 位移积分清零 (滤波器常跑不复位)
  * 同 Leg2: 不查实测腿长, 趴地也投入, 靠腿长 PID 撑起 (倒地自起状态机后做) */
+/*
+ * 投入时检查腿几何可用并建立位置/朝向/初始长度目标基准。
+ * 允许从较短实测腿长撑起；机器和K表区间约束目标，不伪造实测长度。
+ */
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
                          const leg_state_t *leg_r)
 {
@@ -125,6 +138,10 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
 }
 
 /* 指令 → 目标 */
+/*
+ * 将统一遥控命令变成速度/偏航及最终腿长目标。
+ * 腿长拨轮按速率积分；空中轴向释放时暂停长度累加，落地当拍暂停由执行层置command.len=0实现。
+ */
 uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt)
 {
     float len_min;
@@ -157,7 +174,7 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt)
     st->target[LQR_X_DTHB]  = 0.0f;
 
     /* 腿长目标: 拨轮按速率积分, 限制在腿长工作区间 */
-    for (i = 0u; i < 2u; i++)
+    for (i = 0u; i < 2u && !st->air_release; i++)
     {
         st->leg_len_tgt[i] += cmd->len * machine->lqr.len_rate * dt;
         st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], len_min, len_max);
@@ -165,7 +182,26 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt)
     return 1u;
 }
 
+/* 落地目标 */
+/*
+ * 有效离地下降沿确认时，把左右最终腿长目标一次设置为落地高度并夹合法区间。
+ * 这里只改最终目标，不每拍覆盖拨轮，不处理PID历史或直接下发电机。
+ */
+void LQR_Landing_Target_Reset(lqr_state_t *st)
+{
+    float len_min;
+    float len_max;
+
+    LQR_Len_Range(&len_min, &len_max);
+    st->leg_len_tgt[0] = clampf(0.20f, len_min, len_max);
+    st->leg_len_tgt[1] = st->leg_len_tgt[0];
+}
+
 /* 速度入状态；低速、腿姿态到位后启动位置保持。 */
+/*
+ * 将融合速度写入LQR状态，并按低速/腿姿态条件建立停车位置积分。
+ * AIR保留真实速度状态但冻结停车积分；恢复地面时是否使用轮速观测由执行层决定。
+ */
 void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
 {
     uint8_t legs_ready;
@@ -220,6 +256,11 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
 }
 
 /* 组装姿态和运动学观测；任务随后赋入融合速度。 */
+/*
+ * 从IMU和双腿几何构建10维状态及原始轮速运动学观测。
+ * 长度用于增益调度，虚拟腿角按原pitch约定转换；融合速度由执行层调用slip后回填。
+ * 本函数不根据倒置补角修改LQR pitch，pitch_world与原状态需分开观察。
+ */
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2], float dt)
@@ -323,6 +364,11 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
 }
 
 /* 增益求值 + 状态反馈求和 */
+/*
+ * 兼容校验后按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
+ * AIR只保留左右腿角/角速度四列，双轮贡献清零；地面使用完整反馈和既有偏置。
+ * u_col记录左轮各列贡献，便于定位轮命令来源；gain_valid表示本次求解有效。
+ */
 void LQR_Control_Update(lqr_state_t *st)
 {
     float K_sym[40];

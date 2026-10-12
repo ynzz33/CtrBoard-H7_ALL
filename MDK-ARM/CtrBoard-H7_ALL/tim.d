@@ -43,4 +43,4 @@ ctrboard-h7_all\tim.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart_ex
 ctrboard-h7_all\tim.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\tim.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\tim.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\tim.o: ../imcalib/user-lib/machine_config.h
+ctrboard-h7_all\tim.o: ../imcalib/config/machine_config.h

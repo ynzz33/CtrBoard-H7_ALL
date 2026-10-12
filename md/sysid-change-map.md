@@ -3769,3 +3769,134 @@ wheel_vel + 腿运动学 ──► ds_raw ──┬─► Lowpass α=0.3 ──�
 - 普通VOFA和灯效从通信迁至默认任务；默认39通道100Hz，无待发队列，传输切换保持失能且已发送完成。通信故障、跌倒、使能、看门狗频率保持。
 - 文件按drivers/bsp/common/config/task迁移；原函数和必要Watch符号保持。生产配置只增加VOFA周期定义，未改物理量、K/Q/R、自起、控制周期或RL观测。
 - 编译、宿主回放与台架验收分开记录于structure-implementation.md。旧段落中已删除模块、旧路径、旧参数和旧回归状态均为历史记录。
+
+
+## 2026-10-11 · 空中轴向释放与落地腿长目标
+
+- **授权**：作者确认轴向主动出力为零、保留腿摆角控制、落地双腿目标0.20m，并回复“可以”授权实施；落地后拨轮以该目标为新基准继续调整。
+- **目标与切换**：`task_actuation.c/Control_Air_Update`只在同一次有效观测确认flight 1→0、此前释放生效且当前LQR许可/开关有效时触发落地。`LQR_Landing_Target_Reset`设置双腿目标并夹到机器/K表区间交集；control_frame.landed只保留本拍，落地当拍暂停拨轮累加，下一拍恢复。检测复位、开关关闭、模式退出及无效反馈不伪造落地。
+- **控制**：`lqr_state.air_release`由执行层从AIR与新增`lqr_debug.air_release_enable`组合，后者默认1。释放期间`Leg_Balance_Compute`输出左右F=0，暂停腿长/roll PID和目标斜坡，`LQR_Target_Update`暂停腿长积分；进入/退出释放清旧PID/斜坡，退出从当拍实测腿长启动原速率斜坡，并预置腿长和roll历史。原Tp=-uHip、空中四列摆角反馈、轮零、姿态/轮速观测门控和最终电机限幅保持。
+- **补偿**：`Leg_Compensation_Apply_Mode`显式接收spring_enable；LQR释放时跳过弹簧抵消，完整重力摆矩仍加一次。原`Leg_Compensation_Apply`包装为弹簧开启入口，自起/台架路径与RL弹簧路径保持。检测仍计入实体弹簧，不依据命令补偿开关改变物理估计。
+- **回退**：失能时设置`lqr_debug.air_release_enable=0`，AIR仍用原四列反馈/轮零，但腿长/roll、支撑前馈、弹簧补偿和拨轮照旧运行，落地保留原目标。检测参数、模型、K表、PID增益、极性、零点、轴向及量程未改。
+- **验证**：34项定向宿主回归通过（air_detection、leg_length_ramp、module_boundaries、gas_spring_integration、gravity_comp、lqr_unified、output_dispatch，以及自起重力/交接和模块边界）；真实生产C覆盖双机空中电机反解F=0、重力保留、弹簧增量为零、腿长PID关闭也不能恢复支撑力、PID/斜坡暂停、落地目标与首拍、随后拨轮、无效保留、回退、模式隔离。补充反复落地和关闭检测不误复位后，5项离地回归再次通过。初版测试误假设小机实测腿长高于落地目标，修正为按误差方向计算斜坡；生产参数未改。未运行整套历史自起控制器回归。
+- **编译**：最终8个关联源（leg_balance、lqr_balance、leg_compensation、task_actuation、robot_control、task_comm、task_policy、vofa_debug）×双机×GCC/AC5共32次对象编译通过，全部输出到工程外临时目录，未污染eIDE增量目录。AC5使用其支持的Cortex-M7.fp.dp选项。diff空白检查通过；未完整链接、烧录或上机。
+- **待台架**：自然伸展受实体弹簧、腿/轮自重、摩擦及机械端点影响；非零摆矩经每电机限幅后可能产生轴向分量，饱和诊断保持。落地恢复支撑前馈和弹簧补偿存在阶跃，斜坡/PID历史预置不构成落地冲击或空中稳定性证明。
+
+
+## 2026-10-11 · 离地判断与轮组VOFA排查页
+
+- **授权与范围**：作者反馈离地后轮组未消除干净，明确要求将判断依据和标志位替换到VOFA以实测。仅修改观测布局与默认显示页，不改检测公式、阈值、迟滞计时、空中/落地控制、电流刻度、极性或输出门控。
+- **布局**：`air_param.vofa_page`默认1；0～2保留，3～38显示平均/单腿滤波支持力、阈值、连续计时及目标时间、阈值比较、armed/valid/fault/flight/applied、检测/接入/轴向释放开关状态、支持力样本龄、当前策略、双轮最终力矩/电流指令/反馈电流/轮速、未滤波支持力、电机轴向力、实体弹簧力、轮心竖直加速度、最后DJI下发返回状态。页0恢复原状态/补偿通道。详见vofa-debug.md的从0开始通道表。
+- **采集**：沿用既有临界区快照和39通道160字节100Hz DMA。双轮电流指令根据实际dji_motor_config反馈ID映射CAN槽位，支持大小机器左右ID相反；反馈电流读取已解析current_raw。样本龄取最近一次支持力估计所用四髋最早样本时间，未播种/异常为-1，避免将首次失效计时基准误叫有效观测时间。
+- **判读边界**：applied表示空中控制选中；轮力矩记录为门控后命令，电流raw为最后准备发送值，HAL_OK仅表示CAN入队调用返回成功；均不等于实体已执行。电流反馈有反馈极性，发送raw有输出极性；零命令不强制轮速归零。100Hz观测可能漏掉1kHz短暂切换。
+- **源码结论与待实测**：现有AIR LQR两轮反馈清零，驱动直接力矩转电流，无下游轮速PID自动补回；实机问题可能发生于尚未armed、判据不持续、反馈失效、空中接入关闭、提前落地、发送失败或惯性转动。释放后支持力估计仍计入实体弹簧及轮重动态项，不能以电机轴向力为零推定FN为零；是否造成提前落地需要该页回放确认，本轮未宣称已定位实机根因。
+- **验证**：8项相关宿主测试通过（vofa_standup、air_detection、output_dispatch），包括真实39通道DMA帧、两机生产DJI配置槽位、独立标志、严格阈值、持续时间选择、最早样本龄、忙/失败调度及页0回退。两关联源×双机×GCC/AC5共8次最终对象编译通过，输出均在工程外临时目录。未链接、烧录或上机。
+
+
+## 2026-10-11 · 仅补充离地运动与受力观测
+
+- **授权**：作者明确“你改观测就好”。本轮仅补充VOFA页2，未增加暂停自动落地开关、未修改flight状态机、阈值/迟滞或控制行为；此前的未提交控制改动保持原样。
+- **采集/映射**：vofa_sample_t私有结构新增腿长速度、腿角/角速度、IMU复制与MCU单调秒时间；在既有临界区只读复制，打包阶段按原检测坐标环绕腿角并复用Attitude_Accel_Vertical。页2将滤波/未滤波支持力、计时/标志/数据龄、弹簧模型力、电机反解F、最终轮力矩、腿部运动、四髋反馈及机体/轮心竖直加速度放在同一39通道帧，完整下标见vofa-debug.md。IMU无效az用NaN，不伪造静止零值。
+- **页面**：air_param.vofa_page默认2，1仍是上一版离地/轮电流页，0仍是原状态/补偿页。页2保留15/16/19与22/23含义，其余字段按新表解释。39通道、160字节、100Hz、传输及任务数量不变。观测来自异步源，同帧不代表同一物理采样时刻。
+- **验证**：7项相关宿主回归通过（vofa_standup、air_detection），覆盖两机真实DMA帧、页2所有字段、角度环绕/原坐标、时间/最早样本龄、真实姿态函数竖直加速度、IMU无效NaN、观测前后检测/LQR状态不变、页0/1回退及忙/失败调度。两关联源×双机×GCC/AC5共8次对象编译通过，输出位于工程外临时目录；未链接、烧录或实机采集。
+
+
+## 2026-10-11 · 首次离地后保持AIR的采集开关
+
+- **追加授权**：观测改动期间作者询问如何一直保持离地，说明首次确认后禁止落地分支及保留复位边界后，作者明确“你直接改吧，我后续再自己改”，本轮据此追加。
+- **最小改动**：air_param新增landing_enabled，默认0。在Air_State_Update完成原初次支撑确认后，flight已为1且开关关闭时清elapsed并返回，跳过原落地翻转。没有每拍强写flight=1，也不修改检测估计函数、阈值或初次离地依据。开关设为1恢复原落地连续计时和翻转。
+- **边界**：支持力、时间戳、valid/fault与VOFA持续更新；失效按原方式暂停计时，permit/模式/失能等原复位保持。默认关闭期间即使实体落地也保持空中输出，不触发0.20m目标；需重新开启开关才恢复自动接管。原极性、轴向、标定、PID和K表保持。
+- **验证**：9项定向回归通过（air_detection、vofa_standup、output_dispatch）。新宿主用真实生产C验证先armed再离地、高支持力持续仍保持AIR且观测推进、失效/恢复保留、打开开关重新完整计时落地及退出复位；真实执行任务回放验证支持力持续高于force_on时两轮与轴向力仍零、腿长目标不复位、失能复位。此前自动落地回归显式打开开关继续覆盖，VOFA新页/页0/1回退均通过。
+- **编译**：4个关联源（air_detection、vofa_debug、task_actuation、robot_control）×双机×GCC/AC5共16次对象编译通过，输出均在工程外临时目录。diff空白检查通过；未链接、烧录或上机。
+
+
+## 2026-10-11 · 相对悬空峰值压缩落地试验
+
+- **授权**：作者确认最新记录两段明显收腿均为接地，并批准“可以，你先修改尝试一下”。按候选10mm/50ms接入；任一腿独立连续满足即可确认整机接地，默认开启自动落地和压缩模式。
+- **检测**：air_param新增compression_enabled、compression_on、compression_time；air_detection新增左右landing结构聚合peak_length/compression/elapsed。首次flight 0→1以同拍实测腿长播种各腿峰值；AIR有效新反馈取max更新峰值，实测压缩到阈值时按该腿真实新样本间隔独立计时。任一腿达到持续时间清flight；高支持力不独立触发新模式落地。初次支撑确认、离地支持力判据及支持力物理估计保持。
+- **连续性/复位**：每腿条件中断清本腿计时，输入/参数无效清两腿计时且保留峰值和flight；恢复首拍dt=0，不借失效时间。重复旧帧不更新峰值或计时；左/右交替压缩不能凑足持续时长。落地保留最后landing诊断，下一次离地重新播种；原许可/失能/模式/硬故障复位保持。state.elapsed显示两腿最大压缩计时，落地时清零。
+- **控制交接**：继续沿用task_actuation的有效flight下降沿和LQR_Landing_Target_Reset，双腿目标一次设0.20m，落地首拍不加拨轮，腿力控从实测值重启原斜坡并预置PID历史。其他控制路径、增益、物理极性、零点、轴向、力矩刻度及机器表均未改。
+- **对照**：landing_enabled=0保持AIR且峰值/压缩继续观测；landing_enabled=1、compression_enabled=0恢复原force_on/time_on落地；两者为1选择新压缩落地。失能时调整对照开关。
+- **VOFA**：默认页3，0～25与36～38沿用页2；26/27峰值m、28/29压缩m、30/31独立计时s、32压缩阈值m、33持续时间s、34压缩模式、35自动落地。页2完整运动和页1轮电流诊断保持；页1 ch9在压缩AIR时显示compression_time。完整通道表见vofa-debug.md。
+- **验证**：10项定向回归（air_detection、vofa_standup、output_dispatch）和28项关联回归（module_boundaries、leg_length_ramp、gas_spring_integration、gravity_comp、lqr_unified、自起重力/交接及模块边界）共38项通过。真实C覆盖峰值随伸腿增加、4.4mm扰动不触发、单腿/左右独立连续计时、交替压缩不借时、重复帧不推进、失效清计时/恢复不借时、左右触发、重新播种、参数无效与原复位；真实执行任务覆盖高支持力不误落地、压缩后0.20m一次交接及拨轮恢复、新一轮AIR不借旧峰值；页0/1/2/3打包与回退通过。未执行整套历史自起控制器回归。
+- **编译**：8个关联源（air_detection、vofa_debug、task_actuation、robot_control、task_comm、task_policy、leg_balance、lqr_balance）×双机×GCC/AC5共32次对象编译通过，输出均在工程外临时目录。diff空白检查通过；未完整链接、烧录或上机。
+- **实机边界**：本轮参数是大机台架记录导出的候选，两机数值相同但小机实机未验证。任一腿触发后整机恢复，不等于双腿接地；轻触未压腿、快速落地、大幅悬空扰动和未充分伸腿即接地仍待台架。此软件试验不构成真实接触力模型或通用接触传感器证明。
+
+## 2026-10-11 · LQR每拍实测腿长起点
+
+- **授权与范围**：作者明确“每拍都从实测值开始”，并要求恢复撤回的实现；按此前说明恢复每拍实测起点、运行时对照开关及观测页4。仅改变LQR非释放时的腿长给定计算。作者正在修改的K表/MATLAB文件保持，物理映射、PID增益、机器表、自起和离地/压缩落地判据未改。
+- **计算**：新纯函数每拍从measured播种，朝goal最多走rate*dt，左右独立。`lqr_debug.len_measured_ramp=1`默认新路径，失能时设0恢复首拍实测、随后沿用上拍输出的旧路径。最终目标与AIR暂停/落地一次复位、历史预置保持。
+- **观测**：默认vofa_page=4，0～25沿用页2；26/27 PID给定、28/29最终目标、30/31 P、32/33 D、34 LQR pitch、35 pitch_world、36 LQR pitch角速度、37新路径开关、38补偿/限幅前左右轴向力均值。页0～3保留，详见vofa-debug.md。
+- **验证**：36项相关宿主回归通过（leg_length_ramp、lqr_unified、air_detection、vofa_standup、output_dispatch、gas_spring_integration、gravity_comp、module_boundaries）。真实生产C覆盖双机快速压腿从0.26m到0.185m、给定误差约束、不积累旧给定、目标内一步直达、非法输入、旧路径对照及原自起轨迹；页4字段与页0～3回退通过。历史回放显式选择旧斜坡以继续核对原行为。
+- **编译**：simple-function、leg_balance、lqr_balance、air_detection、vofa_debug、task_actuation、robot_control、task_comm、task_policy九源×双机×GCC/AC5，共36次对象编译通过，输出在工程外临时目录。未完整链接、烧录或上机。
+- **边界**：每拍起点实际约束PID误差，远离目标时P约Kp*rate*dt，D可趋零；高度恢复能力待实测。给定滞后机制已用真实C对照验证，尚未证明它是实机翻倒唯一原因；支撑/补偿和轮组地面切换仍存在原恢复阶跃。
+
+## 2026-10-11 · 恢复原腿长轨迹斜坡
+
+- **授权**：作者反馈每拍实测起点连正常站立也异常，明确要求改回原来。本轮仅将`LQR_Init`的`len_measured_ramp`默认值由1恢复0，使用原`Ramp_Target_Update`：初始对齐实测，随后从上一拍给定向最终目标推进。每拍实测起点保留为关闭的试验路径，不影响默认控制；页4继续观测原路径，ch37应为0。此前离地释放、压缩落地和一次0.20m目标复位保持。
+- **原因**：每拍实测起点将位置误差限制为rate*dt，大机当前对应约0.0002m、P约0.46N；实测继续压缩且误差同向不变时，误差差分D接近零，显著改变高度刚度和腿长阻尼。此前规则测试不足以证明站立能力，作者实测否定该方案，恢复既有控制，不通过增益修改补救。
+- **验证**：改变默认值后，双机GCC/AC5对象编译共4次通过，产物在工程外临时目录。36项相关宿主回归通过。新增恢复默认的功能断言后，leg_length_ramp双机再次通过：目标0.20m、实测0.18m，斜坡完成后P大于40N；再缩短1mm，D大于9N，验证高度纠偏和压缩阻尼均保留。候选路径测试显式打开试验开关，不依赖生产默认。未完整链接、烧录或验证回退后实机站立。
+- **继续排查**：桌面CSV仍为此前页3采集，没有新增pitch/PID实测记录。落地683.867s后约22ms，两轮命令到4.84375Nm；约77ms两腿反馈反解轴向力约206N，随后684.119s重新进入AIR。源码确认落地同拍恢复地面全反馈、轮速观测、腿长/roll、支撑前馈和弹簧抵消。现有数据能确认交接后冲击与重复切换，不能确定哪个环节首先导致实体翻倒。页4保留用于分辨给定/P/D、pitch和轮命令先后，本轮未追加落地控制改法。
+
+## 2026-10-11 · 删除实测起点试验与补充源码说明
+
+- **授权**：作者要求直接去掉新增斜坡，为文件补充详细注释；随后要求直接删除Python文件，今后不再生成额外Python测试文件。本轮按此范围实施，不重新引入其他语言的冗余测试工程。
+- **斜坡清理**：删除新增实测起点函数声明/实现、运行配置字段、初始化赋值、腿力控选择分支及VOFA快照开关。Leg_Balance_Compute直接使用原Ramp_Target_Update。页4其余给定/P/D/pitch观测保留，通道37固定0。原AIR释放、压缩落地、一次0.20m目标、正常PID参数与自起行为保持。
+- **Python清理**：删除工程内25个.py文件（23个Git跟踪的测试/工具入口及2个未跟踪文件），并清理2个__pycache__目录；全工程搜索无剩余.py。移除当前文档中的旧可执行Python测试/同步命令，历史交付文档注明旧脚本已移除。约束同步到AGENTS.md；没有生成新Python测试文件。
+- **注释**：131个C/H/M/历史inc文件增加职责、输入/输出、调用边界与阅读入口；56个关键函数增加处理流程/原因说明，离地结构、LQR/腿力控状态、反馈元数据和自起阶段/路由补充字段单位及语义。CubeMX注释只写USER CODE Header保护区；保留第三方许可与原代码。生成模型/启动支持/缓存等在md/file-guide.md逐项说明，索引共141个源码文件，并解释工程配置、第三方目录和产物。
+- **代码一致性**：以删除新增斜坡后的源码建立工程外快照，对141个源文件核对。C/H/inc去除注释后有效字符完全一致；MATLAB仅添加前置注释，原表达式逐字保留；未编辑的生成/启动文件保持原文。该注释批次未改变K系数、Q/R、PID增益、机器标定、神经网络权重、状态机或通信逻辑。
+- **编译/链接**：双机全部103个C源GCC对象编译共206次通过；另编译两机启动汇编并完整链接两份GCC固件通过。工程维护的60个C源×两机AC5对象编译共120次通过。仅GCC两机各出现原BMI088 packed属性忽略告警。全部对象/ELF/map输出在工程外临时目录，不污染eIDE增量构建；未烧录或实机验证。
+- **范围边界**：本轮仅删除失败试验/工具与补充说明；未继续实施新的落地交接算法，仍需通过保留的VOFA观测定位实体翻倒先后。此前Python核验记录是历史结果，不能把已删除脚本当作当前可执行入口。
+
+## 2026-10-11 · 清理VOFA传输类型标识与运行时切换
+
+- **授权**：作者确认小机器实际接USART1，已自行将小机MACHINE_VOFA_PORT改为1，随后明确要求去掉未使用标识。保留作者大机UART8/小机USART1配置，删除VOFA传输类型宏、vofa_transport_t与requested/active全局及切换/Idle/Ready/Transport_Send包装函数，Vofa_Send直接通过所选UART DMA发送。
+- **保留**：39通道容量、4字节JustFloat帧尾、32字节对齐静态发送缓冲、memcpy前DMA忙保护、发送前DCache清理、HAL提交结果返回。端口宏加括号，避免取地址宏在成员访问表达式中产生优先级问题。USB基础初始化/CDC实现未改，不再接入VOFA路径。
+- **当前上层**：作者简化后的Vofa_Debug_Send与后台调用保持。通道0～2状态，3～6为四髋输入角，其余清零；不恢复此前离地/PID页面或10ms节流。串口忙保护不可因删除切换标识一并去掉。
+- **验证**：Vofa_send、vofa_debug、background_service三源×两机×GCC/AC5共12次对象编译通过。预处理明确大机VOFA_UART为huart8，小机为huart1。所有对象输出工程外，未生成Python测试文件。删除符号全工程源码搜索无残留，当前代码未做本轮完整链接/烧录。
+- **运行排查边界**：作者报告USART1仍无数据且Cortex-Debug中OpenOCD退出。使用同一OpenOCD、CMSIS-DAP、1MHz SWD可识别Cortex-M7；曾读到目标处于halted/调试变化状态及未初始化的USART1外设寄存器，不能将该瞬间当正常发送运行状态。仍需gdb-server实际错误与稳定运行后的串口状态/接线核对，未宣称收包已恢复。
+
+## 2026-10-11 · 同输入新旧腿几何并行观测
+
+- **授权**：作者希望同时执行原Leg_Solve_Geometry和自写_z，对照实际输出判断新方法。原来在同一leg/cache连续调用会覆盖旧输出，且_z缺phi_b/返回值。本轮采用相同输入的独立副本/缓存，控制链保留旧几何、速度与力映射。
+- **补齐/边界**：保留作者中点/垂线数学和交点分支，补phi_b和return；仅加AB圆心重合及两次平方根返回状态检查，避免除零/无实数交点产生假有效。比较记录聚合在每腿geometry_compare，不新增左右腿散全局。失败时几何ok=0，差值NaN；角度差按原Leg_Wrap处理。原几何失败不继续使用未完成缓存求速度。
+- **VOFA**：保留0～6，新增左旧7～9、左新10～12、左差13～15；右旧16～18、右新19～21、右差22～24，每组三项为长度m/摆角rad/虚拟小腿角rad；25～28为左旧/左新/右旧/右新几何ok。29～38保持零。记录随电机/腿快照发布，VOFA短临界区复制后打包。详见vofa-debug.md。
+- **编译/链接**：双机全103个C源GCC对象共206次，维护源AC5共120次均通过；两份GCC启动汇编及完整链接通过。仅原BMI088 packed告警。产物在工程外临时目录，未生成Python或额外工程测试源码。
+- **数值核对**：原生产C与项目实际CMSIS正弦/余弦表经编译器标准输入临时运行，在两机常规姿态网格共1152组中，对照接入前后旧控制输出逐字节差异为0。新旧最大腿长差4.23193e-6m，摆角差2.26498e-5rad，小腿角差4.76837e-7rad；非零差来自两种求交表达及查表/浮点计算，不把数学双精度等价当作float逐位等价。该网格不覆盖全部奇异/闭合边界或硬件实际姿态。
+- **资源/实机**：GCC O0各函数静态栈帧Leg_Solve264B、_z120B、comm_task_body616B、VOFA112B；不是最深调用链或运行剩余栈。并行观测增加运行开销，MCU耗时仍待实测。未烧录、未切换控制为新函数；几何ok不表示新速度/力矩控制已验证。
+
+## 2026-10-11 · 撤销几何对比并直接使用作者新函数
+
+- **授权**：作者反馈新旧并行对比后VOFA卡顿，要求撤销本轮对比并直接使用新函数。本轮涉及leg_solver.c/h、vofa_debug.c及对应说明。
+- **撤销**：删除geometry_compare类型/每腿字段、结果记录助手、新旧副本/缓存、差值计算、VOFA对照复制/临界区/循环与7～28新增通道。恢复腿结构原尺寸及用户原VOFA0～6，7～38清零。移除旧半角几何实现，Leg_Solve只调用_z一次，随后直接计算既有速度/雅可比和力映射。
+- **新函数**：保留作者中点法和原分支，保留补齐的后下杆phi_b与return，以及除零/开平方状态检查；沿用原最小腿长要求。无物理极性、零点、加pi项、机器参数、PID或K表改变。没有恢复运行开关/对照标识，没有增加发送节流或变更DMA链路。
+- **验证**：双机全部103个C源GCC对象共206次、维护源AC5共120次通过，两份完整GCC链接通过；仅既有BMI088 packed告警。编译器标准输入临时运行真实生产C和项目三角查表，1152组常规姿态的新几何/速度输出均有限且力映射往返通过，无Python/工程测试源码文件。全部产物工程外，未烧录。
+- **边界**：并行计算与复制增加开销，但卡顿具体因果未测定；不能仅由源码宣称已经恢复实机流畅。新函数工作域边界/奇异状态与板上实时性仍需作者实测。
+
+## 2026-10-11 · 恢复被误删的原几何函数
+
+作者指出删除旧解算超出要求并明确要求恢复。已从作者此前粘贴的完整源码恢复Leg_Solve_Geometry原半角实现，保留其直接CMSIS调用和既有判据/输出约定；未用Git整文件回退覆盖作者修改。当前作者已将Leg_Solve入口改成调用原函数，本轮保持该调用；自写_z函数保留，对比记录/额外VOFA通道保持撤销。仅修正入口说明与恢复函数，未修改物理参数、VOFA、其他控制。双机GCC/AC5共4次对象编译通过；GCC提示_z未使用，符合保留参考且不调用的现状。输出在工程外临时目录，未烧录。
+
+## 2026-10-11 · 精简力映射反解并删除未被消费的电机样本通道
+
+- **授权**：作者要求精简`Leg_Force_Map_Inverse`中没用的变量与判断，并要求删除commTask里发布给`motor_sample`的每电机接收时间（已确认无任何消费者）。涉及`leg_solver.c`、`task_comm.c`、`feedback_snapshot.c/h`及`module-boundaries.md`。
+- **反解精简**：删除`scale`局部与两次`hypotf`，以及`!isfinite(det)||!isfinite(scale)||scale<=LEG_EPS||fabsf(det)<LEG_EPS||fabsf(det)/scale<1.0e-3f`整段；入口条件由`!output.valid||!force_valid||!isfinite(input[0..1])`缩为`!force_valid`；保留`a/b/c/d/det/f/t`与末尾`f/t`有限性检查。函数44行→36行。
+- **删除依据**：`force_valid==1`可推出`output.valid==1`（`memset`同时清零，`Leg_Solve`在`Leg_Solve_Force_Map`之后紧邻置`valid=1`，全仓无第三处写这两字段）；`force_valid`本身就是`fabsf(force_det)>=LEG_EPS`，故det判据重复；NaN det使该比较为假，故`!isfinite(det)`重复；输入非有限必使`f/t`非有限，故入口输入检查与末尾输出检查等价。`scale`一项由`|det|≡‖row0‖·‖row1‖`决定：`leg_jac`两行恒正交，两机参数与另3组任意`(lu,lg)`、两个圆交支路共约16.1万构型实测`|det|/scale`恒为1（最大偏差4.5e-12），即归一化行列式在这类连杆上是常数、结构性不可能触发。可达状态（`leg_jac`元素上界约1e4，受速度层`|α|>=LEG_EPS`约束）下返回值与写出值跟改前一致。
+- **样本通道删除**：删`task_comm.c`的`received`局部数组、两个填充循环及`Publish_Motor`实参；删`Robot_Feedback_Publish_Motor`的`sample`形参与`metadata.motor_sample`成员、`robot_feedback_t.motor_sample`字段，以及随之无用的`#include <string.h>`。全仓搜索`motor_sample`无残留；两个`Robot_Feedback_Read`调用点（执行/策略）从未读该字段。DM每台电机接收时刻仍走`motor_state.dm.parsed_rx_ns`→`task_actuation.c`的`joint_rx_ns[]`→`air_detection.c`数据龄，未受影响；DJI轮本来也没有可用的接收时刻消费者。
+- **验证**：GCC（`compile_commands.json`原始命令、`-o`改到`/tmp`）与Keil AC5对`leg_solver.c`、`feedback_snapshot.c`、`task_comm.c`、`task_actuation.c`、`task_policy.c`五个源编译通过、无诊断，对象输出到工程外临时目录（未污染eIDE增量目录）。未做完整工程链接、未烧录。物理极性、零点、机器参数、K表、VOFA通道与CAN/UART DMA链路均未改。
+
+## 2026-10-11 · 删除DR16快照空保护与input_command死字段
+
+- **授权**：作者确认这两处死代码都删。涉及`imcalib/drivers/dr16.c`、`imcalib/task/inc/robot_state.h`、`imcalib/task/feedback_snapshot.c/h`、`imcalib/task/task_comm.c`，以及`md/DBUS.md`、`md/IO_CHAINS.md`、`md/module-boundaries.md`。
+- **DR16快照**：删`DR16_Snapshot()`里两分支同值的空`if`、`static volatile bool dr16_parsing`及其在`DR16_Parse`里的置位/清零，注释改为"快照: 返回 dr16 副本"。依据：该保护的前提是快照与解析并发，而`DR16_Parse`只由`DR16_Process`调用、`DR16_Snapshot`唯一调用点是同任务的`task_comm.c:89`，串行且解析已返回，条件永假；`DBUS.md`原已标注"当前实现两分支均直接返回（与注释意图不同，待作者确认）"。真正的跨任务风险是`DR16_Online()`（超时会`memset`整个`dr16`）被defaultTask的`Vofa_Debug_Send()`（`vofa_debug.c:31`）与commTask（`task_comm.c:130`）同时调用且无保护，**本轮未改**。
+- **input_command死字段**：删`input_command_t`的`mode`、`thigh_delta_cmd[2]`、`shin_delta[2]`，连带删`Robot_Feedback_Publish_Rc`的`mode`形参与`task_comm.c:95`的对应实参（原为`remote.online ? remote.s1 : 0u`）。依据：全仓grep三字段零读取；`mode`与`rc_command.s1`完全重复（离线时`Rc_Command_Update`已把s1清0）。原`module-boundaries.md`把`input_command.mode`的读取方记作"策略"，与实现不符，已删该行。
+- **文档顺带更正**：`IO_CHAINS.md`的遥控通道表原记`ch0 → rc_command.yaw`与`ch3 → rc_command.ang`，实际yaw取自`ch2`且`rc_command_t`无`ang`字段，已改为`ch1 → vel / ch2 → yaw`并注明`ch0/ch3`未使用。`DBUS.md`的`DR16_Snapshot()`行按新实现改写。该表其余`dr16.c`行号仍为改动前旧值（历史上已偏移），本轮未追。
+- **验证**：`dr16.c`、`feedback_snapshot.c`、`task_comm.c`、`task_actuation.c`、`task_policy.c`、`task_imu.c`六个源×GCC/AC5共12次对象编译通过、无诊断，对象输出工程外临时目录。`input_command.mode`/`thigh_delta_cmd`/`shin_delta`/`dr16_parsing`四个符号全仓残留0处。未做完整链接、未烧录。
+
+## 2026-10-11 · 为未消费的反馈元数据链路加死代码标记（未删除）
+
+- **授权**：作者决定暂不拆除`robot_feedback_t`的`*_meta`/`*_sample`/`captured_ns`链路，要求留下显眼提醒。**本轮不做任何删除**。
+- **改动**：仅在4处加注释标记（统一标签`TODO: 死代码`，`grep -rn "TODO: 死代码" imcalib`可列出全部落点），并在`module-boundaries.md`加一条待办块。位置：`feedback_snapshot.c`文件头与`Robot_Feedback_Read`搬运段上方、`feedback_snapshot.h`两个元数据类型上方与`robot_feedback_t`字段块上方。**未改任何代码逻辑、类型或接口**，`metadata`/`Feedback_Published`/两处`if (sample.seen)`写入路径原样保留。
+- **现状依据**：`imu_meta`/`motor_meta`/`rc_meta`/`imu_sample`/`rc_sample`/`captured_ns`在`feedback_snapshot.c`之外全仓零引用（唯一命中是头文件字段声明）；写入侧同样无消费者。
+- **保留理由**：文档原记"本轮数据龄仅诊断"，属刻意预留而非被淘汰的残留；删除会移除"新样本/数据龄判别"能力，重建成本为两个类型+`metadata`+`Feedback_Published`+3个调用点。
+- **验证**：`feedback_snapshot.c`、`task_imu.c`、`task_comm.c`三源 GCC/AC5 编译通过、无诊断。与加注释前的 `feedback_snapshot.o` 对比：五个函数段（`.text.Feedback_Published`/`Robot_Feedback_Read`/`Publish_Imu`/`Publish_Motor`/`Publish_Rc`）大小逐一相同，`objdump -d` 反汇编逐行一致，仅 `.debug_line` 由 906 增至 909 字节（新增注释的行号表），故本轮只动注释、未产生任何代码差异。（该工程用 `-ffunction-sections`，`.text` 本身为空，**不能**用 `objcopy --only-section=.text` 做比对——首次尝试正是这样得到空文件、结论无效，此处已用段大小+反汇编复核。）未做完整链接、未烧录。

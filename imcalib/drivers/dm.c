@@ -1,3 +1,11 @@
+/*
+ * 文件职责：达妙髋电机MIT协议与状态/使能管理（dm.c）。
+ * 输入/来源：CAN反馈、机器ID/极性/零点/MIT量程与四髋力矩请求。
+ * 输出/去向：解析物理角/速/矩和接收时间，维护在线/故障/使能，量化MIT命令并发送。
+ * 关键边界：所有实体极性/零点在驱动边界统一处理；控制层传物理量，不再重复乘符号。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "dm.h"
 #include "machine_config.h"
 #include "mono_ns.h"
@@ -127,6 +135,10 @@ void Dm_Init(void)
 }
 
 /* 解码值 */
+/*
+ * CAN协议反馈先解量程，再按机器表零点/极性转物理量，保存真实接收时刻。
+ * 状态、故障和在线由驱动维护；未更新的报文不能冒充新力反馈。
+ */
 void Dm_Parse(void)
 {
     for (uint8_t i = 0; i < DM_MOTOR_NUM; i++)
@@ -351,6 +363,10 @@ HAL_StatusTypeDef Dm_Send_Zero(void)
 }
 
 /* 全部力矩 */
+/*
+ * 接收四髋物理力矩，在MIT发送边界按既有输出标定量化并发帧。
+ * 控制器不需要再次乘电机极性；返回状态只表示底层发送调用结果。
+ */
 HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
 {
     HAL_StatusTypeDef status = HAL_OK;

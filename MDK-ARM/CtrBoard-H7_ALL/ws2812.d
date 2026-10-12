@@ -1,5 +1,5 @@
-ctrboard-h7_all\ws2812.o: ../imcalib/user-lib/ws2812.c
-ctrboard-h7_all\ws2812.o: ../imcalib/user-lib/ws2812.h
+ctrboard-h7_all\ws2812.o: ../imcalib/drivers/ws2812.c
+ctrboard-h7_all\ws2812.o: ../imcalib/drivers/ws2812.h
 ctrboard-h7_all\ws2812.o: ../Core/Inc/main.h
 ctrboard-h7_all\ws2812.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\ws2812.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -43,3 +43,4 @@ ctrboard-h7_all\ws2812.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_uart
 ctrboard-h7_all\ws2812.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\ws2812.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\ws2812.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
+ctrboard-h7_all\ws2812.o: ../imcalib/bsp/mono_ns.h

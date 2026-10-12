@@ -1,3 +1,11 @@
+/*
+ * 文件职责：IMU任务的单周期测量处理（task_imu.c）。
+ * 输入/来源：HI229接收缓存/协议快照与machine->imu轴映射。
+ * 输出/去向：去重、取轴/乘符号、单位换算、姿态归一化/补角后发布IMU反馈。
+ * 关键边界：断流发布online=0和补角无效；不在这里计算电机力矩或替控制器改姿态。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "robot_control.h"
 #include "robot_state.h"
 #include "hi229.h"
@@ -13,6 +21,10 @@ void imu_task_init(void)
 }
 
 /* 读取 + 按机器表取轴/乘符号 + 单位换算 */
+/*
+ * HI229解析/在线检查 → 模块时间戳去重 → 按机器表取轴/符号 → 角速度单位换算 → 姿态/补角 → 发布。
+ * 离线或无效时发布对应有效性；四元数和欧拉角的原约定保持，不在此补偿控制误差。
+ */
 void imu_task_body(void)
 {
     hi229_data_t sample;

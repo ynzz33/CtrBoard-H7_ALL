@@ -1,3 +1,9 @@
+% 文件职责：MATLAB动力学模型一致性核对入口（verify_models.m）。
+% 输入/来源：machine_table和model_AB提供的模型。
+% 输出/去向：执行现有模型数值/维度相关检查并报告。
+% 关键边界：用于生成侧模型核对，不下载固件、不驱动机器人。
+% 阅读入口：md/file-guide.md；参数当前值以源码为准。
+
 function verify_models()
 % 验证公共髋轴状态与原上交轮轴状态的映射。
 here = fileparts(mfilename('fullpath'));

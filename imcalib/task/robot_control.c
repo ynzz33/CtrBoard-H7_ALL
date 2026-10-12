@@ -1,3 +1,11 @@
+/*
+ * 文件职责：共享控制状态定义与全机控制初始化（robot_control.c）。
+ * 输入/来源：机器表、各算法初始化接口、TIM6分频节拍。
+ * 输出/去向：初始化几何/LQR/RL/自起/离地与信号量，提供动作清零和模型切换。
+ * 关键边界：共享变量在这里定义；策略仲裁和发送在task_actuation；不在初始化中重标定物理量。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "robot_control.h"
 #include "robot_state.h"
 #include "machine_config.h"

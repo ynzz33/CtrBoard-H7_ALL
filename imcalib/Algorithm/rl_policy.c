@@ -1,3 +1,11 @@
+/*
+ * 文件职责：CubeAI networkzn1模型生命周期与推理（rl_policy.c）。
+ * 输入/来源：已准备的RL历史向量、模型选择和网络运行库。
+ * 输出/去向：管理网络句柄/工作区，输出6维动作和运行有效性/耗时。
+ * 关键边界：仅封装网络调用；遥控预热、动作发布与电机执行分别由任务层/rl_torque负责。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "math_utils.h"
 #include "rl_policy.h"
 
@@ -114,6 +122,10 @@ uint8_t RL_Policy_Select(rl_policy_t *policy, rl_model_t model)
 }
 
 /* 执行推理: obs + 历史 → 动作 (输出 0) + latent (输出 1); 记耗时与成败 */
+/*
+ * 将准备好的历史绑定到CubeAI输入，调用网络并检查输出有效性。
+ * 模型错误/无效输入会清动作；输出仍需任务侧裁剪/角色转换后发布，不是电机CAN命令。
+ */
 uint8_t RL_Policy_Run(rl_policy_t *policy,
                       const rl_observation_state_t *observation,
                       float action[RL_ACTION_SIZE])

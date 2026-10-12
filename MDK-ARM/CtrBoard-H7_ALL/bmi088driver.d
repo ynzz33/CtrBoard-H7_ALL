@@ -1,5 +1,5 @@
-ctrboard-h7_all\bmi088driver.o: ../imcalib/user-lib/BMI088driver.c
-ctrboard-h7_all\bmi088driver.o: ../imcalib/user-lib/BMI088driver.h
+ctrboard-h7_all\bmi088driver.o: ../imcalib/drivers/BMI088driver.c
+ctrboard-h7_all\bmi088driver.o: ../imcalib/drivers/BMI088driver.h
 ctrboard-h7_all\bmi088driver.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdint.h
 ctrboard-h7_all\bmi088driver.o: ../Core/Inc/main.h
 ctrboard-h7_all\bmi088driver.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
@@ -43,5 +43,5 @@ ctrboard-h7_all\bmi088driver.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ha
 ctrboard-h7_all\bmi088driver.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\bmi088driver.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\bmi088driver.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\bmi088driver.o: ../imcalib/user-lib/BMI088reg.h
-ctrboard-h7_all\bmi088driver.o: ../imcalib/user-lib/BMI088Middleware.h
+ctrboard-h7_all\bmi088driver.o: ../imcalib/drivers/BMI088reg.h
+ctrboard-h7_all\bmi088driver.o: ../imcalib/bsp/BMI088Middleware.h

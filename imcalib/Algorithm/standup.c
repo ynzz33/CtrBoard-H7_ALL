@@ -1,3 +1,11 @@
+/*
+ * 文件职责：自起准备与倒置自救状态机（standup.c）。
+ * 输入/来源：IMU/pitch_world、双腿几何、执行许可和上一拍阶段。
+ * 输出/去向：按阶段设置长度/摆角目标，运行独立PID，输出准备力矩及BALANCE/PREPARE/STOP路由。
+ * 关键边界：阶段切换、目标生成、PID和映射分层；DONE才交给LQR；轮组准备输出保持零。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "standup.h"
 #include "machine_config.h"
 
@@ -557,6 +565,11 @@ static void Standup_Recovery_Target(standup_ctx_t *st,
 }
 
 /* 阶段判断与切换 */
+/*
+ * 只决定当前阶段与BALANCE/PREPARE/STOP路由：许可、失败重试、倒置自救、到位/超时。
+ * 普通准备按需要经历伸腿、后摆、收腿、摆腿；倒置走SETTLE/TUCK/FLIP恢复链。
+ * 阶段跳转会清对应历史/计时，目标与PID计算在后续独立函数完成。
+ */
 static uint8_t Standup_Stage_Update(standup_ctx_t *st,
                                    const imu_state_t *imu,
                                    const leg_state_t *const leg[2],
@@ -759,6 +772,10 @@ static uint8_t Standup_Stage_Update(standup_ctx_t *st,
 }
 
 /* 按阶段赋目标 */
+/*
+ * 按已经确定的阶段生成长度、摆角和角速度目标；恢复路径调用独立目标函数。
+ * 长度仍用原轨迹斜坡，后摆角使用展开角路径，避免跨pi时突然选择另一方向。
+ */
 static void Standup_Target_Update(standup_ctx_t *st,
                                   const imu_state_t *imu,
                                   const leg_state_t *const leg[2],
@@ -819,6 +836,10 @@ static void Standup_Target_Update(standup_ctx_t *st,
 }
 
 /* 计算腿端F与Tp */
+/*
+ * 自起独立长度/摆角控制，首拍对齐测量/给定历史以避免初始化D冲击。
+ * 不复用地面leg_balance的运行历史；收腿阶段摆矩等特殊规则以当前阶段分支为准。
+ */
 static uint8_t Standup_PID_Calculate(standup_ctx_t *st,
                                     const leg_state_t *const leg[2],
                                     float dt)
@@ -888,6 +909,10 @@ static uint8_t Standup_PID_Calculate(standup_ctx_t *st,
 }
 
 /* 公共映射与补偿 */
+/*
+ * 把自起F/Tp转换为四髋力矩，调用相同弹簧/完整重力组合和最终限幅。
+ * 准备输出的两轮为零；姿态补角/映射无效则不给可执行准备力矩。
+ */
 static uint8_t Standup_Torque_Output(standup_ctx_t *st,
                                     const imu_state_t *imu,
                                     const leg_state_t *const leg[2])
@@ -920,6 +945,10 @@ static uint8_t Standup_Torque_Output(standup_ctx_t *st,
     return 1u;
 }
 
+/*
+ * 总入口：输入检查 → 阶段路由 → 目标 → PID → 恢复力限幅 → 力映射/补偿。
+ * PREPARE返回独立准备输出；BALANCE由执行层交给LQR，STOP清输出；本模块不直接下发。
+ */
 uint8_t Standup_Update(standup_ctx_t *st, const imu_state_t *imu,
                        const leg_state_t *left, const leg_state_t *right,
                        uint8_t permit, uint8_t allow_restart, float dt,

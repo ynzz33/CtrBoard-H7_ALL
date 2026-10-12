@@ -1,3 +1,11 @@
+/*
+ * 文件职责：RL动作到虚拟关节及实体电机力矩（rl_torque.c）。
+ * 输入/来源：6维动作、双腿几何、实测关节/轮速度、机器RL映射与控制器参数。
+ * 输出/去向：构造关节目标、计算控制力矩、映射髋电机并补弹簧/限幅，输出torque_output_t。
+ * 关键边界：动作是训练角色量而非直接CAN值；轮组使用本路径自己的速度控制，不套用LQR输出。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "rl_torque.h"
 #include "gas_spring.h"
 #include "machine_config.h"
@@ -83,6 +91,10 @@ void RL_Torque_State_Init(rl_torque_state_t *state,
 }
 
 /* 计算力矩 */
+/*
+ * 动作缩放成训练虚拟关节目标 → 关节控制 → 五连杆/髋映射 → 弹簧 → 实体限幅。
+ * 腿目标P与速度阻尼按本路径参数组合；轮子是速度目标环，不能用LQR轮矩含义解释动作。
+ */
 uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
                           const rl_torque_param_t *param,
                           const float wheel_vel[2],

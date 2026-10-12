@@ -1,5 +1,13 @@
 /* USER CODE BEGIN Header */
 /*
+ * 文件职责：FreeRTOS内核编译配置（FreeRTOSConfig.h）。
+ * 本头文件提供编译宏或内联辅助，由引用方使用，不需要独立的同名实现文件。
+ * 输入/来源：CubeMX内核配置与任务运行需求。
+ * 输出/去向：定义调度、时钟、堆、优先级和钩子选项。
+ * 关键边界：这是编译配置，不是运行时参数表；用户说明仅写在USER CODE区。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+/*
  * FreeRTOS Kernel V10.3.1
  * Portion Copyright (C) 2017 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  * Portion Copyright (C) 2019 StMicroelectronics, Inc.  All Rights Reserved.

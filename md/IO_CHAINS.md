@@ -276,14 +276,13 @@ dr16.c: DR16_Process()
 task_comm.c: Remote_Control_Update()
     DR16_Process() → DR16_Snapshot() → Rc_Command_Update() → rc_command (全局, 唯一解算点)
     │
-    ├─ ch1 → rc_command.vel  (死区 10, 归一化 [-1,1])
-    ├─ ch0 → rc_command.yaw  (死区 20, 解算时取负: rc_command.c)
-    ├─ wheel → rc_command.len (死区 20)
-    ├─ ch3 → rc_command.ang  (死区 20, 当前无消费端)
-    ├─ s1 / s2 / online → rc_command
+    ├─ ch1 → rc_command.vel  (死区 10, × lqr.vel_max)
+    ├─ ch2 → rc_command.yaw  (死区 20, 解算时取负, × lqr.yaw_max)
+    ├─ wheel → rc_command.len (死区 20, 归一化 [-1,1], 不是实测腿长)
+    ├─ s1 / s2 / online → rc_command   (ch0 / ch3 未使用)
     ├─ rc_enable = online && ((s1==MID && lqr_configured) || (s1==UP && rl.configured))
     │              (task_comm.c; 早期文档记 "s1 != DOWN 即使能", 已按代码更正)
-    └─ s1 → input_command.mode (写后无读点, 见 §5)
+    └─ rc_command 与 rc_enable 同一临界区发布 (Robot_Feedback_Publish_Rc)
     (推理路径: RL_Command_From_Rc() → vx/yaw_rate/height 按 RL_CMD_* 范围, 转向再取负;
      关节经机器表 .rl 映射到训练关节)
     │
@@ -384,18 +383,15 @@ motor_state_t motor_state:
    obs 关节角/速度来自 leg_solver 输出经 RL_Joint_Map 映射, 见 §7)
 ```
 
-### input_command — RL目标累加与调试
+### input_command — RL 目标
 
 ```
 写点:
-  task_policy.c:126-128  RL_Command_From_Rc() → vx_cmd / yaw_cmd / height_cmd (推理路径)
-  task_comm.c:77         Remote_Control_Update() → mode = s1
-  字段 thigh_delta_cmd[2] / shin_delta[2] 无任何读写 (早期手动遥操遗留)
+  task_policy.c  RL_Command_From_Rc() → vx_cmd / yaw_cmd / height_cmd (推理路径)
 
-读点: task_policy.c::RL_Command_From_Rc读取height_cmd累加高度；mode参与原策略观测判断
-  早期文档记的 "task_policy.c → obs.command[6..8]"、"Manual_Action_Apply (手动测试)"
-  均已不存在：obs 的 command[3] 直接取 RL_Command_From_Rc 的局部数组，不经过 input_command。
-  结构体声明归robot_state.h，保持原Watch符号。
+读点: task_policy.c::RL_Command_From_Rc 读回 height_cmd 作为累加高度状态
+  早期字段 mode / thigh_delta_cmd[2] / shin_delta[2] 已于 2026-10-11 删除
+  (mode 与 rc_command.s1 完全重复，另两个无任何读写)；结构体声明归 robot_state.h。
 ```
 
 ### robot_state — 机器人状态
@@ -588,7 +584,7 @@ rl_observation_state_t:
 └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
      │             │             │             │
      ▼             ▼             ▼             ▼
- imu_state    motor_state_t (聚合)        input_command_t (只写不读, 见 §5)
+ imu_state    motor_state_t (聚合)        input_command_t (RL目标, 策略任务写, 见 §5)
               dm.pos_rad/vel/trq          robot_state_t
               dji.vel_rad_s/online
                    │

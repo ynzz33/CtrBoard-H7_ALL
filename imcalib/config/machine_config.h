@@ -1,3 +1,12 @@
+/*
+ * 文件职责：两机参数、标定与编译选择（machine_config.h）。
+ * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
+ * 输入/来源：作者台架标定、机械数据和既有控制参数。
+ * 输出/去向：向驱动/几何/IMU/RL/LQR提供同一只读machine配置和节拍宏。
+ * 关键边界：极性/零点/量程/几何只能按作者实测修改；当前FDCAN时序以Core/Src/fdcan.c实际初始化为准。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #ifndef __MACHINE_CONFIG_H
 #define __MACHINE_CONFIG_H
 
@@ -16,7 +25,7 @@
 
 /* 编译选机，参数与 K 表同步绑定。 */
 #ifndef MACHINE_DEFAULT
-#define MACHINE_DEFAULT           MACHINE_ID_BIG_WHEELLEG
+#define MACHINE_DEFAULT           MACHINE_ID_SMALL_WHEELLEG
 #endif
 
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
@@ -35,7 +44,7 @@
 #define MACHINE_RL_CTRL_DIV       1u      /* 小机兼容 */
 #define MACHINE_DM_OFFLINE_MS     10u
 #define MACHINE_POLICY_DIV        10u     /* 策略节拍 1000/10 = 100 Hz */
-#define MACHINE_VOFA_PORT         8u      /* UART8 */
+#define MACHINE_VOFA_PORT         1u      /* UART1 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  3u
 #define MACHINE_FDCAN13_DATA_SEG1       5u
 #define MACHINE_FDCAN13_DATA_SEG2       2u

@@ -1,3 +1,11 @@
+/*
+ * 文件职责：RL观测准备、预热、推理与动作发布（task_policy.c）。
+ * 输入/来源：一致反馈快照、遥控指令、机器RL映射和networkzn1。
+ * 输出/去向：构建训练角色观测/历史，按策略节拍推理并发布可执行动作。
+ * 关键边界：无效/未就绪时清动作；只发布动作，不直接发送DM/DJI报文。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
 #include "robot_control.h"
 #include "robot_state.h"
 #include "rl_observation.h"
@@ -34,6 +42,10 @@ static uint8_t RL_Motors_Online(const motor_state_t *motor)
 }
 
 /* 机器表校准后交换角色: 训练 LF 对应实体右腿，RF 对应实体左腿 */
+/*
+ * 先按机器表对实体关节角/速度做已有校准，再转换到训练角色顺序。
+ * 观测映射和执行映射必须互逆；不把训练角色交换误当电机物理极性改变。
+ */
 uint8_t RL_Joint_Map(const robot_feedback_t *feedback, float joint_pos[4], float joint_vel[6])
 {
     const rl_map_t *map = &machine->rl;
@@ -111,21 +123,16 @@ static void RL_Action_Publish(const float action[RL_ACTION_SIZE], uint8_t rl_rea
 /* 遥控 → 策略指令 */
 static void RL_Command_From_Rc(const rc_command_t *rc, float command[3])
 {
-    float vx_max = RL_CMD_VX_MAX;
-    float yaw_max = RL_CMD_YAW_MAX;
-    float height_min = RL_CMD_HEIGHT_MIN;
-    float height_max = RL_CMD_HEIGHT_MAX;
     float height = input_command.height_cmd;
-    float policy_dt = MACHINE_POLICY_DT;
 
-    if (height < height_min || height > height_max)
+    if (height < RL_CMD_HEIGHT_MIN || height > RL_CMD_HEIGHT_MAX)
     {
         height = RL_CMD_HEIGHT_INIT;
     }
     if (output_task_rl_engaged() && rc->online)
     {
-        height += rc->len * RL_CMD_HEIGHT_RATE * policy_dt;
-        height = clampf(height, height_min, height_max);
+        height += rc->len * RL_CMD_HEIGHT_RATE * MACHINE_POLICY_DT;
+        height = clampf(height, RL_CMD_HEIGHT_MIN, RL_CMD_HEIGHT_MAX);
     }
     else
     {
@@ -134,9 +141,9 @@ static void RL_Command_From_Rc(const rc_command_t *rc, float command[3])
 
     /* 保留训练范围 */
     command[0] = machine->lqr.vel_max > 0.0f
-        ? rc->vel / machine->lqr.vel_max * vx_max : 0.0f;
+        ? rc->vel / machine->lqr.vel_max * RL_CMD_VX_MAX : 0.0f;
     command[1] = machine->lqr.yaw_max > 0.0f
-        ? -rc->yaw / machine->lqr.yaw_max * yaw_max : 0.0f;
+        ? -rc->yaw / machine->lqr.yaw_max * RL_CMD_YAW_MAX : 0.0f;
     command[2] = height;
     input_command.vx_cmd = command[0];
     input_command.yaw_cmd = command[1];
@@ -222,6 +229,10 @@ void ctrl_task_init(void)
 }
 
 /* 策略单周期 */
+/*
+ * 读取策略所需快照，按模式/许可推进预热和推理；未就绪或失败时发布零动作。
+ * 执行任务读取已发布动作，不在这里发送电机报文。
+ */
 void ctrl_task_body(void)
 {
     static robot_feedback_t feedback;

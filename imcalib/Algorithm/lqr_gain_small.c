@@ -1,4 +1,12 @@
 /*
+ * 文件职责：小机器生成的LQR增益多项式（lqr_gain_small.c）。
+ * 输入/来源：MATLAB按小机器参数/Q/R生成的系数及左右实测腿长。
+ * 输出/去向：提供小机器lqr_gain_desc_t及K(lL,lR)求值函数。
+ * 关键边界：状态序/输出序以本文件生成头和公共描述结构为准；不能当作大机器表。
+ * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ */
+
+/*
  * File: generated machine gain
  *
  * WBR LQR 最优反馈增益 K(lL, lR) —— 由 tools/matlab/run_all.m 生成, 勿手改。

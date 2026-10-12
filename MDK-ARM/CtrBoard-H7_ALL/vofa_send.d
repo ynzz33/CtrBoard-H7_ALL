@@ -1,5 +1,5 @@
-ctrboard-h7_all\vofa_send.o: ../imcalib/user-lib/Vofa_send.c
-ctrboard-h7_all\vofa_send.o: ../imcalib/user-lib/Vofa_send.h
+ctrboard-h7_all\vofa_send.o: ../imcalib/bsp/Vofa_send.c
+ctrboard-h7_all\vofa_send.o: ../imcalib/bsp/Vofa_send.h
 ctrboard-h7_all\vofa_send.o: ../Core/Inc/main.h
 ctrboard-h7_all\vofa_send.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\vofa_send.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -44,16 +44,6 @@ ctrboard-h7_all\vofa_send.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_p
 ctrboard-h7_all\vofa_send.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\vofa_send.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
 ctrboard-h7_all\vofa_send.o: ../Core/Inc/usart.h
-ctrboard-h7_all\vofa_send.o: ../imcalib/user-lib/machine_config.h
-ctrboard-h7_all\vofa_send.o: ../imcalib/user-lib/dma_cache.h
-ctrboard-h7_all\vofa_send.o: ../USB_DEVICE/App/usbd_cdc_if.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc/usbd_cdc.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_def.h
-ctrboard-h7_all\vofa_send.o: ../USB_DEVICE/Target/usbd_conf.h
-ctrboard-h7_all\vofa_send.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdio.h
-ctrboard-h7_all\vofa_send.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\stdlib.h
+ctrboard-h7_all\vofa_send.o: ../imcalib/config/machine_config.h
+ctrboard-h7_all\vofa_send.o: ../imcalib/bsp/dma_cache.h
 ctrboard-h7_all\vofa_send.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_core.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ioreq.h
-ctrboard-h7_all\vofa_send.o: ../Middlewares/ST/STM32_USB_Device_Library/Core/Inc/usbd_ctlreq.h

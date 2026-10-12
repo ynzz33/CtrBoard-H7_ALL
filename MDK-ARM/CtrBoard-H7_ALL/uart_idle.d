@@ -1,5 +1,5 @@
-ctrboard-h7_all\uart_idle.o: ../imcalib/user-lib/uart_idle.c
-ctrboard-h7_all\uart_idle.o: ../imcalib/user-lib/uart_idle.h
+ctrboard-h7_all\uart_idle.o: ../imcalib/bsp/uart_idle.c
+ctrboard-h7_all\uart_idle.o: ../imcalib/bsp/uart_idle.h
 ctrboard-h7_all\uart_idle.o: ../Core/Inc/main.h
 ctrboard-h7_all\uart_idle.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal.h
 ctrboard-h7_all\uart_idle.o: ../Core/Inc/stm32h7xx_hal_conf.h
@@ -43,5 +43,6 @@ ctrboard-h7_all\uart_idle.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_u
 ctrboard-h7_all\uart_idle.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd.h
 ctrboard-h7_all\uart_idle.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_ll_usb.h
 ctrboard-h7_all\uart_idle.o: ../Drivers/STM32H7xx_HAL_Driver/Inc/stm32h7xx_hal_pcd_ex.h
-ctrboard-h7_all\uart_idle.o: ../imcalib/user-lib/dma_cache.h
+ctrboard-h7_all\uart_idle.o: ../imcalib/bsp/dma_cache.h
+ctrboard-h7_all\uart_idle.o: ../imcalib/bsp/mono_ns.h
 ctrboard-h7_all\uart_idle.o: D:\keil\keil_core\ARM\armcc_5\Bin\..\include\string.h

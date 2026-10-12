@@ -18,7 +18,7 @@
 
 - 台架 `solve_compensation`：零基础 → 原弹簧 Apply → 重力 Apply → 原机器限幅 → 唯一 `output_dispatch`。
 - 自起 `Standup_Torque_Output`：原 F/Tp映射 → 弹簧 → 完整重力 → 原机器限幅。alpha取本拍实际腿角减 `pitch_world`；原 tp_max仅限制基础摆矩，重力随后叠加。
-- LQR `Leg_Balance_Output`：原 F/Tp映射 → 弹簧 → 完整重力 → 原髋限幅。alpha取本拍LQR世界腿角。`lb->F/Tp`保留基础值，重力另记；hip_enable只关基础LQR摆矩，补偿保留。
+- LQR `Leg_Balance_Output`：原 F/Tp映射 → 弹簧 → 完整重力 → 原髋限幅。2026-10-11新增AIR释放路径：F=0，跳过弹簧抵消，完整重力仍加一次；地面及释放关闭对照路径保持原顺序。alpha取本拍LQR世界腿角。`lb->F/Tp`保留基础值，重力另记；hip_enable只关基础LQR摆矩，补偿保留。
 - 自起交接后只由最终LQR路径发布一次补偿。RL不新增重力项。
 
 运行时旧弹簧台架标志删除。统一仲裁直接判断在线左中右上，选择 `CTRL_STRATEGY_COMPENSATION`，只出弹簧与完整重力、轮零；不执行LQR目标/控制、腿长/横滚PID、自起求解、RL力矩求解或推理。估计与观测预览仍可运行。两模型必须可用且弹簧编译开关开启，不依赖K就绪，缺配置不回落LQR。
