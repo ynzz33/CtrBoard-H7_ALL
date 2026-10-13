@@ -1,7 +1,7 @@
 /*
  * 文件职责：弹簧和完整腿自重补偿的组合入口（leg_compensation.c）。
- * 输入/来源：已映射的四髋基础力矩、双腿几何、世界腿角和弹簧接入选择。
- * 输出/去向：先加弹簧抵消，再加重力摆矩，最后逐电机限幅并发布补偿诊断。
+ * 输入/来源：准备阶段读取双腿和IMU；消费阶段读取缓存、基础力矩与接入选择。
+ * 输出/去向：准备两种角度引用的模型值；保持弹簧、重力、限幅的叠加顺序。
  * 关键边界：spring_enable仅决定命令是否抵消实体弹簧，不改变检测使用的实体弹簧模型；补偿只加一次。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
@@ -49,7 +49,7 @@ uint8_t Leg_Compensation_Apply(const gas_spring_result_t *spring, const gravity_
 
 /* 按路径补偿 */
 /*
- * 按spring_enable决定是否抵消实体弹簧，再始终调用完整自重补偿，最后逐电机限幅。
+ * 按spring_enable叠加本拍弹簧抵消值，再叠加对应重力缓存，最后逐电机限幅。
  * debug保存各项增量和限幅前原始值；饱和后映射回轴向力可能不再严格等于原请求。
  */
 uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gravity_comp_result_t *gravity, const float base_dm[4], float limit, uint8_t spring_enable, float output_dm[4], compensation_debug_t *debug)

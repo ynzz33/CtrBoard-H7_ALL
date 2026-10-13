@@ -57,7 +57,7 @@ flowchart LR
 
 [robot_control.c](../imcalib/task/robot_control.c)定义共享实例、总初始化、动作清零和模型切换；[robot_control.h](../imcalib/task/inc/robot_control.h)声明任务/许可接口，[robot_state.h](../imcalib/task/inc/robot_state.h)声明共享状态。算法不能包含这两个任务头，应接收显式参数或读取只读机器配置。
 
-执行拍类型`control_frame_t`定义在robot_control.h，实例仍由task_actuation.c私有持有；发布元数据集合类型`feedback_metadata_t`定义在feedback_snapshot.h，metadata实例仍由feedback_snapshot.c私有持有。工程自有结构体类型统一放入对应头文件，类型可见不代表实例跨模块共享。
+执行拍类型`control_frame_t`定义在robot_control.h，实例仍由task_actuation.c私有持有；其compensation字段保存本拍统一预计算的模型值。发布元数据集合类型`feedback_metadata_t`定义在feedback_snapshot.h，metadata实例仍由feedback_snapshot.c私有持有。工程自有结构体类型统一放入对应头文件，类型可见不代表实例跨模块共享。
 
 | 状态 | 周期写入方 | 消费方式 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ flowchart LR
 | 电机组 | motor.valid由通信更新时一次汇总四髋/双轮online及四髋无DM故障；故障沿用Dm_Has_Fault原判据，与反馈复制共用一次遍历。RL、执行许可和Robot_Fault_Update直接读组标志，不再另遍历DM故障；CAN异常仍单独检查，数据可用不等同于电机已使能或命令已执行 |
 | 轮速/遥控 | 轮速由int16_t RPM及本机固定非零齿比换算，LQR/RL的重复轮速有限性扫描已删；RC用整数通道及固定公共量程产生有限命令，LQR目标更新只保留在线门控 |
 | RL观测/动作 | 输入反馈由发布端验证；RL_Joint_Map在角色映射后验证新关节数组并返回可用状态，RL_Observation_Build消费source_valid，不再重扫陀螺仪/关节/RC命令。原投影和训练缩放/裁剪表达式保持，生成观测的结果验证后valid=1，历史由有效观测复制。推理信任valid/history_ready；动态网络缓冲区、推理返回值、输出动作仍检查 |
-| 补偿 | 重力使用固定只读本机模型，不每拍检查质量/g或重扫全部节点；腿长由几何发布端保证，补偿不重复检查原始长度。世界角、插值、映射及叠加的新结果仍检查；力映射可用性统一由Leg_Force_Map_Forward/Inverse处理，模型/坐标/符号及补偿表达式保持 |
+| 补偿 | 执行拍准备阶段使用固定本机模型和同拍几何计算实体弹簧力、抵消量及两种角度引用的重力值；模型新结果在准备端验证，消费端读取valid，保留反馈反解和叠加新结果检查。模型、坐标、符号及原叠加顺序保持 |
 
 LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右腿valid后进行状态构建；速度融合、位置积分、PID/斜坡等实际使用周期的函数仍传各自周期。执行入口读取本拍IMU/补角/双腿/电机组可用标志后形成drive，避免仅等待缓存故障汇总。自起角度范围、运行参数、新计算结果、最终出力许可仍保留必要检查。纯计算助手只在调用方确认反馈可用后使用，不能把无效数据强行标为有效。
 
@@ -168,19 +168,19 @@ Air_Detection_Init在Robot_Control_Init中一次校验参数并清历史，失�
 
 ## 弹簧与重力补偿
 
-[gas_spring.c](../imcalib/Algorithm/gas_spring.c)按实测腿长求挂点几何传动比，把模型弹簧推力换算为等效伸腿力。Gas_Spring_Force用于离地估计；Gas_Spring_Apply把负等效力经Leg_Force_Map_Forward映射成四髋抵消力矩。实体弹簧模型与是否抵消命令是不同概念。
+[gas_spring.c](../imcalib/Algorithm/gas_spring.c)按实测腿长求挂点几何传动比，把模型弹簧推力换算为等效伸腿力。Gas_Spring_Prepare一次生成gas_spring_result_t中的force[2]、delta_dm[4]及valid：实体力供离地估计，负等效力按原Leg_Force_Map_Forward映射成输出抵消量。Gas_Spring_Apply只叠加已准备值，不再查模型或映射。
 
 当前模型把弹簧轴向推力作为常量force_n，随腿长变化的是几何传动比；没有另建弹簧行程/压力、摩擦或迟滞模型。命令路径先算Fs，再将F=-Fs、Tp=0转换为前后髋增量，与原控制力矩相加并在调用方限幅。只作用于四髋，不直接修改轮矩。
 
-RL仅叠加弹簧抵消；地面LQR、自起和补偿台架走弹簧加完整重力的组合入口。LQR空中轴向释放时跳过命令侧弹簧抵消，使实体弹簧自然伸腿，重力摆矩仍保留。GAS_SPRING_COMP_ENABLE控制是否叠加抵消命令，不关闭Gas_Spring_Force的实体力估计；未绑定spring的小机返回零实体弹簧力并旁路补偿。旧固定模型包装已删除，对外只保留Gas_Spring_Force和Gas_Spring_Apply，内部Spring_Force负责统一数学计算。
+RL仅叠加弹簧抵消；地面LQR、自起和补偿台架走弹簧加完整重力的组合入口。LQR空中轴向释放时跳过命令侧弹簧抵消，使实体弹簧自然伸腿，重力摆矩仍保留。GAS_SPRING_COMP_ENABLE控制是否生成/叠加抵消量，不关闭离地所需的实体力估计；未绑定spring的小机返回零实体弹簧力并旁路补偿。Gas_Spring_Force是准备端的模型入口，后续消费者直接读缓存force，不再重复调用。
 
-模型/检测链：machine.spring与实测腿长 → 内部Spring_Force算Fs → Gas_Spring_Force返回实体力 → air_detection与反馈反解量一起估计支持力。此链不下发电机命令。
+执行任务顺序为Control_Frame_Read → Control_Compensation_Update → Control_State_Update → 路由求解 → 唯一分发。Control_Compensation_Update按模式/许可选择准备项，结果放在control_frame.compensation（leg_compensation_values_t）：spring供实体力和抵消量，gravity供原姿态引用，gravity_world供pitch_world补角引用。未投入时清空值；RL无动作或分频等待拍不计算模型，RL始终不接入重力。恢复路径重建LQR状态仍使用同拍准备值，不重复计算。缓存仅属于当前快照，不新增跨周期命中、序号或时间状态。
 
-控制/补偿链：RL或LQR/自起基础力矩 → Gas_Spring_Apply读取本机模型与左右实测腿长 → Spring_Force算左右Fs → Leg_Force_Map_Forward(F=-Fs,Tp=0)生成四髋增量 → 叠加基础力矩 → 对应路径重力/最终限幅 → task_actuation输出许可检查 → DM驱动下发。LQR/自起/台架通过leg_compensation组合入口调用；RL直接调用弹簧接口。
+模型/检测链：准备Fs与原姿态引用重力摆矩 → Air_Estimate反馈反解 → 读取force[side]和gravity.leg[side].torque计算支持力。控制链：基础力矩 → 读取准备的spring.delta_dm → 读取对应gravity.delta_dm → 原限幅及诊断 → 唯一输出许可检查。LQR/自起/台架通过leg_compensation组合入口直接叠加；RL调用Gas_Spring_Apply，仅叠加弹簧值。
 
-[gravity_comp.c](../imcalib/Algorithm/gravity_comp.c)由腿长插值质心半径/偏角，用世界腿角算完整腿自重摆矩，只补摆矩，不增加轴向重力力。表外夹边界并记录状态。
+[gravity_comp.c](../imcalib/Algorithm/gravity_comp.c)由腿长插值质心半径/偏角，用世界腿角算完整腿自重摆矩，只补摆矩，不增加轴向重力力。Gravity_Comp_Prepare生成摆矩、四髋增量和状态；两种引用需要同时准备时共用同腿查表值，相同规范化角度直接复用摆矩/映射，不再重复求值。原姿态角与pitch_world引用保持区别，自起原fmod环绕在有效角度域内与准备端规范化逐值核验一致；表外夹边界和诊断保持。旧Gravity_Comp_Apply包装已删除，叠加统一归leg_compensation。
 
-[leg_compensation.c](../imcalib/Algorithm/leg_compensation.c)按路径组合弹簧抵消、重力与最终四髋限幅。台架/自起/LQR使用组合入口，RL保留仅弹簧路径；不重复叠加，不把补偿前控制量当作补偿后受力。有效模型、轴向和极性只能按作者实测修改。
+[leg_compensation.c](../imcalib/Algorithm/leg_compensation.c)准备本拍模型值并按路径组合弹簧抵消、重力与最终四髋限幅。台架/自起/LQR使用组合入口，RL保留仅弹簧路径；保持base先加spring再加gravity的浮点顺序，不预先合并增量。诊断spring_dm仍取加弹簧后结果减base，避免改变舍入；失败不发布部分输出，保持最终保护。新增本拍缓存用于减少模型调用，不宣称源码行数或所有模式实测耗时下降；有效模型、轴向和极性只能按作者实测修改。
 
 <a id="communication"></a>
 ## 通信与输入输出
