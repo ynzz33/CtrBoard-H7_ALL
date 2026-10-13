@@ -81,12 +81,11 @@ float Ramp_Reset(ramp_t *r, float value)
 /*
  * 原轨迹斜坡：首次使用时把输出置为measured，随后从内部保存的上拍输出向target移动。
  * 每拍最多变化rate*dt；measured不是每拍重置命令，因而PID能保持实际长度偏差和阻尼。
- * 无效输入返回NAN；调用方在投入/离地交接时清ramp历史，首拍重新对齐实测。
+ * 调用方保证实测值与周期有效；目标/速率无效返回NAN，投入/离地交接清历史。
  */
 float Ramp_Target_Update(ramp_t *r, float measured, float target, float rate, float dt)
 {
-    if (r == NULL || !isfinite(measured) || !isfinite(target)
-        || !isfinite(rate) || rate <= 0.0f || !isfinite(dt) || dt <= 0.0f)
+    if (!isfinite(target) || !isfinite(rate) || rate <= 0.0f)
     {
         return NAN;
     }

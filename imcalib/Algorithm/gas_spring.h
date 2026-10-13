@@ -17,9 +17,15 @@
 #define GAS_SPRING_COMP_ENABLE 1
 #endif
 
-float Leg_SpringF(float L0);
 float Gas_Spring_Force(float L0);
-uint8_t Gas_Spring_Apply(const leg_state_t *left, const leg_state_t *right,
-                         const float base_dm[4], float raw_dm[4]);
+
+typedef struct {
+    float force[2]; /* 实体伸腿力 */
+    float delta_dm[4]; /* 电机抵消量 */
+    uint8_t valid;
+} gas_spring_result_t;
+
+void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_spring_result_t *result);
+uint8_t Gas_Spring_Apply(const gas_spring_result_t *spring, const float base_dm[4], float raw_dm[4]);
 
 #endif

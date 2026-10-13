@@ -9,15 +9,9 @@
 #include "rl_torque.h"
 #include "gas_spring.h"
 #include "machine_config.h"
-#include "math_utils.h"
 
 #include <math.h>
 #include <string.h>
-
-#define RL_TQ_POS_SCALE        0.5f     /* 训练侧: 腿目标 = act × 0.5 + 默认角 */
-#define RL_TQ_WHEEL_VEL_SCALE  10.0f    /* 训练侧: 轮目标速度 = act × 10 */
-#define RL_TQ_VSHANK_MIN       2.277f
-#define RL_TQ_VSHANK_MAX       3.133f
 
 /* 虚拟关节索引 (仅限本文件内部) */
 enum {
@@ -30,60 +24,45 @@ enum {
     VJ_NUM     = 6,
 };
 
-/* 初始化参数: chuanliantui 起立策略 (networkzn1)
- * dof_pos = 训练默认角映射到固件关节 (zero + sign × 默认角, 见机器表 .rl)
- * PD 来自训练仓库 chuanliantui_config.py control: stiffness f0/f1 10, damping f0/f1 1.0, 轮 damping 0.1 */
-void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model)
+/* 从本机RL配置加载动作缩放与控制器参数。当前仅networkzn1，沿用单模型入口。
+ * 固件默认角仍为zero + sign × 训练默认角；不改关节映射或速度阻尼含义。 */
+void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model,
+                          const machine_rl_cfg_t *config)
 {
-    const rl_map_t *map = &machine->rl;
-    const float dof_train[6] = {RL_OBS_DOF_POS_L_THIGH, RL_OBS_DOF_POS_L_SHANK, 0.0f,
-                                RL_OBS_DOF_POS_R_THIGH, RL_OBS_DOF_POS_R_SHANK, 0.0f};
-    float kp = 10.0f,kd = 1.0f;
-    const float p_gains[6] = {kp,kp, 0.0f, kp,kp, 0.0f};   /* 训练 Kp */
-    const float d_gains[6] = {kd, kd, 0.0f, kd, kd, 0.0f};       /* 训练 Kd */
-
     (void)model;
-    if (param == NULL)
-    {
-        return;
-    }
     memset(param, 0, sizeof(*param));
-    param->dof_pos[VJ_L_THIGH] = map->zero[0] + (float)map->sign[VJ_L_THIGH] * dof_train[VJ_L_THIGH];
-    param->dof_pos[VJ_L_SHANK] = map->zero[1] + (float)map->sign[VJ_L_SHANK] * dof_train[VJ_L_SHANK];
-    param->dof_pos[VJ_R_THIGH] = map->zero[2] + (float)map->sign[VJ_R_THIGH] * dof_train[VJ_R_THIGH];
-    param->dof_pos[VJ_R_SHANK] = map->zero[3] + (float)map->sign[VJ_R_SHANK] * dof_train[VJ_R_SHANK];
-    memcpy(param->p_gains, p_gains, sizeof(p_gains));
-    memcpy(param->d_gains, d_gains, sizeof(d_gains));
-    param->wheel_pid[0][0] = 0.1f;   /* 轮速度增益 = 训练 damping */
-    param->wheel_pid[1][0] = 0.1f;
+    param->dof_pos[VJ_L_THIGH] = config->zero[0] + (float)config->sign[VJ_L_THIGH] * config->default_pos[0];
+    param->dof_pos[VJ_L_SHANK] = config->zero[1] + (float)config->sign[VJ_L_SHANK] * config->default_pos[1];
+    param->dof_pos[VJ_R_THIGH] = config->zero[2] + (float)config->sign[VJ_R_THIGH] * config->default_pos[2];
+    param->dof_pos[VJ_R_SHANK] = config->zero[3] + (float)config->sign[VJ_R_SHANK] * config->default_pos[3];
+    memcpy(param->p_gains, config->torque.p_gains, sizeof(param->p_gains));
+    memcpy(param->d_gains, config->torque.d_gains, sizeof(param->d_gains));
+    memcpy(param->wheel_pid, config->torque.wheel_pid, sizeof(param->wheel_pid));
+    param->leg_pid_max_output = config->torque.leg_pid_max_output;
+    param->pos_scale = config->torque.pos_scale;
+    param->wheel_vel_scale = config->torque.wheel_vel_scale;
 }
 
 /* 初始化 PID */
 void RL_Torque_State_Init(rl_torque_state_t *state,
                           const rl_torque_param_t *param)
 {
-    uint8_t joint;
     uint8_t side;
+    uint8_t leg_joint;
 
-    if (state == NULL || param == NULL)
-    {
-        return;
-    }
     memset(state, 0, sizeof(*state));
-    for (joint = 0u; joint < VJ_NUM; joint++)
+    for (uint8_t joint = 0u; joint < VJ_NUM; joint++)
     {
         if (joint == VJ_L_WHEEL || joint == VJ_R_WHEEL)
         {
             side = joint == VJ_L_WHEEL ? 0u : 1u;
-            PID_struct_init(&state->controller[joint], POSITION_PID, 1000.0f,
-                0.0f, param->wheel_pid[side][0], param->wheel_pid[side][1],
-                param->wheel_pid[side][2], 0.0f, 0.0f);
+            PID_struct_init(&state->controller[joint], POSITION_PID, param->wheel_pid[side].max_output, param->wheel_pid[side].integral_limit, param->wheel_pid[side].kp, param->wheel_pid[side].ki, param->wheel_pid[side].kd, 0.0f, 0.0f);
         }
         else
         {
             /* 腿部仅P */
-            PID_struct_init(&state->controller[joint], POSITION_PID, 1000.0f,
-                0.0f, param->p_gains[joint], 0.0f, 0.0f, 0.0f, 0.0f);
+            leg_joint = joint < VJ_L_WHEEL ? joint : joint - 1u;
+            PID_struct_init(&state->controller[joint], POSITION_PID, param->leg_pid_max_output, 0.0f, param->p_gains[leg_joint], 0.0f, 0.0f, 0.0f, 0.0f);
             state->controller[joint].angle_wrap = 1u;
             state->pos_target[joint] = param->dof_pos[joint];
         }
@@ -96,6 +75,7 @@ void RL_Torque_State_Init(rl_torque_state_t *state,
  * 腿目标P与速度阻尼按本路径参数组合；轮子是速度目标环，不能用LQR轮矩含义解释动作。
  */
 uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
+                          const gas_spring_result_t *spring,
                           const rl_torque_param_t *param,
                           const float wheel_vel[2],
                           const float action[RL_ACTION_SIZE],
@@ -111,32 +91,14 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     float raw_dm[4];
     float leg_limit;
     float wheel_limit;
+    uint32_t leg_joint;
 
-    if (torque == NULL)
-    {
-        return 0u;
-    }
     torque->dm[DM_MOTOR_LEG_F_LFT] = 0.0f;
     torque->dm[DM_MOTOR_LEG_B_LFT] = 0.0f;
     torque->dm[DM_MOTOR_LEG_F_RGT] = 0.0f;
     torque->dm[DM_MOTOR_LEG_B_RGT] = 0.0f;
     torque->dji[DJI_MOTOR_WHEEL_LFT] = 0.0f;
     torque->dji[DJI_MOTOR_WHEEL_RGT] = 0.0f;
-
-    if (leg_l == NULL || leg_r == NULL || param == NULL || state == NULL
-        || wheel_vel == NULL || action == NULL)
-    {
-        return 0u;
-    }
-    if (!leg_l->output.valid || !leg_r->output.valid)
-    {
-        return 0u;
-    }
-    if (!Float_Array_Finite(action, RL_ACTION_SIZE)
-        || !Float_Array_Finite(wheel_vel, 2u))
-    {
-        return 0u;
-    }
 
     /* 虚拟关节状态 */
     q[VJ_L_THIGH] = leg_l->output.thigh_angle;
@@ -158,12 +120,12 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
         pos_ref[i] = 0.0f;
         vel_ref[i] = 0.0f;
     }
-    pos_ref[VJ_L_THIGH] = action[VJ_L_THIGH] * RL_TQ_POS_SCALE;
-    pos_ref[VJ_L_SHANK] = action[VJ_L_SHANK] * RL_TQ_POS_SCALE;
-    pos_ref[VJ_R_THIGH] = action[VJ_R_THIGH] * RL_TQ_POS_SCALE;
-    pos_ref[VJ_R_SHANK] = action[VJ_R_SHANK] * RL_TQ_POS_SCALE;
-    vel_ref[VJ_L_WHEEL] = action[VJ_L_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
-    vel_ref[VJ_R_WHEEL] = action[VJ_R_WHEEL] * RL_TQ_WHEEL_VEL_SCALE;
+    pos_ref[VJ_L_THIGH] = action[VJ_L_THIGH] * param->pos_scale;
+    pos_ref[VJ_L_SHANK] = action[VJ_L_SHANK] * param->pos_scale;
+    pos_ref[VJ_R_THIGH] = action[VJ_R_THIGH] * param->pos_scale;
+    pos_ref[VJ_R_SHANK] = action[VJ_R_SHANK] * param->pos_scale;
+    vel_ref[VJ_L_WHEEL] = action[VJ_L_WHEEL] * param->wheel_vel_scale;
+    vel_ref[VJ_R_WHEEL] = action[VJ_R_WHEEL] * param->wheel_vel_scale;
 
     /* 虚拟关节 PD: 腿 Kp·wrap(目标 − q) − Kd·q̇, 轮 Kp·(v_ref − v) */
     for (uint32_t i = 0u; i < VJ_NUM; i++)
@@ -171,15 +133,14 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
         if (i == VJ_L_WHEEL || i == VJ_R_WHEEL)
         {
             state->pos_target[i] = vel_ref[i];
-            tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i],
-                MACHINE_RL_CTRL_DT);
+            tau_v[i] = pid_calc(&state->controller[i], qd[i], vel_ref[i], MACHINE_RL_CTRL_DT);
         }
         else
         {
             float target = pos_ref[i] + param->dof_pos[i];
+            leg_joint = i < VJ_L_WHEEL ? i : i - 1u;
             state->pos_target[i] = target;
-            tau_v[i] = pid_calc(&state->controller[i], q[i], target,
-                MACHINE_RL_CTRL_DT) - param->d_gains[i] * qd[i];
+            tau_v[i] = pid_calc(&state->controller[i], q[i], target, MACHINE_RL_CTRL_DT) - param->d_gains[leg_joint] * qd[i];
         }
     }
     /* 机器力矩上限 */
@@ -205,7 +166,7 @@ uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
     base_dm[3] = tau_v[VJ_R_SHANK] * leg_r->output.vshank_jac[0];
 
     /* 独立补偿叠加 */
-    if (!Gas_Spring_Apply(leg_l, leg_r, base_dm, raw_dm))
+    if (!Gas_Spring_Apply(spring, base_dm, raw_dm))
     {
         return 0u;
     }

@@ -189,7 +189,6 @@ uint8_t BMI088_init(void)
 uint8_t bmi088_accel_init(void)
 {
     uint8_t res = 0;
-    uint8_t write_reg_num = 0;
 
     //check commiunication
     BMI088_accel_read_single_reg(BMI088_ACC_CHIP_ID, res);
@@ -214,7 +213,7 @@ uint8_t bmi088_accel_init(void)
     }
 
     //set accel sonsor config and check
-    for (write_reg_num = 0; write_reg_num < BMI088_WRITE_ACCEL_REG_NUM; write_reg_num++)
+    for (uint8_t write_reg_num = 0; write_reg_num < BMI088_WRITE_ACCEL_REG_NUM; write_reg_num++)
     {
 
         BMI088_accel_write_single_reg(write_BMI088_accel_reg_data_error[write_reg_num][0], write_BMI088_accel_reg_data_error[write_reg_num][1]);
@@ -240,7 +239,6 @@ uint8_t bmi088_accel_init(void)
 **/
 uint8_t bmi088_gyro_init(void)
 {
-    uint8_t write_reg_num = 0;
     uint8_t res = 0;
 
     //check commiunication
@@ -265,7 +263,7 @@ uint8_t bmi088_gyro_init(void)
     }
 
     //set gyro sonsor config and check
-    for (write_reg_num = 0; write_reg_num < BMI088_WRITE_GYRO_REG_NUM; write_reg_num++)
+    for (uint8_t write_reg_num = 0; write_reg_num < BMI088_WRITE_GYRO_REG_NUM; write_reg_num++)
     {
 
         BMI088_gyro_write_single_reg(write_BMI088_gyro_reg_data_error[write_reg_num][0], write_BMI088_gyro_reg_data_error[write_reg_num][1]);

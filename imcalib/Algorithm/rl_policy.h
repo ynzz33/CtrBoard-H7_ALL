@@ -16,21 +16,6 @@
 #include "rl_types.h"
 #include "ai_platform.h"
 
-/* 遥控目标范围 */
-#define RL_CMD_VX_MAX       0.0f    /* m/s */
-#define RL_CMD_YAW_MAX      0.0f    /* rad/s */
-#define RL_CMD_HEIGHT_MIN   0.15f   /* m */
-#define RL_CMD_HEIGHT_MAX   0.30f   /* m */
-#define RL_CMD_HEIGHT_INIT  0.23f   /* m */
-#define RL_CMD_HEIGHT_RATE  0.30f   /* m/s */
-
-/* 推理路径: 投入后先零动作 N 步, 只跑 PD + 历史 (训练: 首次轮接地前零动作; 实机轮已接地, 只留短预热) */
-#define RL_WARMUP_STEPS     10u
-
-/* 动作裁剪 (训练 normalization.clip_actions = 100) */
-#define RL_ACTION_CLIP      100.0f
-
-
 /* 模型: networkzn1 = chuanliantui 起立策略 (model_6000, 2026-09-22) */
 
 

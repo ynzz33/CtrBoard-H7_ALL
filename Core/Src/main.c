@@ -122,9 +122,7 @@ static void USB_Dma_MPU_Config(void)
 
 static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
 {
-  if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER
-      || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1
-      || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
+  if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1 || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
   {
     handle->Init.DataPrescaler = MACHINE_FDCAN13_DATA_PRESCALER;
     handle->Init.DataTimeSeg1 = MACHINE_FDCAN13_DATA_SEG1;

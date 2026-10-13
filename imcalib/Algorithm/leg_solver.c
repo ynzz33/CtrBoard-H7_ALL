@@ -30,8 +30,7 @@ static uint8_t Leg_Input_Valid(const leg_state_t *leg)
 
     if (!cfg->configured) { return 0u; }
     if (cfg->lu <= LEG_EPS || cfg->lg <= LEG_EPS) { return 0u; }
-    if (!isfinite(in->hip_f) || !isfinite(in->hip_b)
-        || !isfinite(in->d_hip_f) || !isfinite(in->d_hip_b))
+    if (!isfinite(in->hip_f) || !isfinite(in->hip_b) || !isfinite(in->d_hip_f) || !isfinite(in->d_hip_b))
     {
         return 0u;
     }
@@ -106,12 +105,7 @@ static uint8_t Leg_Solve_Geometry_z(leg_state_t *leg, leg_solver_cache_t *cache)
 static uint8_t Leg_Solve_Velocity_z(leg_state_t *leg, const leg_solver_cache_t *cache)
 {
     //下杆的参数
-    float ca = arm_cos_f32(cache->phi_a),
-          sa = arm_sin_f32(cache->phi_a),
-          cb = arm_cos_f32(cache->phi_b),
-          sb = arm_sin_f32(cache->phi_b),
-          cl = arm_cos_f32(cache->virtual_leg_angle_abs),
-          sl = arm_sin_f32(cache->virtual_leg_angle_abs);
+    float ca = arm_cos_f32(cache->phi_a), sa = arm_sin_f32(cache->phi_a), cb = arm_cos_f32(cache->phi_b), sb = arm_sin_f32(cache->phi_b), cl = arm_cos_f32(cache->virtual_leg_angle_abs), sl = arm_sin_f32(cache->virtual_leg_angle_abs);
     float length = leg->output.virtual_leg_length;
     float alpha = ca * sb - sa * cb;//公共分母
     float ka,kb; /* 投影系数 */
@@ -209,8 +203,7 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
 
     /* 虚拟腿摆角 (相对竖直方向) */
     cache->virtual_leg_angle_abs  = atan2f(y_p, x_p);
-    leg->output.virtual_leg_angle = Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs
-                            + leg->config.offset_phi0);
+    leg->output.virtual_leg_angle = Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs + leg->config.offset_phi0);
 
     /* 大腿角 = qf (前髋上连杆, 去镜像后与 hip_f 一致) */
     leg->output.thigh_angle = Leg_Wrap(cache->qf);
@@ -260,10 +253,8 @@ static uint8_t Leg_Solve_Velocity(leg_state_t *leg, const leg_solver_cache_t *ca
     leg->output.leg_jac[0][1] =  cache->lu * sin_0a * sin_bb / sin_ab;
     leg->output.leg_jac[1][0] =  cache->lu * cos_0b * sin_fa / (leg->output.virtual_leg_length * sin_ab);
     leg->output.leg_jac[1][1] = -cache->lu * cos_0a * sin_bb / (leg->output.virtual_leg_length * sin_ab);
-    leg->output.d_virtual_leg_length = leg->output.leg_jac[0][0] * cache->vf
-                                     + leg->output.leg_jac[0][1] * cache->vb;
-    leg->output.d_virtual_leg_angle  = leg->output.leg_jac[1][0] * cache->vf
-                                     + leg->output.leg_jac[1][1] * cache->vb;
+    leg->output.d_virtual_leg_length = leg->output.leg_jac[0][0] * cache->vf + leg->output.leg_jac[0][1] * cache->vb;
+    leg->output.d_virtual_leg_angle  = leg->output.leg_jac[1][0] * cache->vf + leg->output.leg_jac[1][1] * cache->vb;
 
     /* 虚拟小腿雅可比: vshank_jac[0]=后髋, [1]=前髋 */
     jac_a   = cache->lu * sin_bb / (cache->lg * sin_ab);
@@ -282,9 +273,8 @@ static void Leg_Solve_Force_Map(leg_state_t *leg)
     leg->output.force_map[0][1] = leg->output.leg_jac[1][0];
     leg->output.force_map[1][0] = leg->output.leg_jac[0][1];
     leg->output.force_map[1][1] = leg->output.leg_jac[1][1];
-    leg->output.force_det = leg->output.force_map[0][0] * leg->output.force_map[1][1]
-                          - leg->output.force_map[0][1] * leg->output.force_map[1][0];
-    leg->output.force_valid = (uint8_t)(fabsf(leg->output.force_det) >= LEG_EPS);
+    leg->output.force_det = leg->output.force_map[0][0] * leg->output.force_map[1][1] - leg->output.force_map[0][1] * leg->output.force_map[1][0];
+    leg->output.force_valid = (uint8_t)(isfinite(leg->output.force_det) && fabsf(leg->output.force_det) >= LEG_EPS);
 }
 
 /* 虚拟力/力矩 → 电机力矩 */
@@ -295,7 +285,7 @@ static void Leg_Solve_Force_Map(leg_state_t *leg)
 uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
                               float torque, float output[2])
 {
-    if (leg == NULL || output == NULL || !leg->output.force_valid)
+    if (!leg->output.force_valid)
     {
         return 0u;
     }
@@ -326,13 +316,9 @@ uint8_t Leg_Force_Map_Inverse(const leg_state_t *leg, const float input[2],
     float f;
     float t;
 
-    if (force == NULL || torque == NULL)
-    {
-        return 0u;
-    }
     *force = 0.0f;
     *torque = 0.0f;
-    if (leg == NULL || input == NULL || !leg->output.force_valid)
+    if (!leg->output.force_valid)
     {
         return 0u;
     }
@@ -355,23 +341,18 @@ uint8_t Leg_Force_Map_Inverse(const leg_state_t *leg, const float input[2],
 /* 初始化 */
 void Leg_Init(leg_state_t *leg)
 {
-    if (leg == NULL) { return; }
     memset(leg, 0, sizeof(*leg));
 }
 
 /* 三层求解: 几何 → 速度 → 力矩映射 */
 /*
- * 总入口依次计算几何、速度、力映射，并分别保存有效性。
+ * 总入口依次计算几何、速度，统一验证反馈和雅可比，再生成力映射有效性。
  * 几何有效不保证力映射不奇异；控制力输出必须同时检查映射有效。
  */
 uint8_t Leg_Solve(leg_state_t *leg)
 {
     leg_solver_cache_t cache;
 
-    if (leg == NULL)
-    {
-        return 0u;
-    }
     memset(&leg->output, 0, sizeof(leg->output));
     if (!Leg_Input_Valid(leg))
     {
@@ -385,6 +366,25 @@ uint8_t Leg_Solve(leg_state_t *leg)
     if (!Leg_Solve_Velocity_z(leg, &cache))
     {
         return 0u;
+    }
+    /* 发布前校验 */
+    if (!isfinite(leg->output.thigh_angle) || !isfinite(leg->output.virtual_leg_length) || !isfinite(leg->output.virtual_leg_angle) || !isfinite(leg->output.virtual_shank_angle) || !isfinite(leg->output.d_virtual_leg_length) || !isfinite(leg->output.d_virtual_leg_angle) || !isfinite(leg->output.d_virtual_shank_angle))
+    {
+        return 0u;
+    }
+    for (uint8_t i = 0u; i < 2u; i++)
+    {
+        if (!isfinite(leg->output.vshank_jac[i]))
+        {
+            return 0u;
+        }
+        for (uint8_t j = 0u; j < 2u; j++)
+        {
+            if (!isfinite(leg->output.point_jac[i][j]) || !isfinite(leg->output.leg_jac[i][j]))
+            {
+                return 0u;
+            }
+        }
     }
     Leg_Solve_Force_Map(leg);
     leg->output.valid = 1u;

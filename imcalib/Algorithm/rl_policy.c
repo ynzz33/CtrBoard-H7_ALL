@@ -31,10 +31,7 @@ AI_ALIGNED(4) static ai_u8 standup_activations[AI_NETWORKZN1_DATA_ACTIVATION_1_S
 /* 清空动作 */
 static void RL_Policy_Clear_Action(float action[RL_ACTION_SIZE])
 {
-    if (action != NULL)
-    {
-        memset(action, 0, RL_ACTION_SIZE * sizeof(float));
-    }
+    memset(action, 0, RL_ACTION_SIZE * sizeof(float));
 }
 
 /* 初始化网络: 只有 networkzn1 */
@@ -63,8 +60,7 @@ static uint8_t RL_Policy_Init_Network(rl_model_t model)
     {
         network->inputs = ai_networkzn1_inputs_get(network->network, &input_count);
         network->outputs = ai_networkzn1_outputs_get(network->network, &output_count);
-        network->ready = (uint8_t)(network->inputs != NULL && network->outputs != NULL
-            && input_count == AI_NETWORKZN1_IN_NUM && output_count == AI_NETWORKZN1_OUT_NUM);
+        network->ready = (uint8_t)(network->inputs != NULL && network->outputs != NULL && input_count == AI_NETWORKZN1_IN_NUM && output_count == AI_NETWORKZN1_OUT_NUM);
     }
 
     if (!network->ready)
@@ -79,10 +75,6 @@ static uint8_t RL_Policy_Init_Network(rl_model_t model)
 /* 重置策略 */
 void RL_Policy_Reset(rl_policy_t *policy)
 {
-    if (policy == NULL)
-    {
-        return;
-    }
     memset(policy, 0, sizeof(*policy));
     policy->selected_model = RL_MODEL_STANDUP;
 }
@@ -90,16 +82,10 @@ void RL_Policy_Reset(rl_policy_t *policy)
 /* 初始化策略 */
 uint8_t RL_Policy_Init(rl_policy_t *policy)
 {
-    uint32_t i;
-
-    if (policy == NULL)
-    {
-        return 0u;
-    }
     __HAL_RCC_CRC_CLK_ENABLE();
 
     policy->ready = 1u;
-    for (i = 0u; i < RL_MODEL_COUNT; i++)
+    for (uint32_t i = 0u; i < RL_MODEL_COUNT; i++)
     {
         policy->model_ready[i] = RL_Policy_Init_Network((rl_model_t)i);
         if (!policy->model_ready[i])
@@ -113,7 +99,7 @@ uint8_t RL_Policy_Init(rl_policy_t *policy)
 /* 选择模型 */
 uint8_t RL_Policy_Select(rl_policy_t *policy, rl_model_t model)
 {
-    if (policy == NULL || model >= RL_MODEL_COUNT)
+    if (model >= RL_MODEL_COUNT)
     {
         return 0u;
     }
@@ -139,11 +125,7 @@ uint8_t RL_Policy_Run(rl_policy_t *policy,
     uint64_t t0;
 
     RL_Policy_Clear_Action(action);
-    if (policy == NULL || observation == NULL || !policy->ready
-        || !observation->valid || !observation->history_ready
-        || policy->selected_model >= RL_MODEL_COUNT
-        || !Float_Array_Finite(observation->obs, RL_OBS_SIZE)
-        || !Float_Array_Finite(observation->history, RL_OBS_HISTORY_SIZE))
+    if (!policy->ready || !observation->valid || !observation->history_ready || policy->selected_model >= RL_MODEL_COUNT)
     {
         return 0u;
     }
@@ -158,8 +140,7 @@ uint8_t RL_Policy_Run(rl_policy_t *policy,
     history_input = AI_BUFFER_DATA(&network->inputs[1], ai_float);
     action_output = AI_BUFFER_DATA(&network->outputs[0], ai_float);
     latent_output = AI_BUFFER_DATA(&network->outputs[1], ai_float);
-    if (obs_input == NULL || history_input == NULL
-        || action_output == NULL || latent_output == NULL)
+    if (obs_input == NULL || history_input == NULL || action_output == NULL || latent_output == NULL)
     {
         return 0u;
     }

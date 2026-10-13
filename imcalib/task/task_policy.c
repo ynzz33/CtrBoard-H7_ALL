@@ -12,6 +12,7 @@
 #include "rl_policy.h"
 #include "machine_config.h"
 #include "pid.h"
+#include "math_utils.h"
 
 #include <string.h>
 
@@ -21,26 +22,6 @@ enum { RL_OBSERVATION_PREVIEW, RL_OBSERVATION_HISTORY };
 
 
 
-/* 检查电机 */
-static uint8_t RL_Motors_Online(const motor_state_t *motor)
-{
-    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
-    {
-        if (!motor->dm.online[i])
-        {
-            return 0u;
-        }
-    }
-    for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
-    {
-        if (!motor->dji.online[i])
-        {
-            return 0u;
-        }
-    }
-    return 1u;
-}
-
 /* 机器表校准后交换角色: 训练 LF 对应实体右腿，RF 对应实体左腿 */
 /*
  * 先按机器表对实体关节角/速度做已有校准，再转换到训练角色顺序。
@@ -48,7 +29,7 @@ static uint8_t RL_Motors_Online(const motor_state_t *motor)
  */
 uint8_t RL_Joint_Map(const robot_feedback_t *feedback, float joint_pos[4], float joint_vel[6])
 {
-    const rl_map_t *map = &machine->rl;
+    const machine_rl_cfg_t *map = &machine->rl;
     float q[RL_ACTION_SIZE] = {0.0f};
     float qd[6];
 
@@ -76,7 +57,7 @@ uint8_t RL_Joint_Map(const robot_feedback_t *feedback, float joint_pos[4], float
         qd[i] *= (float)map->sign[i];
     }
     RL_Observation_Roles_To_Training(qd, joint_vel);
-    return 1u;
+    return (uint8_t)(Float_Array_Finite(joint_pos, 4u) && Float_Array_Finite(joint_vel, 6u));
 }
 
 /* 采集与构建 */
@@ -87,16 +68,12 @@ static uint8_t RL_Control_Update_Observation(const robot_feedback_t *feedback, c
     float joint_vel[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     uint8_t source_valid;
 
-    source_valid = (uint8_t)(imu->online && feedback->left.output.valid
-        && feedback->right.output.valid && (mode == RL_OBSERVATION_PREVIEW || RL_Motors_Online(&feedback->motor))
-        && RL_Joint_Map(feedback, joint_pos, joint_vel));
+    source_valid = (uint8_t)(imu->online && feedback->left.output.valid && feedback->right.output.valid && (mode == RL_OBSERVATION_PREVIEW || feedback->motor.valid) && RL_Joint_Map(feedback, joint_pos, joint_vel));
     if (mode == RL_OBSERVATION_PREVIEW)
     {
         RL_Observation_Reset(&rl_control.observation);
     }
-    if (!RL_Observation_Build(&rl_control.observation, &rl_control.param,
-        imu->gyro_rad_s, imu->quat, command,
-        joint_pos, joint_vel, source_valid))
+    if (!RL_Observation_Build(&rl_control.observation, &rl_control.param, imu->gyro_rad_s, imu->quat, command, joint_pos, joint_vel, source_valid))
     {
         return 0u;
     }
@@ -123,37 +100,19 @@ static void RL_Action_Publish(const float action[RL_ACTION_SIZE], uint8_t rl_rea
 /* 遥控 → 策略指令 */
 static void RL_Command_From_Rc(const rc_command_t *rc, float command[3])
 {
-    float height = input_command.height_cmd;
-
-    if (height < RL_CMD_HEIGHT_MIN || height > RL_CMD_HEIGHT_MAX)
-    {
-        height = RL_CMD_HEIGHT_INIT;
-    }
-    if (output_task_rl_engaged() && rc->online)
-    {
-        height += rc->len * RL_CMD_HEIGHT_RATE * MACHINE_POLICY_DT;
-        height = clampf(height, RL_CMD_HEIGHT_MIN, RL_CMD_HEIGHT_MAX);
-    }
-    else
-    {
-        height = RL_CMD_HEIGHT_INIT;
-    }
-
-    /* 保留训练范围 */
-    command[0] = machine->lqr.vel_max > 0.0f
-        ? rc->vel / machine->lqr.vel_max * RL_CMD_VX_MAX : 0.0f;
-    command[1] = machine->lqr.yaw_max > 0.0f
-        ? -rc->yaw / machine->lqr.yaw_max * RL_CMD_YAW_MAX : 0.0f;
-    command[2] = height;
+    /* 公共量程 */
+    command[0] = rc->vel;
+    command[1] = -rc->yaw;
+    command[2] = rc->len;
     input_command.vx_cmd = command[0];
     input_command.yaw_cmd = command[1];
     input_command.height_cmd = command[2];
 }
 
-/* 动作裁剪 (RL_ACTION_CLIP = 0 不裁) */
+/* 训练动作先裁剪再保存历史；配置限幅非正时沿用不裁剪语义。 */
 static void RL_Action_Clip(float action[RL_ACTION_SIZE])
 {
-    float limit = RL_ACTION_CLIP;
+    float limit = machine->rl.action_clip;
 
     if (limit <= 0.0f)
     {
@@ -168,7 +127,7 @@ static void RL_Action_Clip(float action[RL_ACTION_SIZE])
 /* 推理路径单周期 */
 static void RL_Infer_Body(const robot_feedback_t *feedback)
 {
-    const rl_map_t *map = &machine->rl;
+    const machine_rl_cfg_t *map = &machine->rl;
     float command[3];
     float action_t[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   /* 训练空间 */
     float action_ref[RL_ACTION_SIZE] = {0.0f};  /* 实体参考 */
@@ -186,7 +145,6 @@ static void RL_Infer_Body(const robot_feedback_t *feedback)
         RL_Action_Publish(action, 0u);
         return;
     }
-
     if (!RL_Control_Update_Observation(feedback, command, RL_OBSERVATION_HISTORY))
     {
         /* 观测无效: 重新预热, 零力矩 */
@@ -195,7 +153,8 @@ static void RL_Infer_Body(const robot_feedback_t *feedback)
         return;
     }
 
-    if (warmup_cnt < RL_WARMUP_STEPS)
+
+    if (warmup_cnt < machine->rl.warmup_steps)
     {
         warmup_cnt++;
     }

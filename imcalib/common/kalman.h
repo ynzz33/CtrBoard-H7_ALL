@@ -11,7 +11,7 @@
 #define KALMAN_H
 
 /* ================= 带加速度输入的一维卡尔曼速度估计 (同 Leg2_v1) =================
- * 过程: v = v + a·dt ; 观测: z = v ; 详见 md/LQR_PLAN.md §2.8 */
+ * 过程: v = v + a·dt ; 观测: z = v ; 详见 md/file-guide.md 的数学工具说明 */
 
 typedef struct {
     float vel;      /* 速度估计 */

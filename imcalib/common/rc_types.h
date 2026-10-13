@@ -3,7 +3,7 @@
  * 本头文件定义共享数据类型、常量或内联辅助，由引用方读取/调用，不单独创建任务或维护外设。
  * 输入/来源：协议层原始通道/在线/时间戳与归一化指令。
  * 输出/去向：声明dr16_t、rc_command_t及拨杆原始取值。
- * 关键边界：原始拨杆编码不等于策略编号；vel/yaw指令单位与len调节输入需要分清。
+ * 关键边界：原始拨杆编码不等于策略编号；vel/yaw/len分别为m/s、rad/s、m。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -17,6 +17,20 @@
 #define DR16_SW_UP       1
 #define DR16_SW_MID      3
 #define DR16_SW_DOWN     2
+
+/* 控制策略 */
+typedef enum {
+    CTRL_STRATEGY_RL = 0,       /* RL 推理 */
+    CTRL_STRATEGY_LQR,          /* LQR 平衡 */
+    CTRL_STRATEGY_DISABLE,      /* 左下 / 离线 */
+    CTRL_STRATEGY_COMPENSATION = 4, /* 补偿台架 */
+} ctrl_strategy_t;
+
+typedef struct {
+    ctrl_strategy_t strategy;
+    uint8_t rc_enable;
+    uint8_t engage;
+} rc_control_mode_t;
 
 typedef struct {
     int16_t  ch0;
@@ -40,10 +54,11 @@ typedef struct {
 typedef struct {
     float vel;          /* 前进 m/s */
     float yaw;          /* 转向 rad/s */
-    float len;          /* 拨轮 腿长 */
+    float len;          /* 目标 m */
     uint8_t s1;         /* 左拨杆 */
     uint8_t s2;         /* 右拨杆 */
     uint8_t online;
+    rc_control_mode_t mode; /* 模式请求 */
 } rc_command_t;
 
 #endif

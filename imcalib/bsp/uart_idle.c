@@ -12,18 +12,16 @@
 #include <string.h>
 
 UART_Rx_t dbus_rx   = {0};
-UART_Rx_t debug_rx  = {0};
+UART_Rx_t debug_rx  = {0}; /* VOFA预留 */
 UART_Rx_t hi229_rx  = {0};
 
 void UART_Rx_Init(UART_Rx_t *rx, UART_HandleTypeDef *huart,
-                  DMA_HandleTypeDef *hdma_rx, uint16_t size,
-                  UART_Parse_cb parse)
+                  DMA_HandleTypeDef *hdma_rx, uint16_t size)
 {
     rx->huart    = huart;
     rx->hdma_rx  = hdma_rx;
     rx->buf_size = size;
     rx->dma_pos  = 0;
-    rx->parse    = parse;
 
     Dma_Cache_Invalidate_Rx(rx->dma_buf, size);
     HAL_UART_Receive_DMA(huart, rx->dma_buf, size);
@@ -53,8 +51,7 @@ void UART_Idle_Isr(UART_HandleTypeDef *huart, UART_Rx_t *rx)
     __HAL_UART_CLEAR_IDLEFLAG(huart);
 
     uint16_t pos = rx->buf_size - (uint16_t)__HAL_DMA_GET_COUNTER(rx->hdma_rx);
-    uint16_t len = (pos >= rx->dma_pos) ? (pos - rx->dma_pos)
-                                         : (rx->buf_size - rx->dma_pos + pos);
+    uint16_t len = (pos >= rx->dma_pos) ? (pos - rx->dma_pos) : (rx->buf_size - rx->dma_pos + pos);
     if (len == 0)
         return;
 
@@ -73,21 +70,12 @@ void UART_Idle_Isr(UART_HandleTypeDef *huart, UART_Rx_t *rx)
 }
 
 /* 在短临界区内取完整快照，避免 ISR 覆盖任务正在解析的缓冲区。 */
-uint16_t UART_Rx_Take(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity)
-{
-    return UART_Rx_Take_Timed(rx, dst, capacity, NULL);
-}
-
 uint16_t UART_Rx_Take_Timed(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity,
                            uint64_t *received_ns)
 {
     uint32_t primask;
     uint16_t len;
 
-    if (rx == NULL || dst == NULL || capacity == 0u)
-    {
-        return 0u;
-    }
     primask = __get_PRIMASK();
     __disable_irq();
     len = rx->flag ? rx->isr_len : 0u;

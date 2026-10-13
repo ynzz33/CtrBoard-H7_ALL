@@ -38,21 +38,11 @@ static float LQR_Wrap_Pi(float angle)
     return angle;
 }
 
-/* 腿长目标区间 */
-static void LQR_Len_Range(float *len_min, float *len_max)
-{
-    *len_min = machine->leg_len_min;
-    *len_max = machine->leg_len_max;
-    *len_min = fmaxf(*len_min, LQR_Gain_Info()->len_min);
-    *len_max = fminf(*len_max, LQR_Gain_Info()->len_max);
-}
-
 /* 初始化 */
 void LQR_Init(lqr_state_t *st)
 {
     memset(st, 0, sizeof(*st));
     lqr_debug.vel_leg_comp_sign = -1.0f;
-    lqr_debug.legacy_gain = 0u;
     lqr_debug.yaw_hold = machine->lqr.yaw_hold;
     lqr_debug.yaw_rate_hold = machine->lqr.yaw_rate_hold;
     lqr_debug.pos_hold = machine->lqr.pos_hold;
@@ -115,19 +105,16 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
     return (wx * r00 + wy * r10) / norm * LQR_GRAVITY;
 }
 
-/* 使能边沿: 腿长目标锁默认值, 位移积分清零 (滤波器常跑不复位)
+/* 使能边沿: 腿长读取公共目标, 位移积分清零 (滤波器常跑不复位)
  * 同 Leg2: 不查实测腿长, 趴地也投入, 靠腿长 PID 撑起 (倒地自起状态机后做) */
 /*
- * 投入时检查腿几何可用并建立位置/朝向/初始长度目标基准。
+ * 投入时建立位置/朝向基准并读取公共腿长；腿几何由执行层检查。
  * 允许从较短实测腿长撑起；机器和K表区间约束目标，不伪造实测长度。
  */
-uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
-                         const leg_state_t *leg_r)
+uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
 {
-    (void)leg_l;
-    (void)leg_r;
-    st->leg_len_tgt[0] = machine->lqr.leg_len_init[0];
-    st->leg_len_tgt[1] = machine->lqr.leg_len_init[1];
+    st->leg_len_tgt[0] = cmd->len;
+    st->leg_len_tgt[1] = cmd->len;
     st->yaw_tgt = st->x[LQR_X_PHI];    /* 朝向锁当前 */
     st->vel_tgt = 0.0f;
     /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
@@ -140,21 +127,14 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
 /* 指令 → 目标 */
 /*
  * 将统一遥控命令变成速度/偏航及最终腿长目标。
- * 腿长拨轮按速率积分；空中轴向释放时暂停长度累加，落地当拍暂停由执行层置command.len=0实现。
+ * RC已经完成拨轮累加和限幅，这里直接读取最终腿长。
  */
-uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt)
+uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
 {
-    float len_min;
-    float len_max;
-    uint8_t i;
-
-    if (cmd == NULL || !cmd->online || !isfinite(dt) || dt <= 0.0f
-        || !isfinite(cmd->vel) || !isfinite(cmd->yaw) || !isfinite(cmd->len))
+    if (!cmd->online)
     {
         return 0u;
     }
-
-    LQR_Len_Range(&len_min, &len_max);
 
     st->target[LQR_X_S]     = machine->lqr.pos_target;
     st->vel_tgt            = cmd->vel;
@@ -173,28 +153,9 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt)
     st->target[LQR_X_THB]   = machine->lqr.pitch_trim;
     st->target[LQR_X_DTHB]  = 0.0f;
 
-    /* 腿长目标: 拨轮按速率积分, 限制在腿长工作区间 */
-    for (i = 0u; i < 2u && !st->air_release; i++)
-    {
-        st->leg_len_tgt[i] += cmd->len * machine->lqr.len_rate * dt;
-        st->leg_len_tgt[i] = clampf(st->leg_len_tgt[i], len_min, len_max);
-    }
+    st->leg_len_tgt[0] = cmd->len;
+    st->leg_len_tgt[1] = cmd->len;
     return 1u;
-}
-
-/* 落地目标 */
-/*
- * 有效离地下降沿确认时，把左右最终腿长目标一次设置为落地高度并夹合法区间。
- * 这里只改最终目标，不每拍覆盖拨轮，不处理PID历史或直接下发电机。
- */
-void LQR_Landing_Target_Reset(lqr_state_t *st)
-{
-    float len_min;
-    float len_max;
-
-    LQR_Len_Range(&len_min, &len_max);
-    st->leg_len_tgt[0] = clampf(0.20f, len_min, len_max);
-    st->leg_len_tgt[1] = st->leg_len_tgt[0];
 }
 
 /* 速度入状态；低速、腿姿态到位后启动位置保持。 */
@@ -206,11 +167,6 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
 {
     uint8_t legs_ready;
 
-    if (!isfinite(velocity))
-    {
-        st->valid = 0u;
-        return;
-    }
     st->ds_kf = velocity;
     st->x[LQR_X_DS] = velocity;
     if (st->air_control)
@@ -218,10 +174,7 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
         st->x[LQR_X_S] = st->pos;
         return;
     }
-    legs_ready = (uint8_t)(fabsf(LQR_Wrap_Pi(st->x[LQR_X_THL]
-        - machine->lqr.leg_trim[0])) <= LQR_POS_LEG_TOL
-        && fabsf(LQR_Wrap_Pi(st->x[LQR_X_THR]
-        - machine->lqr.leg_trim[1])) <= LQR_POS_LEG_TOL);
+    legs_ready = (uint8_t)(fabsf(LQR_Wrap_Pi(st->x[LQR_X_THL] - machine->lqr.leg_trim[0])) <= LQR_POS_LEG_TOL && fabsf(LQR_Wrap_Pi(st->x[LQR_X_THR] - machine->lqr.leg_trim[1])) <= LQR_POS_LEG_TOL);
     if (st->target[LQR_X_DS] != 0.0f)
     {
         st->pos = 0.0f;
@@ -234,9 +187,7 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
     }
     else if (legs_ready)
     {
-        if (!st->pos_armed
-            && (lqr_debug.pos_arm_vel <= 0.0f
-                || fabsf(st->x[LQR_X_DS]) < lqr_debug.pos_arm_vel))
+        if (!st->pos_armed && (lqr_debug.pos_arm_vel <= 0.0f || fabsf(st->x[LQR_X_DS]) < lqr_debug.pos_arm_vel))
         {
             /* 此刻设为位置基准 */
             st->pos = 0.0f;
@@ -249,7 +200,7 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
     }
     /* 腿姿态偏离只冻结，不清除已累计位移。 */
     st->x[LQR_X_S] = st->pos;
-    if (!isfinite(st->pos) || !isfinite(st->x[LQR_X_DS]))
+    if (!isfinite(st->pos))
     {
         st->valid = 0u;
     }
@@ -258,68 +209,27 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
 /* 组装姿态和运动学观测；任务随后赋入融合速度。 */
 /*
  * 从IMU和双腿几何构建10维状态及原始轮速运动学观测。
- * 长度用于增益调度，虚拟腿角按原pitch约定转换；融合速度由执行层调用slip后回填。
+ * 输入数值已由IMU/腿发布端验证，这里读取可用标志；融合速度随后由执行层回填。
  * 本函数不根据倒置补角修改LQR pitch，pitch_world与原状态需分开观察。
  */
-uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
-                         const leg_state_t *leg_l, const leg_state_t *leg_r,
-                         const float wheel_vel[2], float dt)
+uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,const leg_state_t *leg_l, const leg_state_t *leg_r,const float wheel_vel[2])
 {
     float pitch;
     float omg_pitch;
     float whl[2];
     float vel[2];
 
-    uint8_t i;
-
     st->valid = 0u;
-    if (!isfinite(dt) || dt <= 0.0f)
-    {
-        return 0u;
-    }
-    if (imu == NULL || leg_l == NULL || leg_r == NULL || wheel_vel == NULL)
-    {
-        return 0u;
-    }
     if (!imu->online || !leg_l->output.valid || !leg_r->output.valid)
     {
         return 0u;
     }
 
-    if (!isfinite(wheel_vel[0]) || !isfinite(wheel_vel[1])
-        || !isfinite(imu->euler_rad[LQR_IMU_PITCH_IDX])
-        || !isfinite(imu->euler_rad[LQR_IMU_ROLL_IDX])
-        || !isfinite(imu->euler_rad[LQR_IMU_YAW_IDX]))
-    {
-        return 0u;
-    }
-    for (i = 0u; i < 3u; i++)
-    {
-        if (!isfinite(imu->gyro_rad_s[i]) || !isfinite(imu->acc_g[i]))
-        {
-            return 0u;
-        }
-    }
-    for (i = 0u; i < 4u; i++)
-    {
-        if (!isfinite(imu->quat[i]))
-        {
-            return 0u;
-        }
-    }
-    if (!isfinite(leg_l->output.virtual_leg_length) || !isfinite(leg_r->output.virtual_leg_length)
-        || !isfinite(leg_l->output.virtual_leg_angle) || !isfinite(leg_r->output.virtual_leg_angle)
-        || !isfinite(leg_l->output.d_virtual_leg_angle) || !isfinite(leg_r->output.d_virtual_leg_angle)
-        || !isfinite(leg_l->output.d_virtual_leg_length) || !isfinite(leg_r->output.d_virtual_leg_length))
-    {
-        return 0u;
-    }
     st->len[0] = leg_l->output.virtual_leg_length;
     st->len[1] = leg_r->output.virtual_leg_length;
 
     pitch = imu->euler_rad[LQR_IMU_PITCH_IDX];
-    omg_pitch = Lowpass_Update(&st->lpf_omg_pitch,
-                               imu->gyro_rad_s[LQR_IMU_GYRO_PITCH]);
+    omg_pitch = Lowpass_Update(&st->lpf_omg_pitch, imu->gyro_rad_s[LQR_IMU_GYRO_PITCH]);
     st->roll = imu->euler_rad[LQR_IMU_ROLL_IDX];
 
     /* 前摆正，转世界系 */
@@ -330,28 +240,17 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
     st->x[LQR_X_THB]  = pitch;
     st->x[LQR_X_DTHB] = omg_pitch;
     st->x[LQR_X_PHI]  = imu->euler_rad[LQR_IMU_YAW_IDX];
-    st->x[LQR_X_DPHI] = Lowpass_Update(&st->lpf_omg_yaw,
-                                       imu->gyro_rad_s[LQR_IMU_GYRO_YAW]);
+    st->x[LQR_X_DPHI] = Lowpass_Update(&st->lpf_omg_yaw, imu->gyro_rad_s[LQR_IMU_GYRO_YAW]);
 
     /* 轮子相对地面角速度: 反馈已扣减速比, 再补偿腿摆与俯仰 (俯仰项符号 A/B, 见 LQR_PLAN §六 ①e) */
-    whl[0] = wheel_vel[0] + lqr_debug.vel_leg_comp_sign
-             * leg_l->output.d_virtual_leg_angle
-             + lqr_debug.pitch_comp_sign * omg_pitch;
-    whl[1] = wheel_vel[1] + lqr_debug.vel_leg_comp_sign
-             * leg_r->output.d_virtual_leg_angle
-             + lqr_debug.pitch_comp_sign * omg_pitch;
+    whl[0] = wheel_vel[0] + lqr_debug.vel_leg_comp_sign * leg_l->output.d_virtual_leg_angle + lqr_debug.pitch_comp_sign * omg_pitch;
+    whl[1] = wheel_vel[1] + lqr_debug.vel_leg_comp_sign * leg_r->output.d_virtual_leg_angle + lqr_debug.pitch_comp_sign * omg_pitch;
     st->whl[0] = whl[0];
     st->whl[1] = whl[1];
 
     /* 机体水平速度: 轮心线速度 + 摆杆摆动 + 摆杆伸缩 */
-    vel[0] = whl[0] * machine->wheel_r
-           - leg_l->output.virtual_leg_length * st->x[LQR_X_DTHL]
-             * cosf(st->x[LQR_X_THL])
-           - leg_l->output.d_virtual_leg_length * sinf(st->x[LQR_X_THL]);
-    vel[1] = whl[1] * machine->wheel_r
-           - leg_r->output.virtual_leg_length * st->x[LQR_X_DTHR]
-             * cosf(st->x[LQR_X_THR])
-           - leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
+    vel[0] = whl[0] * machine->wheel_r - leg_l->output.virtual_leg_length * st->x[LQR_X_DTHL] * cosf(st->x[LQR_X_THL]) - leg_l->output.d_virtual_leg_length * sinf(st->x[LQR_X_THL]);
+    vel[1] = whl[1] * machine->wheel_r - leg_r->output.virtual_leg_length * st->x[LQR_X_DTHR] * cosf(st->x[LQR_X_THR]) - leg_r->output.d_virtual_leg_length * sinf(st->x[LQR_X_THR]);
     /* 组装速度观测，融合由执行任务调用slip模块。 */
     st->ds_raw = (vel[0] + vel[1]) * 0.5f;
     st->a_fwd  = lqr_debug.acc_fwd_sign * LQR_Accel_Forward(imu);
@@ -365,7 +264,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
 
 /* 增益求值 + 状态反馈求和 */
 /*
- * 兼容校验后按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
+ * 按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
  * AIR只保留左右腿角/角速度四列，双轮贡献清零；地面使用完整反馈和既有偏置。
  * u_col记录左轮各列贡献，便于定位轮命令来源；gain_valid表示本次求解有效。
  */
@@ -377,35 +276,25 @@ void LQR_Control_Update(lqr_state_t *st)
     float sum;
     float term;
     float hip_limit;
-    uint8_t i;
-    uint8_t j;
 
     st->gain_valid = 0u;
     memset(st->u, 0, sizeof(st->u));
-    if (!st->valid || !LQR_Gain_Compatible()
-        || !isfinite(st->len[0]) || !isfinite(st->len[1]))
-    {
-        return;
-    }
-    if (st->air_control && (!isfinite(st->air_hip_max) || st->air_hip_max <= 0.0f))
+    if (!st->valid)
     {
         return;
     }
     /* 增益多项式只在生成网格内有效，实测腿长越界时取边界增益。 */
     len_l = clampf(st->len[0], LQR_Gain_Info()->len_min, LQR_Gain_Info()->len_max);
     len_r = clampf(st->len[1], LQR_Gain_Info()->len_min, LQR_Gain_Info()->len_max);
-    if (fabsf(len_l - st->len_eval[0]) > LQR_K_RECALC_THRESH
-        || fabsf(len_r - st->len_eval[1]) > LQR_K_RECALC_THRESH
-        || st->gain_legacy != lqr_debug.legacy_gain)
+    if (fabsf(len_l - st->len_eval[0]) > LQR_K_RECALC_THRESH || fabsf(len_r - st->len_eval[1]) > LQR_K_RECALC_THRESH)
     {
-        if (!LQR_Gain_Eval(len_l, len_r, K_sym, lqr_debug.legacy_gain))
+        if (!LQR_Gain_Eval(len_l, len_r, K_sym))
         {
             return;
         }
-        st->gain_legacy = lqr_debug.legacy_gain;
-        for (i = 0u; i < LQR_U_NUM; i++)
+        for (uint8_t i = 0u; i < LQR_U_NUM; i++)
         {
-            for (j = 0u; j < LQR_X_NUM; j++)
+            for (uint8_t j = 0u; j < LQR_X_NUM; j++)
             {
                 st->K[i][j] = K_sym[j * LQR_U_NUM + i];
             }
@@ -414,31 +303,26 @@ void LQR_Control_Update(lqr_state_t *st)
         st->len_eval[1] = len_r;
     }
 
-    for (i = 0u; i < LQR_U_NUM; i++)
+    for (uint8_t i = 0u; i < LQR_U_NUM; i++)
     {
         sum = st->air_control ? 0.0f : LQR_Gain_Info()->u_eq[i];
-        for (j = 0u; j < LQR_X_NUM; j++)
+        for (uint8_t j = 0u; j < LQR_X_NUM; j++)
         {
-            if (st->air_control
-                && (i == LQR_U_WL || i == LQR_U_WR || j < LQR_X_THL || j > LQR_X_DTHR))
+            if (st->air_control && (i == LQR_U_WL || i == LQR_U_WR || j < LQR_X_THL || j > LQR_X_DTHR))
             {
                 term = 0.0f;
             }
             else if (j == LQR_X_PHI)
             {
-                term = lqr_debug.yaw_hold
-                     ? st->K[i][j] * LQR_Wrap_Pi(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j])
-                     : 0.0f;                        /* 关: 偏航角不参与 */
+                term = lqr_debug.yaw_hold ? st->K[i][j] * LQR_Wrap_Pi(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j]) : 0.0f;                        /* 关: 偏航角不参与 */
             }
-            else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold)
-                     || (j == LQR_X_S && !lqr_debug.pos_hold))
+            else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold) || (j == LQR_X_S && !lqr_debug.pos_hold))
             {
                 term = 0.0f;                        /* 关: 该列不参与 */
             }
             else if (st->air_control && (j == LQR_X_THL || j == LQR_X_THR))
             {
-                term = st->K[i][j] * remainderf(st->target[j]
-                    + LQR_Gain_Info()->x_eq[j] - st->x[j], LEG_2PI);
+                term = st->K[i][j] * remainderf(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j], LEG_2PI);
             }
             else
             {
@@ -457,13 +341,11 @@ void LQR_Control_Update(lqr_state_t *st)
         }
         if (i == LQR_U_WL || i == LQR_U_WR)
         {
-            st->u[i] = clampf(sum, -lqr_debug.trq_max_wheel,
-                              lqr_debug.trq_max_wheel);
+            st->u[i] = clampf(sum, -lqr_debug.trq_max_wheel, lqr_debug.trq_max_wheel);
         }
         else
         {
-            hip_limit = st->air_control ? fminf(st->air_hip_max, lqr_debug.trq_max_hip)
-                : lqr_debug.trq_max_hip;
+            hip_limit = st->air_control ? fminf(st->air_hip_max, lqr_debug.trq_max_hip) : lqr_debug.trq_max_hip;
             st->u[i] = clampf(sum, -hip_limit, hip_limit);
         }
     }

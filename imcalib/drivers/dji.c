@@ -63,14 +63,12 @@ int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm)
     if (machine->dji_type == (uint8_t)DJI_M2006)
     {
         /* 输出轴刻度: 满电流堵转力矩 / 满raw, 再按实机总减速比缩放 */
-        per_raw = DJI_NM_FULL_M2006 / (float)DJI_CURRENT_MAX_M2006
-                * (machine->dji_gear_ratio / DJI_RATIO_STD_M2006);
+        per_raw = DJI_NM_FULL_M2006 / (float)DJI_CURRENT_MAX_M2006 * (machine->dji_gear_ratio / DJI_RATIO_STD_M2006);
         raw_max = DJI_CURRENT_MAX_M2006;
     }
     else
     {
-        per_raw = DJI_NM_FULL_M3508 / (float)DJI_CURRENT_MAX_M3508
-                * (machine->dji_gear_ratio / DJI_RATIO_STD_M3508);
+        per_raw = DJI_NM_FULL_M3508 / (float)DJI_CURRENT_MAX_M3508 * (machine->dji_gear_ratio / DJI_RATIO_STD_M3508);
         raw_max = DJI_CURRENT_MAX_M3508;
     }
     raw = (int32_t)(torque_nm / per_raw);
@@ -92,10 +90,8 @@ static void Dji_Update_Physical(void)
     {
         dji_motor_feedback_t *feedback = &dji_motor_feedback[i];
 
-        feedback->angle_rad = Dji_Encoder_To_Rad(
-            (int32_t)feedback->angle_raw);
-        feedback->angle_total_rad = Dji_Encoder_To_Rad(
-            feedback->angle_total);
+        feedback->angle_rad = Dji_Encoder_To_Rad( (int32_t)feedback->angle_raw);
+        feedback->angle_total_rad = Dji_Encoder_To_Rad( feedback->angle_total);
         feedback->vel_rad_s = Dji_Rpm_To_Rad_S(feedback->vel_raw);
     }
 }
@@ -105,11 +101,8 @@ static void Dji_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
 {
     dji_motor_feedback_t *feedback = (dji_motor_feedback_t *)ctx;
 
-    if (feedback == NULL || data == NULL || dlc < 8u)
-    {
-        return;
-    }
     (void)id;
+    (void)dlc;
 
 
     for (uint8_t i = 0; i < 8u; i++)
@@ -234,7 +227,7 @@ HAL_StatusTypeDef Dji_Send_Current(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 {
     uint8_t data[8];
 
-    if (hfdcan == NULL || current_raw == NULL || can_id > 0x7FFu)
+    if (hfdcan == NULL || can_id > 0x7FFu)
     {
         return HAL_ERROR;
     }
@@ -265,14 +258,9 @@ HAL_StatusTypeDef Dji_Send_Wheel_Torque(float left_torque_nm,
     wheel_current[1] = 0;
     wheel_current[2] = 0;
     wheel_current[3] = 0;
-    wheel_current[slot_l] = Dji_Torque_To_Current(
-        DJI_MOTOR_WHEEL_LFT,
-        left_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out);
-    wheel_current[slot_r] = Dji_Torque_To_Current(
-        DJI_MOTOR_WHEEL_RGT,
-        right_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out);
-    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), cfg_l->control_id,
-                            wheel_current);
+    wheel_current[slot_l] = Dji_Torque_To_Current( DJI_MOTOR_WHEEL_LFT, left_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_LFT].out);
+    wheel_current[slot_r] = Dji_Torque_To_Current( DJI_MOTOR_WHEEL_RGT, right_torque_nm * (float)machine->dji_sign[DJI_MOTOR_WHEEL_RGT].out);
+    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), cfg_l->control_id, wheel_current);
 }
 
 /* 全停机 */
@@ -284,8 +272,7 @@ HAL_StatusTypeDef Dji_All_Stop(void)
     wheel_current[1] = 0;
     wheel_current[2] = 0;
     wheel_current[3] = 0;
-    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), config->control_id,
-                            wheel_current);
+    return Dji_Send_Current(Can_Bus_Handle(machine->dji_bus), config->control_id, wheel_current);
 }
 
 /* 查在线 */
@@ -295,7 +282,5 @@ bool Dji_Is_Online(uint8_t index)
     {
         return false;
     }
-    return dji_motor_feedback[index].rx_seen
-        && (HAL_GetTick() - dji_motor_feedback[index].last_rx_tick)
-           <= DJI_OFFLINE_MS;
+    return dji_motor_feedback[index].rx_seen && (HAL_GetTick() - dji_motor_feedback[index].last_rx_tick) <= DJI_OFFLINE_MS;
 }

@@ -39,9 +39,10 @@ typedef struct {
     dji_motor_state_t dji;
     uint32_t timestamp_ms;
     uint8_t updated;
+    uint8_t valid; /* 在线且无故障 */
 } motor_state_t;
 
-/* TODO: 死代码 —— 以下两个类型全工程无消费者，见 feedback_snapshot.c 内标记 */
+/* TODO: 死代码 —— 以下三个类型所属元数据链无消费者，见 feedback_snapshot.c 内标记 */
 /* 软件发布元数据：不能代替原传感器/电机样本接收时间。 */
 typedef struct {
     uint32_t sequence; /* 发布次数序号，可以回绕 */
@@ -54,6 +55,15 @@ typedef struct {
     uint64_t received_ns; /* 原数据到达时刻ns，不是读取快照时刻 */
     uint8_t seen; /* 是否有可追溯的样本接收记录 */
 } feedback_sample_t;
+
+/* 发布元数据集 */
+typedef struct {
+    feedback_meta_t imu;
+    feedback_meta_t motor;
+    feedback_meta_t rc;
+    feedback_sample_t imu_sample;
+    feedback_sample_t rc_sample;
+} feedback_metadata_t;
 
 typedef struct robot_feedback {
     imu_state_t imu;
@@ -75,6 +85,6 @@ void Robot_Feedback_Publish_Imu(const imu_state_t *next, feedback_sample_t sampl
 void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     const leg_state_t *left, const leg_state_t *right);
 void Robot_Feedback_Publish_Rc(const rc_command_t *next,
-    uint8_t rc_enable, feedback_sample_t sample);
+    feedback_sample_t sample);
 
 #endif

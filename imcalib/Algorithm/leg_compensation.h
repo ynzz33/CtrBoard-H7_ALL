@@ -11,6 +11,21 @@
 #define LEG_COMPENSATION_H
 
 #include "gravity_comp.h"
+#include "gas_spring.h"
+#include "imu_state.h"
+
+enum {
+    LEG_COMP_SPRING = 1u,
+    LEG_COMP_GRAVITY = 2u,
+    LEG_COMP_GRAVITY_WORLD = 4u,
+};
+
+/* 执行拍预计算值 */
+typedef struct {
+    gas_spring_result_t spring;
+    gravity_comp_result_t gravity; /* 原姿态引用 */
+    gravity_comp_result_t gravity_world; /* 补角引用 */
+} leg_compensation_values_t;
 
 typedef struct {
     gravity_comp_result_t gravity;
@@ -20,11 +35,8 @@ typedef struct {
     uint8_t bench;
 } compensation_debug_t;
 
-uint8_t Leg_Compensation_Apply(const leg_state_t *left, const leg_state_t *right,
-    const float world_angle[2], const float base_dm[4], float limit,
-    float output_dm[4], compensation_debug_t *debug);
-uint8_t Leg_Compensation_Apply_Mode(const leg_state_t *left, const leg_state_t *right,
-    const float world_angle[2], const float base_dm[4], float limit,
-    uint8_t spring_enable, float output_dm[4], compensation_debug_t *debug);
+void Leg_Compensation_Prepare(leg_compensation_values_t *values, const leg_state_t *left, const leg_state_t *right, const imu_state_t *imu, uint8_t enabled);
+uint8_t Leg_Compensation_Apply(const gas_spring_result_t *spring, const gravity_comp_result_t *gravity, const float base_dm[4], float limit, float output_dm[4], compensation_debug_t *debug);
+uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gravity_comp_result_t *gravity, const float base_dm[4], float limit, uint8_t spring_enable, float output_dm[4], compensation_debug_t *debug);
 
 #endif

@@ -93,11 +93,8 @@ static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
 {
     dm_motor_feedback_t *feedback = (dm_motor_feedback_t *)ctx;
 
-    if (feedback == NULL || data == NULL || dlc < 8u)
-    {
-        return;
-    }
     (void)id;
+    (void)dlc;
 
 
     for (uint8_t i = 0; i < 8u; i++)
@@ -118,18 +115,15 @@ void Dm_Init(void)
         const dm_motor_config_t *config = &dm_motor_config[i];
         FDCAN_HandleTypeDef *handle = Can_Bus_Handle(machine->dm_bus[i]);
 
-        if (handle == NULL
-            || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
+        if (handle == NULL || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
         {
             continue;
         }
         /* 反馈 ID 兼容两种 Master ID: 0x10+ID (表里值) 与 0+ID (等同控制 ID) */
-        Can_Bus_Register(handle, config->feedback_id, Dm_Read,
-                         &dm_motor_feedback[i]);
+        Can_Bus_Register(handle, config->feedback_id, Dm_Read, &dm_motor_feedback[i]);
         if (config->control_id != config->feedback_id)
         {
-            Can_Bus_Register(handle, config->control_id, Dm_Read,
-                             &dm_motor_feedback[i]);
+            Can_Bus_Register(handle, config->control_id, Dm_Read, &dm_motor_feedback[i]);
         }
     }
 }
@@ -169,20 +163,14 @@ void Dm_Parse(void)
         feedback->temp_rotor = raw_data[7];
         if (machine->dm_sign[i].fb < 0)
         {
-            feedback->angle_raw = (uint16_t)(DM_ANGLE_CPR - 1L
-                - feedback->angle_raw);
-            feedback->vel_raw = (uint16_t)(DM_MIT_FIELD_MAX
-                - feedback->vel_raw);
-            feedback->trq_raw = (uint16_t)(DM_MIT_FIELD_MAX
-                - feedback->trq_raw);
+            feedback->angle_raw = (uint16_t)(DM_ANGLE_CPR - 1L - feedback->angle_raw);
+            feedback->vel_raw = (uint16_t)(DM_MIT_FIELD_MAX - feedback->vel_raw);
+            feedback->trq_raw = (uint16_t)(DM_MIT_FIELD_MAX - feedback->trq_raw);
         }
-        feedback->pos_rad = Dm_Uint_To_Float(feedback->angle_raw,
-            -machine->dm_pos_max, machine->dm_pos_max, 16u);
+        feedback->pos_rad = Dm_Uint_To_Float(feedback->angle_raw, -machine->dm_pos_max, machine->dm_pos_max, 16u);
         feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i];
-        feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw,
-            -machine->dm_vel_max, machine->dm_vel_max, 12u);
-        feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw,
-            -machine->dm_trq_max, machine->dm_trq_max, 12u);
+        feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw, -machine->dm_vel_max, machine->dm_vel_max, 12u);
+        feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw, -machine->dm_trq_max, machine->dm_trq_max, 12u);
         Dm_Update_Angle(i);
         feedback->parsed_rx_ns = rx_ns;
         feedback->parsed_seen = 1u;
@@ -196,9 +184,7 @@ bool Dm_Is_Online(uint8_t index)
     {
         return false;
     }
-    return dm_motor_feedback[index].rx_seen
-        && (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick)
-           <= DM_OFFLINE_MS;
+    return dm_motor_feedback[index].rx_seen && (HAL_GetTick() - dm_motor_feedback[index].last_rx_tick) <= DM_OFFLINE_MS;
 }
 
 /* 查使能 */
@@ -230,13 +216,11 @@ static void Dm_Command_Watchdog(uint8_t state, uint8_t command,
                                 uint32_t last_tick[DM_MOTOR_NUM])
 {
     uint32_t now;
-    uint8_t i;
 
     now = HAL_GetTick();
-    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
-        if (Dm_Is_Online(i) && dm_motor_feedback[i].err_raw == state
-            && now - last_tick[i] >= 100u)
+        if (Dm_Is_Online(i) && dm_motor_feedback[i].err_raw == state && now - last_tick[i] >= 100u)
         {
             (void)Dm_Send_Command(i, command);
             last_tick[i] = now;
@@ -272,8 +256,7 @@ HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,
     {
         return HAL_ERROR;
     }
-    if (vel_raw > DM_MIT_FIELD_MAX || kp_raw > DM_MIT_FIELD_MAX
-        || kd_raw > DM_MIT_FIELD_MAX || trq_raw > DM_MIT_FIELD_MAX)
+    if (vel_raw > DM_MIT_FIELD_MAX || kp_raw > DM_MIT_FIELD_MAX || kd_raw > DM_MIT_FIELD_MAX || trq_raw > DM_MIT_FIELD_MAX)
     {
         return HAL_ERROR;
     }
@@ -289,8 +272,7 @@ HAL_StatusTypeDef Dm_Mit_Control(uint8_t index, uint16_t angle_raw,
     data[6] = (uint8_t)((kd_raw << 4) | (trq_raw >> 8));
     data[7] = (uint8_t)trq_raw;
 
-    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]),
-                            config->control_id, data, sizeof(data));
+    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]), config->control_id, data, sizeof(data));
 }
 
 /* 发命令 */
@@ -304,25 +286,22 @@ HAL_StatusTypeDef Dm_Send_Command(uint8_t index, uint8_t command)
     {
         return HAL_ERROR;
     }
-    if (command != DM_CMD_CLEAR_ERROR && command != DM_CMD_ENABLE
-        && command != DM_CMD_DISABLE && command != DM_CMD_SET_ZERO)
+    if (command != DM_CMD_CLEAR_ERROR && command != DM_CMD_ENABLE && command != DM_CMD_DISABLE && command != DM_CMD_SET_ZERO)
     {
         return HAL_ERROR;
     }
 
     config = &dm_motor_config[index];
     data[7] = command;
-    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]),
-                            config->control_id, data, sizeof(data));
+    return Can_Bus_Transmit(Can_Bus_Handle(machine->dm_bus[index]), config->control_id, data, sizeof(data));
 }
 
 /* 广播状态命令 */
 static HAL_StatusTypeDef Dm_All_Command(uint8_t command)
 {
     HAL_StatusTypeDef status = HAL_OK;
-    uint8_t i;
 
-    for (i = 0u; i < DM_MOTOR_NUM; i++)
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         if (Dm_Send_Command(i, command) != HAL_OK)
         {
@@ -347,14 +326,12 @@ HAL_StatusTypeDef Dm_All_Disable(void)
 /* 全部零力矩 */
 HAL_StatusTypeDef Dm_Send_Zero(void)
 {
-    const uint16_t zero_trq_raw = Dm_Float_To_Uint(0.0f,
-        -machine->dm_trq_max, machine->dm_trq_max, 12u);
+    const uint16_t zero_trq_raw = Dm_Float_To_Uint(0.0f, -machine->dm_trq_max, machine->dm_trq_max, 12u);
     HAL_StatusTypeDef status = HAL_OK;
 
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
-        if (Dm_Mit_Control(i, dm_motor_feedback[i].angle_raw,
-                           0u, 0u, 0u, zero_trq_raw) != HAL_OK)
+        if (Dm_Mit_Control(i, dm_motor_feedback[i].angle_raw, 0u, 0u, 0u, zero_trq_raw) != HAL_OK)
         {
             status = HAL_ERROR;
         }
@@ -372,10 +349,6 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
     HAL_StatusTypeDef status = HAL_OK;
     float command_torque;
 
-    if (torque == NULL)
-    {
-        return HAL_ERROR;
-    }
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         command_torque = torque[i];
@@ -383,10 +356,8 @@ HAL_StatusTypeDef Dm_Send_Torque(const float torque[DM_MOTOR_NUM])
         {
             command_torque = -command_torque;
         }
-        uint16_t trq_raw = Dm_Float_To_Uint(command_torque,
-            -machine->dm_trq_max, machine->dm_trq_max, 12u);
-        if (Dm_Mit_Control(i, DM_MIT_FIELD_MAX,
-                           DM_MIT_FIELD_MAX, 0u, 0u, trq_raw) != HAL_OK)
+        uint16_t trq_raw = Dm_Float_To_Uint(command_torque, -machine->dm_trq_max, machine->dm_trq_max, 12u);
+        if (Dm_Mit_Control(i, DM_MIT_FIELD_MAX, DM_MIT_FIELD_MAX, 0u, 0u, trq_raw) != HAL_OK)
         {
             status = HAL_ERROR;
         }

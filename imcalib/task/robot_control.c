@@ -78,8 +78,13 @@ void Robot_Control_Init(void)
         Error_Handler();
     }
     torque_output_enabled = 1u;
+    rc_command.len = machine->rc.len_init;
+    rc_command.mode.strategy = CTRL_STRATEGY_DISABLE;
     Standup_Init(&standup_control);
-    Air_Detection_Reset(&air_detection);
+    if (!Air_Detection_Init(&air_detection))
+    {
+        Error_Handler();
+    }
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
@@ -102,18 +107,15 @@ void Robot_Control_Init(void)
     if (machine->rl.configured)
     {
         RL_Observation_Init(&rl_control.observation);
-        RL_Observation_Param_Init(&rl_control.param);
+        RL_Observation_Param_Init(&rl_control.param, &machine->rl);
         RL_Policy_Reset(&rl_control.policy);
-        RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP);
+        RL_Torque_Param_Init(&rl_control.torque_param[RL_MODEL_STANDUP], RL_MODEL_STANDUP, &machine->rl);
         RL_Torque_State_Init(&rl_control.torque_state, &rl_control.torque_param[RL_MODEL_STANDUP]);
     }
     Action_State_Clear();
 
-    if (LQR_Gain_Compatible())
-    {
-        LQR_Init(&lqr_state);
-        Leg_Balance_Init(&leg_balance);
-    }
+    LQR_Init(&lqr_state);
+    Leg_Balance_Init(&leg_balance);
     ctrl_strategy = CTRL_STRATEGY_DISABLE;
 }
 

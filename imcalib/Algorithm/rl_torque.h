@@ -18,12 +18,16 @@
 #include "rl_types.h"
 #include "rl_observation.h"
 #include "torque_output.h"
+#include "gas_spring.h"
 
 typedef struct {
     float dof_pos[6];
-    float p_gains[6];
-    float d_gains[6];
-    float wheel_pid[2][3]; /* [左/右][kp, ki, kd] */
+    float p_gains[4];      /* 四腿关节 */
+    float d_gains[4];
+    machine_pid_cfg_t wheel_pid[2]; /* 左右轮 */
+    float leg_pid_max_output;
+    float pos_scale;
+    float wheel_vel_scale;
 } rl_torque_param_t;
 
 typedef struct {
@@ -33,10 +37,12 @@ typedef struct {
     pid_t controller[RL_ACTION_SIZE];
 } rl_torque_state_t;
 
-void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model);
+void RL_Torque_Param_Init(rl_torque_param_t *param, rl_model_t model,
+                          const machine_rl_cfg_t *config);
 void RL_Torque_State_Init(rl_torque_state_t *state,
                           const rl_torque_param_t *param);
 uint8_t RL_Torque_Compute(const leg_state_t *leg_l, const leg_state_t *leg_r,
+                          const gas_spring_result_t *spring,
                           const rl_torque_param_t *param,
                           const float wheel_vel[2],
                           const float action[RL_ACTION_SIZE],

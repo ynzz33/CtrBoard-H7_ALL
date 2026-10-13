@@ -15,20 +15,14 @@
 /* 初始化 — PID 初始化不覆盖 max_err/deadband/angle_wrap, 必须先清零 */
 void Leg_Balance_Init(leg_balance_t *lb)
 {
-    uint8_t i;
-
     memset(lb, 0, sizeof(*lb));
     lb->len_prime_enable = 1u;
 
-    for (i = 0u; i < 2u; i++)
+    for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output,
-                        machine->lqr.leg_len[i].integral_limit, machine->lqr.leg_len[i].kp,
-                        machine->lqr.leg_len[i].ki, machine->lqr.leg_len[i].kd, 0.0f, 0.0f);
+        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output, machine->lqr.leg_len[i].integral_limit, machine->lqr.leg_len[i].kp, machine->lqr.leg_len[i].ki, machine->lqr.leg_len[i].kd, 0.0f, 0.0f);
     }
-    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output,
-                    machine->lqr.roll.integral_limit, machine->lqr.roll.kp,
-                    machine->lqr.roll.ki, machine->lqr.roll.kd, 0.0f, 0.0f);
+    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output, machine->lqr.roll.integral_limit, machine->lqr.roll.kp, machine->lqr.roll.ki, machine->lqr.roll.kd, 0.0f, 0.0f);
 }
 
 /* 清控制器历史与调试观测值 */
@@ -39,16 +33,11 @@ void Leg_Balance_Init(leg_balance_t *lb)
 void Leg_Balance_Reset(leg_balance_t *lb)
 {
     pid_t *pid[3];
-    uint8_t i;
 
-    if (lb == NULL)
-    {
-        return;
-    }
     pid[0] = &lb->leg_len[0];
     pid[1] = &lb->leg_len[1];
     pid[2] = &lb->roll;
-    for (i = 0u; i < 3u; i++)
+    for (uint8_t i = 0u; i < 3u; i++)
     {
         memset(pid[i]->err, 0, sizeof(pid[i]->err));
         memset(pid[i]->set, 0, sizeof(pid[i]->set));
@@ -77,29 +66,18 @@ void Leg_Balance_Reset(leg_balance_t *lb)
 static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
                                   const leg_state_t *leg_r, const float F[2],
                                   const float Tp[2], const float wheel[2],
-                                  const float world_angle[2],
+                                  const leg_compensation_values_t *values,
                                   const lqr_runtime_config_t *config,
                                   torque_output_t *torque)
 {
     float base_dm[4];
-    uint8_t i;
-
     memset(&lb->cmd, 0, sizeof(lb->cmd));   /* 失败时与零力矩一致 */
     memset(&lb->compensation, 0, sizeof(lb->compensation));
-    for (i = 0u; i < 2u; i++)
-    {
-        if (!isfinite(F[i]) || !isfinite(Tp[i]))
-        {
-            return 0u;
-        }
-    }
-    if (!Leg_Force_Map_Forward(leg_l, F[0], Tp[0], &base_dm[0])
-        || !Leg_Force_Map_Forward(leg_r, F[1], Tp[1], &base_dm[2]))
+    if (!Leg_Force_Map_Forward(leg_l, F[0], Tp[0], &base_dm[0]) || !Leg_Force_Map_Forward(leg_r, F[1], Tp[1], &base_dm[2]))
     {
         return 0u;
     }
-    if (!Leg_Compensation_Apply_Mode(leg_l, leg_r, world_angle, base_dm,
-        config->trq_max_hip, (uint8_t)!lb->air_release, torque->dm, &lb->compensation))
+    if (!Leg_Compensation_Apply_Mode(&values->spring, &values->gravity, base_dm, config->trq_max_hip, (uint8_t)!lb->air_release, torque->dm, &lb->compensation))
     {
         return 0u;
     }
@@ -109,10 +87,8 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
     lb->Tp[1] = Tp[1];
 
     /* 轮扭矩 (输出极性在 dji.c 驱动边界统一处理) */
-    torque->dji[DJI_MOTOR_WHEEL_LFT] = clampf(wheel[0], -config->trq_max_wheel,
-                                              config->trq_max_wheel);
-    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(wheel[1], -config->trq_max_wheel,
-                                              config->trq_max_wheel);
+    torque->dji[DJI_MOTOR_WHEEL_LFT] = clampf(wheel[0], -config->trq_max_wheel, config->trq_max_wheel);
+    torque->dji[DJI_MOTOR_WHEEL_RGT] = clampf(wheel[1], -config->trq_max_wheel, config->trq_max_wheel);
     lb->cmd = *torque;
     lb->cmd.valid = 1u;
     return 1u;
@@ -126,6 +102,7 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
  */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
+                            const leg_compensation_values_t *values,
                             const lqr_runtime_config_t *config,
                             float dt, torque_output_t *torque)
 {
@@ -134,27 +111,12 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     float wheel[2];
     float length[2];
     float target[2];
-    float world_angle[2];
-
-    if (lb == NULL || st == NULL || leg_l == NULL || leg_r == NULL
-        || config == NULL || torque == NULL)
-    {
-        return 0u;
-    }
-    if (!leg_l->output.valid || !leg_r->output.valid)
-    {
-        return 0u;
-    }
 
     length[0] = leg_l->output.virtual_leg_length;
     length[1] = leg_r->output.virtual_leg_length;
     target[0] = st->leg_len_tgt[0];
     target[1] = st->leg_len_tgt[1];
 
-    if (!isfinite(length[0]) || !isfinite(length[1]) || !isfinite(dt) || dt <= 0.0f)
-    {
-        return 0u;
-    }
     if (lb->air_release != st->air_release)
     {
         Leg_Balance_Reset(lb);
@@ -168,8 +130,8 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     F[1] = 0.0f;
     if (!st->air_release)
     {
-        target[0] = Ramp_Target_Update(&lb->length_ramp[0], length[0], target[0], machine->lqr.len_rate, dt);
-        target[1] = Ramp_Target_Update(&lb->length_ramp[1], length[1], target[1], machine->lqr.len_rate, dt);
+        target[0] = Ramp_Target_Update(&lb->length_ramp[0], length[0], target[0], machine->rc.len_rate, dt);
+        target[1] = Ramp_Target_Update(&lb->length_ramp[1], length[1], target[1], machine->rc.len_rate, dt);
         if (!isfinite(target[0]) || !isfinite(target[1]))
         {
             return 0u;
@@ -178,11 +140,6 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
         /* 首拍消除突变 */
         if (lb->len_prime_enable && !lb->len_history_ready)
         {
-            if (!isfinite(length[0]) || !isfinite(length[1])
-                || !isfinite(target[0]) || !isfinite(target[1]))
-            {
-                return 0u;
-            }
             PID_History_Set(&lb->leg_len[0], length[0], target[0], target[0] - length[0]);
             PID_History_Set(&lb->leg_len[1], length[1], target[1], target[1] - length[1]);
             lb->len_history_ready = 1u;
@@ -213,7 +170,5 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     wheel[1] = config->wheel_enable ? st->u[LQR_U_WR] : 0.0f;
 
     /* 3. 力域映射 + 限幅 */
-    world_angle[0] = st->x[LQR_X_THL];
-    world_angle[1] = st->x[LQR_X_THR];
-    return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, world_angle, config, torque);
+    return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, values, config, torque);
 }

@@ -55,8 +55,8 @@ typedef struct {
     float leg_jac[2][2];            /* 腿雅可比 */
     float force_map[2][2];          /* 力矩映射 */
     float force_det;
-    uint8_t force_valid;
-    uint8_t valid;
+    uint8_t force_valid; /* 映射可用 */
+    uint8_t valid;       /* 数值有效 */
 } leg_output_t;
 
 /* 求解中间量 */

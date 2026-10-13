@@ -37,6 +37,7 @@ void    Leg_Balance_Init(leg_balance_t *lb);
 void    Leg_Balance_Reset(leg_balance_t *lb);
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
+                            const leg_compensation_values_t *values,
                             const lqr_runtime_config_t *config,
                             float dt, torque_output_t *torque);
 

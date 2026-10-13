@@ -16,8 +16,23 @@
 #include "feedback_snapshot.h"
 #include "machine_config.h"
 #include "rl_policy.h"
+#include "leg_compensation.h"
 
-#define CTRL_DT MACHINE_CTRL_DT
+/* 执行拍快照 */
+typedef struct {
+    imu_state_t imu;
+    leg_state_t left;
+    leg_state_t right;
+    rc_command_t rc;
+    float wheel_vel[2];
+    float joint_torque[4];
+    leg_compensation_values_t compensation;
+    uint8_t joint_ready;
+    uint8_t drive;
+    uint8_t normal;
+    uint8_t recovery;
+    uint8_t landed;
+} control_frame_t;
 
 #ifndef CONTROL_TIME_VOFA_ENABLE
 #define CONTROL_TIME_VOFA_ENABLE 0u
@@ -32,20 +47,6 @@ typedef struct {
     uint32_t output_sequence;
     uint32_t output_period_us;
 } control_time_debug_t;
-
-/* 控制策略 */
-typedef enum {
-    CTRL_STRATEGY_RL = 0,       /* RL 推理 */
-    CTRL_STRATEGY_LQR,          /* LQR 平衡 */
-    CTRL_STRATEGY_DISABLE,      /* 左下 / 离线 */
-    CTRL_STRATEGY_COMPENSATION = 4, /* 补偿台架 */
-} ctrl_strategy_t;
-
-typedef struct {
-    ctrl_strategy_t strategy;
-    uint8_t rc_enable;
-    uint8_t engage;
-} rc_control_mode_t;
 
 #define FAULT_NONE    0u
 #define FAULT_IMU     0x01u
@@ -73,9 +74,6 @@ void output_task_init(void);
 void output_task_body(void);
 uint8_t output_task_lqr_engaged(void);
 uint8_t output_task_rl_engaged(void);
-/* 遥控使能唯一判定 */
-uint8_t strategy_rc_enable(const rc_command_t *cmd);
-rc_control_mode_t Control_Mode_Decode(const rc_command_t *cmd);
 void comm_task_body(void);
 void background_task_body(void);
 

@@ -74,14 +74,11 @@ static bool Can_Bus_Start(uint32_t idx)
     filter.FilterID1    = 0x000;
     filter.FilterID2    = 0x000;
     filter.FilterIndex = 0;
-    if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK
-        || HAL_FDCAN_Start(hfdcan) != HAL_OK)
+    if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK || HAL_FDCAN_Start(hfdcan) != HAL_OK)
     {
         return false;
     }
-    if (HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK
-        || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0) != HAL_OK
-        || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0) != HAL_OK)
+    if (HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0) != HAL_OK || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0) != HAL_OK)
     {
         (void)HAL_FDCAN_Stop(hfdcan);
         return false;
@@ -124,7 +121,7 @@ bool Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                       can_parse_fn_t fn, void *ctx)
 {
     int32_t idx = Can_Bus_Hw_Index(hfdcan);
-    if (idx < 0 || fn == NULL) return false;
+    if (idx < 0) return false;
 
     can_bus_t *bus = &can_bus[idx];
     if (bus->route_cnt >= CAN_BUS_ROUTE_MAX) return false;
@@ -195,9 +192,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         bus->alive_cnt++;
         bus->last_rx_id = rx_header.Identifier;
         /* FD 帧也放行 (达妙 FD 1M/4M 反馈) */
-        if (rx_header.IdType != FDCAN_STANDARD_ID
-            || rx_header.RxFrameType != FDCAN_DATA_FRAME
-            || rx_header.DataLength != FDCAN_DLC_BYTES_8)
+        if (rx_header.IdType != FDCAN_STANDARD_ID || rx_header.RxFrameType != FDCAN_DATA_FRAME || rx_header.DataLength != FDCAN_DLC_BYTES_8)
         {
             continue;
         }
@@ -253,8 +248,7 @@ bool Can_Bus_Online(bool expect_traffic)
             bus->state = CAN_BUS_STATE_ACTIVE;
 
         /* DEAD → 每100ms重新启动 */
-        if (bus->state == CAN_BUS_STATE_DEAD
-            && now - bus->reinit_tick >= CAN_BUS_REINIT_MS)
+        if (bus->state == CAN_BUS_STATE_DEAD && now - bus->reinit_tick >= CAN_BUS_REINIT_MS)
         {
             Can_Bus_Stop(i);
             (void)Can_Bus_Start(i);

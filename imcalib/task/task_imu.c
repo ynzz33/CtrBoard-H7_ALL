@@ -31,7 +31,6 @@ void imu_task_body(void)
     imu_state_t next = imu_state;
     const imu_cfg_t *cfg;
     feedback_sample_t received = {0u, 0u};
-    uint8_t i;
 
     HI229_Process();
     if (!HI229_Online())
@@ -55,23 +54,21 @@ void imu_task_body(void)
     /* 姿态和惯性量各按来源通道与极性映射 */
     cfg = &machine->imu;
     next.quat[0] = sample.quat[0];
-    for (i = 0u; i < 3u; i++)
+    for (uint8_t i = 0u; i < 3u; i++)
     {
-        next.quat[i + 1u]        = (float)cfg->quat_sign[i]
-                                 * sample.quat[cfg->quat_src[i] + 1u];
+        next.quat[i + 1u]        = (float)cfg->quat_sign[i] * sample.quat[cfg->quat_src[i] + 1u];
         next.euler_deg[i]        = (float)cfg->eul_sign[i] * sample.eul[cfg->eul_src[i]];
         next.gyro_rad_s[i]       = (float)cfg->gyr_sign[i] * sample.gyr[cfg->gyr_src[i]] * 0.01745329251994f;
         next.acc_g[i]            = (float)cfg->acc_sign[i] * sample.acc[cfg->acc_src[i]];
     }
 
-    /* 四元数归一化 + deg→rad */
+    /* 完整反馈校验 */
     next.online = Attitude_Update(&next) ? 1u : 0u;
     next.pitch_world = 0.0f;
     next.pitch_world_valid = 0u;
     if (next.online)
     {
-        next.pitch_world_valid = Pitch_World_Calc(next.euler_rad[IMU_PITCH_WORLD_IDX],
-                                                 next.quat, &next.pitch_world) ? 1u : 0u;
+        next.pitch_world_valid = Pitch_World_Calc(next.euler_rad[IMU_PITCH_WORLD_IDX], next.quat, &next.pitch_world) ? 1u : 0u;
     }
     next.last_timestamp_ms = sample.ts;
     received.received_ns = sample.received_ns;

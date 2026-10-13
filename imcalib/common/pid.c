@@ -24,9 +24,7 @@ static float ABS(float num)
  */
 void PID_History_Set(pid_t *pid, float measured, float target, float error)
 {
-    uint8_t i;
-
-    for (i = 0u; i < 3u; i++)
+    for (uint8_t i = 0u; i < 3u; i++)
     {
         pid->get[i] = measured;
         pid->set[i] = target;
@@ -125,8 +123,7 @@ float pid_calc(pid_t *pid, float get, float set, float delta_time)
 float FeedForwardController(FFC_t *ffc, float target, float num1, float num2)
 {
     ffc->rin = target;
-    float result = num1 * (ffc->rin - ffc->lastRin)
-        + num2 * (ffc->rin - 2.0f * ffc->lastRin + ffc->perRin);
+    float result = num1 * (ffc->rin - ffc->lastRin) + num2 * (ffc->rin - 2.0f * ffc->lastRin + ffc->perRin);
     float old_last = ffc->lastRin;
     ffc->lastRin = ffc->rin;
     ffc->perRin = old_last;

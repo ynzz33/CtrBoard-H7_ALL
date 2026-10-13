@@ -26,7 +26,8 @@ typedef struct {
     float euler_rad[3];     /* 弧度 */
     float gyro_rad_s[3];    /* 角速度 */
     float acc_g[3];         /* 加速度 G */
-    uint8_t online;         /* 在线 */
+    float accel_vertical;  /* 竖直m/s² */
+    uint8_t online;         /* 数值有效 */
     uint32_t last_timestamp_ms;
     float pitch_world;     /* 世界俯仰 */
     uint8_t pitch_world_valid; /* 计算有效 */

@@ -12,13 +12,7 @@
 #include "robot_state.h"
 #include "mono_ns.h"
 
-static struct {
-    feedback_meta_t imu;
-    feedback_meta_t motor;
-    feedback_meta_t rc;
-    feedback_sample_t imu_sample;
-    feedback_sample_t rc_sample;
-} metadata;
+static feedback_metadata_t metadata;
 
 static void Feedback_Published(feedback_meta_t *meta)
 {
@@ -33,10 +27,6 @@ static void Feedback_Published(feedback_meta_t *meta)
  */
 uint8_t Robot_Feedback_Read(robot_feedback_t *out)
 {
-    if (out == NULL)
-    {
-        return 0u;
-    }
     taskENTER_CRITICAL();
     out->imu = imu_state;
     out->motor = motor_state;
@@ -49,9 +39,9 @@ uint8_t Robot_Feedback_Read(robot_feedback_t *out)
      * 死链清单：robot_feedback_t 的 {imu,motor,rc}_meta / {imu,rc}_sample / captured_ns
      *   + 本文件 metadata 结构体、Feedback_Published()
      *   + Publish_Imu / Publish_Rc 里的 if (sample.seen) 块
-     *   + feedback_meta_t / feedback_sample_t 两个类型。
+     *   + feedback_meta_t / feedback_sample_t / feedback_metadata_t 三个类型。
      * 2026-10-11 作者决定【暂不删除】：这是刻意预留的"新样本/数据龄判别"能力
-     * （md/module-boundaries.md「公共反馈快照」一节），不是被淘汰的残留；
+     * （md/file-guide.md「状态所有权与模块边界」一节），不是被淘汰的残留；
      * 开销≈0（6 次小结构体赋值）。将来若仍无人用，删除需一并改
      * feedback_snapshot.c/h、task_imu.c、task_comm.c 四个文件。
      * ====================================================================
@@ -94,11 +84,11 @@ void Robot_Feedback_Publish_Motor(const motor_state_t *next,
 }
 
 void Robot_Feedback_Publish_Rc(const rc_command_t *next,
-    uint8_t rc_enable, feedback_sample_t sample)
+    feedback_sample_t sample)
 {
     taskENTER_CRITICAL();
     rc_command = *next;
-    robot_state.rc_enable = rc_enable;
+    robot_state.rc_enable = next->mode.rc_enable;
     if (sample.seen)
     {
         metadata.rc_sample = sample;

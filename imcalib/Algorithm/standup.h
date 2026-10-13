@@ -138,6 +138,7 @@ void Standup_Fail(standup_ctx_t *st, uint8_t fault);
 /* DONE输入平衡候选 */
 uint8_t Standup_Update(standup_ctx_t *st, const imu_state_t *imu,
                        const leg_state_t *left, const leg_state_t *right,
+                       const leg_compensation_values_t *values,
                        uint8_t permit, uint8_t allow_restart,
                        float dt, torque_output_t *torque);
 

@@ -1,9 +1,9 @@
 /*
  * 文件职责：离地/落地状态估计（air_detection.h）。
  * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩/接收时刻与IMU。
+ * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩与IMU。
  * 输出/去向：发布支持力、armed/valid/flight及压缩诊断，执行层决定是否切换控制。
- * 关键边界：新反馈才推进计时；输入无效保留flight并清连续计时；不直接改腿长目标或电机输出。
+ * 关键边界：按固定执行周期处理缓存反馈；无效观测保留flight。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -12,12 +12,12 @@
 
 #include "leg_solver.h"
 #include "imu_state.h"
+#include "leg_compensation.h"
 
-/* 运行参数：检测、控制接入和落地开关各自独立，数值以此结构当前值为准。 */
+/* 参数数值初始化时检查；检测、控制接入和落地开关各自独立。 */
 typedef struct {
     uint8_t enabled; /* 启用观察器；关闭会走检测复位 */
     uint8_t control_enabled; /* 允许执行层使用AIR反馈选择，不等同于检测有效 */
-    uint8_t vofa_page; /* 只选择观测通道布局，不改变判据 */
     uint8_t landing_enabled; /* 允许AIR退出；关闭则保持离地并继续观测 */
     uint8_t compression_enabled; /* 1用相对峰值压缩落地；0用原支持力落地 */
     float wheel_mass; /* 每侧轮组模型质量kg */
@@ -25,8 +25,6 @@ typedef struct {
     float force_on; /* 初次支撑/原落地支持力门槛，N */
     float time_off; /* 离地条件需连续满足的时间s */
     float time_on; /* 初次支撑及原支持力落地持续时间s */
-    float sample_timeout; /* 样本年龄/持续无效容许时间s */
-    float sample_skew; /* 四髋反馈接收时间的最大偏差s */
     float derivative_tau; /* 腿竖直加速度差分低通时间常数s */
     float force_tau; /* 支持力低通时间常数s */
     float hip_max; /* AIR摆矩限幅N·m，执行层使用 */
@@ -38,9 +36,9 @@ typedef struct {
 typedef struct {
     const imu_state_t *imu; /* 已映射/归一化的IMU测量，只读引用 */
     const leg_state_t *leg[2]; /* 左右腿几何/速度/雅可比，只读引用 */
+    const leg_compensation_values_t *compensation; /* 本拍模型值 */
     float torque[2][2]; /* 四髋物理反馈力矩N·m，已处理驱动极性 */
-    uint64_t rx_ns[2][2]; /* 对应每髋实际接收时刻ns，非任务调用时间 */
-    uint64_t now_ns; /* 本次更新的单调当前时刻ns */
+    uint8_t joint_ready; /* 四髋可用 */
     uint8_t permit; /* 当前模式/使能/自起条件是否允许检测 */
 } air_input_t;
 
@@ -56,7 +54,6 @@ typedef struct {
     float force; /* 滤波后的FN，进入左右均值判据 */
     float height_velocity; /* 腿长/摆角投影形成的竖直速度m/s */
     float height_acceleration; /* 投影速度差分再滤波的加速度m/s² */
-    uint64_t sample_ns; /* 该腿前后髋中较早的接收时刻ns */
 } air_leg_t;
 
 /* 每腿独立压缩判据历史：重新离地播种；落地后保留末态作诊断。 */
@@ -68,23 +65,21 @@ typedef struct {
 
 /* 检测发布状态：有效性与接触状态独立，不得将valid=0解释成自动落地。 */
 typedef struct {
-    air_leg_t leg[2]; /* 左右支持力估计及对应样本时刻 */
+    air_leg_t leg[2]; /* 左右支持力估计 */
     air_landing_t landing[2]; /* 左右峰值/压缩/独立持续时间 */
     float mean_force; /* 左右滤波FN的均值N */
     float elapsed; /* 当前条件计时s；压缩AIR时为两腿计时最大值 */
-    uint64_t imu_seen_ns; /* 最近发现新IMU序号的单调时刻ns */
-    uint64_t valid_ns; /* 最近有效估计时刻ns，亦作持续失效基准 */
-    uint32_t imu_sequence; /* 上次消费的IMU样本序号/模块时间戳 */
     uint8_t flight; /* 1判定离地，0接地；短暂无效可保留上次值 */
     uint8_t armed; /* 已连续确认首次支撑，才允许判离地 */
     uint8_t valid; /* 最近估计是否有效，不表示电机执行成功 */
-    uint8_t fault; /* 参数异常或持续观测无效，不等同ctrl_fault */
+    uint8_t fault; /* 本拍估计失败，不等同ctrl_fault */
     uint8_t applied; /* 执行层是否选中AIR控制，不证明实体执行 */
 } air_detection_t;
 
 extern air_param_t air_param;
 extern air_detection_t air_detection;
 extern volatile air_detection_t air_debug;
+uint8_t Air_Detection_Init(air_detection_t *state);
 void Air_Detection_Reset(air_detection_t *state);
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input);
 uint8_t Air_Detection_Active(const air_detection_t *state);

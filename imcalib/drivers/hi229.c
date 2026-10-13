@@ -23,9 +23,7 @@ static uint16_t HI229_Crc16(uint16_t crc, const uint8_t *data, uint16_t len)
         crc ^= (uint16_t)(*data++) << 8;
         for (uint8_t i = 0u; i < 8u; i++)
         {
-            crc = (crc & 0x8000u)
-                ? (uint16_t)((crc << 1) ^ 0x1021u)
-                : (uint16_t)(crc << 1);
+            crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u) : (uint16_t)(crc << 1);
         }
     }
     return crc;
@@ -36,7 +34,7 @@ static uint16_t HI229_Crc16(uint16_t crc, const uint8_t *data, uint16_t len)
  * ==========================================================================*/
 void HI229_Init(void)
 {
-    UART_Rx_Init(&hi229_rx, &huart7, &hdma_uart7_rx, HI229_BUF_SIZE, NULL);
+    UART_Rx_Init(&hi229_rx, &huart7, &hdma_uart7_rx, HI229_BUF_SIZE);
 }
 
 /* ============================================================================
@@ -54,19 +52,16 @@ void HI229_Process(void)
     {
         uint16_t data_len;
 
-        if (buf[offset] != HI229_HEADER_0
-            || buf[offset + 1u] != HI229_HEADER_1)
+        if (buf[offset] != HI229_HEADER_0 || buf[offset + 1u] != HI229_HEADER_1)
             continue;
 
-        data_len = (uint16_t)buf[offset + 2u]
-                 | ((uint16_t)buf[offset + 3u] << 8);
+        data_len = (uint16_t)buf[offset + 2u] | ((uint16_t)buf[offset + 3u] << 8);
         if (data_len != HI229_PAYLOAD_LEN)
             continue;
 
         uint16_t crc = HI229_Crc16(0u, &buf[offset], 4u);
         crc = HI229_Crc16(crc, &buf[offset + 6u], HI229_PAYLOAD_LEN);
-        uint16_t received_crc = (uint16_t)buf[offset + 4u]
-                              | ((uint16_t)buf[offset + 5u] << 8);
+        uint16_t received_crc = (uint16_t)buf[offset + 4u] | ((uint16_t)buf[offset + 5u] << 8);
         if (crc != received_crc)
             continue;
 

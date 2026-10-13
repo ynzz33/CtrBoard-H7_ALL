@@ -54,7 +54,6 @@ typedef struct {
     uint8_t hip_enable;        /* 髋通道 */
     uint8_t len_pid_enable;    /* 腿长PID */
     uint8_t air_release_enable; /* 空中释放 */
-    uint8_t legacy_gain;       /* 小机旧表对照 */
     float   trq_max_wheel;     /* 轮限幅 */
     float   trq_max_hip;       /* 髋限幅 */
 } lqr_runtime_config_t;
@@ -72,7 +71,6 @@ typedef struct {
     float len_eval[2]; /* 上次求K使用的腿长m，只作重复计算判据 */
     float whl[2];                   /* 轮对地角速度 (调试) */
     uint8_t gain_valid; /* 本次增益/控制输出是否有效 */
-    uint8_t gain_legacy; /* 当前增益是否使用小机旧表对照 */
     uint8_t valid;                  /* 状态估计有效 */
     float ds_raw;                   /* 运动学速度 (未滤波) */
     float ds_kf;                    /* 融合速度 */
@@ -94,13 +92,11 @@ extern lqr_debug_t lqr_debug;
 
 void    LQR_Init(lqr_state_t *st);
 void    LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt);
-uint8_t LQR_Enable_Latch(lqr_state_t *st, const leg_state_t *leg_l,
-                         const leg_state_t *leg_r);
-uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd, float dt);
+uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd);
+uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd);
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
-                         const float wheel_vel[2], float dt);
+                         const float wheel_vel[2]);
 void    LQR_Control_Update(lqr_state_t *st);
-void    LQR_Landing_Target_Reset(lqr_state_t *st);
 
 #endif

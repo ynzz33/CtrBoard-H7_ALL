@@ -21,6 +21,7 @@
 /* 更新电机状态 */
 static void Motor_State_Update(motor_state_t *next)
 {
+    next->valid = 1u;
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         const dm_motor_feedback_t *feedback = &dm_motor_feedback[i];
@@ -32,6 +33,7 @@ static void Motor_State_Update(motor_state_t *next)
         next->dm.last_rx_tick[i] = feedback->last_rx_tick;
         next->dm.parsed_rx_ns[i] = feedback->parsed_rx_ns;
         next->dm.online[i] = (uint8_t)Dm_Is_Online(i);
+        next->valid &= (uint8_t)(next->dm.online[i] && !Dm_Has_Fault(i));
     }
     for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
     {
@@ -43,6 +45,7 @@ static void Motor_State_Update(motor_state_t *next)
         next->dji.current_raw[i] = feedback->current_raw;
         next->dji.last_rx_tick[i] = feedback->last_rx_tick;
         next->dji.online[i] = (uint8_t)Dji_Is_Online(i);
+        next->valid &= next->dji.online[i];
     }
     next->timestamp_ms = HAL_GetTick();
     next->updated = 1u;
@@ -51,7 +54,7 @@ static void Motor_State_Update(motor_state_t *next)
 /* 更新单腿 */
 static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, leg_state_t *leg)
 {
-    if (map->configured && (uint8_t)map->dm_front < DM_MOTOR_NUM && (uint8_t)map->dm_rear < DM_MOTOR_NUM)
+    if (map->configured && (uint8_t)map->dm_front < DM_MOTOR_NUM && (uint8_t)map->dm_rear < DM_MOTOR_NUM && motor->dm.online[map->dm_front] && motor->dm.online[map->dm_rear])
     {
         //杆长向后为零点
         leg->input.hip_f = motor->dm.pos_zero_rad[map->dm_front] + LEG_PI;
@@ -81,18 +84,20 @@ static void Leg_State_Update(const motor_state_t *motor, leg_state_t *left, leg_
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
-    rc_command_t next;
-    uint8_t rc_enable;
+    rc_command_t rc_command_temp;
     feedback_sample_t received;
 
     DR16_Process();
     remote = DR16_Snapshot();
-    next = rc_command;
-    Rc_Command_Update(&next, &remote);
-    rc_enable = strategy_rc_enable(&next);
     received.received_ns = remote.received_ns;
     received.seen = remote.online;
-    Robot_Feedback_Publish_Rc(&next, rc_enable, received);
+    rc_command_temp = rc_command;
+    Rc_Command_Update(&rc_command_temp, &remote, MACHINE_TICK_DT);
+    if (!(output_task_lqr_engaged() || output_task_rl_engaged()))
+    {
+        rc_command_temp.len = machine->rc.len_init;
+    }
+    Robot_Feedback_Publish_Rc(&rc_command_temp, received);
 }
 
 
@@ -105,25 +110,9 @@ static void Robot_Fault_Update(void)
 {
     static uint32_t rl_ready_lost_tick;
     uint32_t fault;
-    uint8_t motors_ok;
 
     fault = FAULT_NONE;
-    motors_ok = 1u;
-    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
-    {
-        if (!motor_state.dm.online[i] || Dm_Has_Fault(i))
-        {
-            motors_ok = 0u;
-        }
-    }
-    for (uint8_t i = 0u; i < DJI_MOTOR_NUM; i++)
-    {
-        if (!motor_state.dji.online[i])
-        {
-            motors_ok = 0u;
-        }
-    }
-    if (!imu_state.online || !imu_state.pitch_world_valid || !isfinite(imu_state.pitch_world))
+    if (!imu_state.online || !imu_state.pitch_world_valid)
     {
         fault |= FAULT_IMU;
     }
@@ -135,12 +124,11 @@ static void Robot_Fault_Update(void)
     {
         fault |= FAULT_CAN;
     }
-    if (!motors_ok)
+    if (!motor_state.valid)
     {
         fault |= FAULT_MOTOR;
     }
-    if (ctrl_strategy == CTRL_STRATEGY_RL
-        && (!action_state.updated || HAL_GetTick() - action_state.last_ok_tick >= 100u))
+    if (ctrl_strategy == CTRL_STRATEGY_RL && (!action_state.updated || HAL_GetTick() - action_state.last_ok_tick >= machine->rl.action_timeout_ms))
     {
         fault |= FAULT_ACTION;
     }
@@ -151,7 +139,7 @@ static void Robot_Fault_Update(void)
         {
             rl_ready_lost_tick = HAL_GetTick();
         }
-        else if (HAL_GetTick() - rl_ready_lost_tick >= 100u)
+        else if (HAL_GetTick() - rl_ready_lost_tick >= machine->rl.ready_timeout_ms)
         {
             fault |= FAULT_ACTION;
         }

@@ -48,8 +48,7 @@ static void DR16_Parse(const uint8_t *buf, uint64_t received_ns)
 
     parsed.key = (uint16_t)(buf[14] | (buf[15] << 8));
 
-    parsed.wheel = (int16_t)(1024 -
-        ((uint16_t)buf[16] | ((uint16_t)buf[17] << 8)));
+    parsed.wheel = (int16_t)(1024 - ((uint16_t)buf[16] | ((uint16_t)buf[17] << 8)));
 
     if (!DR16_Validate(&parsed))
         return;
@@ -60,17 +59,10 @@ static void DR16_Parse(const uint8_t *buf, uint64_t received_ns)
     dr16               = parsed;
 }
 
-/* 回调桩 */
-static void DR16_Rx_Cb(const uint8_t *data, uint16_t len)
-{
-    (void)data;
-    (void)len;
-}
-
 /* 初始化 */
 void DR16_Init(void)
 {
-    UART_Rx_Init(&dbus_rx, &huart9, &hdma_uart9_rx, DBUS_BUF_SIZE, DR16_Rx_Cb);
+    UART_Rx_Init(&dbus_rx, &huart9, &hdma_uart9_rx, DBUS_BUF_SIZE);
 }
 
 /* 接收处理 */

@@ -17,7 +17,7 @@ uint8_t Vofa_Send(const float *data, uint8_t n)
         __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
     uint16_t data_len;
 
-    if (data == NULL || n == 0u || n > VOFA_MAX_CH)
+    if (n == 0u || n > VOFA_MAX_CH)
     {
         return 0u;
     }
@@ -30,6 +30,5 @@ uint8_t Vofa_Send(const float *data, uint8_t n)
     memcpy(buf, data, data_len);
     memcpy(buf + data_len, tail, sizeof(tail));
     Dma_Cache_Clean_Tx(buf, data_len + sizeof(tail));
-    return (uint8_t)(HAL_UART_Transmit_DMA(VOFA_UART, buf,
-        (uint16_t)(data_len + sizeof(tail))) == HAL_OK);
+    return (uint8_t)(HAL_UART_Transmit_DMA(VOFA_UART, buf, (uint16_t)(data_len + sizeof(tail))) == HAL_OK);
 }

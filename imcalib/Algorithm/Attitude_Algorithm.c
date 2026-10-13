@@ -21,24 +21,10 @@ bool Attitude_Accel_Vertical(const imu_state_t *state, float *acceleration)
     float r21;
     float r22;
     float specific;
-    float norm;
     const float *q;
 
-    if (acceleration == NULL)
-    {
-        return false;
-    }
     *acceleration = 0.0f;
-    if (state == NULL || !state->online)
-    {
-        return false;
-    }
     q = state->quat;
-    norm = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
-    if (!isfinite(norm) || fabsf(norm - 1.0f) > 0.01f)
-    {
-        return false;
-    }
     r20 = 2.0f * (q[1] * q[3] - q[0] * q[2]);
     r21 = 2.0f * (q[2] * q[3] + q[0] * q[1]);
     r22 = 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2]);
@@ -55,33 +41,35 @@ bool Attitude_Accel_Vertical(const imu_state_t *state, float *acceleration)
 /* 初始化姿态 */
 void Attitude_Init(imu_state_t *state)
 {
-    if (state == NULL) return;
     memset(state, 0, sizeof(*state));
     state->quat[0] = 1.0f;
 }
 
-/* 四元数归一化 + 欧拉角转 rad */
+/* 归一化、单位换算、竖直加速度及校验；调用方按返回值发布online。 */
 bool Attitude_Update(imu_state_t *state)
 {
-    uint8_t axis;
     float q_norm;
 
-    if (state == NULL) return false;
 
     /* 归一化四元数 */
-    q_norm = sqrtf(state->quat[0] * state->quat[0]
-        + state->quat[1] * state->quat[1]
-        + state->quat[2] * state->quat[2]
-        + state->quat[3] * state->quat[3]);
+    q_norm = sqrtf(state->quat[0] * state->quat[0] + state->quat[1] * state->quat[1] + state->quat[2] * state->quat[2] + state->quat[3] * state->quat[3]);
     if (!isfinite(q_norm) || q_norm < ATTITUDE_QUAT_NORM_MIN)
         return false;
 
-    for (axis = 0u; axis < 4u; axis++)
+    for (uint8_t axis = 0u; axis < 4u; axis++)
+    {
         state->quat[axis] /= q_norm;
+    }
 
     /* 欧拉角 deg → rad */
-    for (axis = 0u; axis < 3u; axis++)
+    for (uint8_t axis = 0u; axis < 3u; axis++)
+    {
         state->euler_rad[axis] = state->euler_deg[axis] * ATTITUDE_DEG_TO_RAD;
+        if (!isfinite(state->euler_rad[axis]) || !isfinite(state->gyro_rad_s[axis]) || !isfinite(state->acc_g[axis]))
+        {
+            return false;
+        }
+    }
 
-    return true;
+    return Attitude_Accel_Vertical(state, &state->accel_vertical);
 }

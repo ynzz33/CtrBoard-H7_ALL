@@ -15,7 +15,6 @@
 /* 机器编号 */
 #define MACHINE_ID_BIG_WHEELLEG    0u
 #define MACHINE_ID_SMALL_WHEELLEG  1u
-#define MACHINE_VOFA_PERIOD_MS 10u
 
 #define MACHINE_NUM               2u
 
@@ -25,7 +24,7 @@
 
 /* 编译选机，参数与 K 表同步绑定。 */
 #ifndef MACHINE_DEFAULT
-#define MACHINE_DEFAULT           MACHINE_ID_SMALL_WHEELLEG
+#define MACHINE_DEFAULT           MACHINE_ID_BIG_WHEELLEG
 #endif
 
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
@@ -52,7 +51,6 @@
 #error "Unsupported MACHINE_DEFAULT"
 #endif
 
-#define MACHINE_CTRL_DT           MACHINE_TICK_DT
 #define MACHINE_LQR_DT            MACHINE_TICK_DT
 #define MACHINE_RL_CTRL_DT        (MACHINE_TICK_DT * (float)MACHINE_RL_CTRL_DIV)
 #define MACHINE_POLICY_DT         (MACHINE_TICK_DT * (float)MACHINE_POLICY_DIV)
@@ -75,14 +73,6 @@ typedef struct {
     int8_t  quat_sign[3]; /* 四元数输出 X/Y/Z 极性, 独立于 quat_src */
 } imu_cfg_t;
 
-/* RL 关节映射: 训练关节 = sign × wrap(固件角 − zero); 速度、动作、力矩乘同一 sign
- * sign 序 [左大腿 左小腿 左轮 右大腿 右小腿 右轮]; zero 只有四个腿关节 (同序去掉轮) */
-typedef struct {
-    int8_t  sign[6];      /* 符号 */
-    float   zero[4];      /* 零位 */
-    uint8_t configured;   /* 训练侧定义 + 台架核对后置 1 */
-} rl_map_t;
-
 typedef struct {
     float kp;
     float ki;
@@ -92,14 +82,51 @@ typedef struct {
 } machine_pid_cfg_t;
 
 typedef struct {
-    float dt;
-    float leg_len_init[2];
+    float vel_max;              /* m/s */
+    float yaw_max;              /* rad/s */
+    float len_init;             /* m */
+    float len_rate;             /* m/s */
+} machine_rc_cfg_t;
+
+/* 缩放与裁剪必须匹配训练模型。数组依次为XYZ、前进/偏航/高度和六个训练关节。 */
+typedef struct {
+    float gyro_scale[3];
+    float command_scale[3];
+    float joint_vel_scale[6];
+    float obs_clip;
+} machine_rl_observation_cfg_t;
+
+/* 腿增益按实体左大腿/左膝/右大腿/右膝排列；轮PID按左/右。
+ * 腿部P先做内部限幅，再叠加速度阻尼；实体力矩限幅仍取机器公共字段。 */
+typedef struct {
+    float pos_scale;            /* rad/action */
+    float wheel_vel_scale;      /* rad/s/action */
+    float p_gains[4];
+    float d_gains[4];
+    float leg_pid_max_output;
+    machine_pid_cfg_t wheel_pid[2];
+} machine_rl_torque_cfg_t;
+
+/* RL默认配置。关节映射仍为sign × wrap(固件角 − zero)，不改变物理标定。
+ * sign按实体六关节排列，zero去掉轮；default_pos按训练LF大腿/膝、RF大腿/膝排列。
+ * 默认角供观测与执行共用；预热以策略步计，两个看门狗以ms计。 */
+typedef struct {
+    int8_t sign[6];
+    float zero[4];
+    uint8_t configured;
+    float default_pos[4];       /* rad */
+    machine_rl_observation_cfg_t observation;
+    machine_rl_torque_cfg_t torque;
+    uint16_t warmup_steps;
+    float action_clip;          /* 非正不裁 */
+    uint32_t action_timeout_ms;
+    uint32_t ready_timeout_ms;
+} machine_rl_cfg_t;
+
+typedef struct {
     float leg_trim[2];
     float pitch_trim;
     float pos_target;
-    float vel_max;
-    float yaw_max;
-    float len_rate;
     float pos_arm_vel;
     float lpf_alpha[2];             /* pitch/yaw角速 */
     machine_pid_cfg_t leg_len[2];
@@ -144,6 +171,7 @@ typedef struct {
 /* 一台机器的全部参数 */
 typedef struct {
     const char *name;
+    machine_rc_cfg_t rc;        /* 公共量程 */
     uint8_t     lqr_configured;     /* 此机器有匹配的 LQR 增益表 */
     machine_lqr_cfg_t lqr;
     const machine_spring_cfg_t *spring;
@@ -172,17 +200,14 @@ typedef struct {
     float       leg_len_min;
     float       leg_len_max;
     float       leg_off_phi0[2];
-    float       gas_spring_force_n[2]; /* 左右轴向力 */
-    int8_t      gas_comp_sign[2];      /* -1/0/+1 */
     /* IMU 安装极性 */
     imu_cfg_t   imu;
-    /* RL 关节映射 */
-    rl_map_t    rl;
+    /* RL 默认配置 */
+    machine_rl_cfg_t rl;
 } machine_cfg_t;
 
 extern const machine_cfg_t machine_table[MACHINE_NUM];
 extern const machine_cfg_t *const machine; /* 编译期选定的机器 */
 
-uint8_t Machine_Id(void);
 
 #endif

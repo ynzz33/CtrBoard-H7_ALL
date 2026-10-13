@@ -30,8 +30,6 @@ typedef struct {
 
 uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     float length, float world_angle, gravity_leg_result_t *result);
-uint8_t Gravity_Comp_Apply(const leg_state_t *left, const leg_state_t *right,
-    const float world_angle[2], const float base_dm[4], float raw_dm[4],
-    gravity_comp_result_t *result);
+void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], const gravity_comp_result_t *reference, gravity_comp_result_t *result);
 
 #endif

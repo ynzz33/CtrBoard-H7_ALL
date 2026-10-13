@@ -30,7 +30,7 @@ switch lower(model)
             B = S*B;
         end
     case 'newton15'
-        error('model_AB:notyet', 'newton15 在阶段 2 接入 (见 LQR_MATLAB_PLAN.md §六)');
+        error('model_AB:notyet', 'newton15 尚未接入，见 md/file-guide.md 的 MATLAB 增益表与模型');
     otherwise
         error('model_AB:unknown', '未知模型 "%s"', model);
 end

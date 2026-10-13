@@ -12,22 +12,11 @@
 
 #include <stdint.h>
 #include "rl_types.h"
+#include "machine_config.h"
 
 #define RL_OBS_SIZE           25u
 #define RL_OBS_HISTORY_FRAMES 5u
 #define RL_OBS_HISTORY_SIZE   (RL_OBS_SIZE * RL_OBS_HISTORY_FRAMES)
-
-/* 训练侧观测参数 (chuanliantui_standup, 训练侧说明 2026-09-22) */
-#define RL_OBS_GYRO_SCALE        0.25f
-#define RL_OBS_CMD_VX_SCALE      2.0f
-#define RL_OBS_CMD_YAW_SCALE     0.25f
-#define RL_OBS_CMD_HEIGHT_SCALE  5.0f
-#define RL_OBS_JOINT_VEL_SCALE   0.05f
-#define RL_OBS_DOF_POS_L_THIGH   (-0.06f)   /* 训练默认角 lf0 */
-#define RL_OBS_DOF_POS_L_SHANK   (0.10f)    /* lf1 */
-#define RL_OBS_DOF_POS_R_THIGH   (0.06f)    /* rf0 */
-#define RL_OBS_DOF_POS_R_SHANK   (-0.10f)   /* rf1 */
-#define RL_OBS_CLIP              100.0f     /* 观测裁剪 */
 
 /* 观测索引 */
 typedef enum {
@@ -58,6 +47,7 @@ typedef struct {
     float command_scale[3];      /* 指令缩放 */
     float gyro_scale[3];         /* 陀螺缩放 */
     float joint_vel_scale[6];    /* 速度缩放 */
+    float obs_clip;              /* 观测裁剪 */
     uint8_t configured;          /* 参数有效 */
 } rl_observation_param_t;
 
@@ -76,7 +66,8 @@ void RL_Observation_Roles_To_Training(const float reference[RL_ACTION_SIZE],
 void RL_Observation_Roles_From_Training(const float training[RL_ACTION_SIZE],
                                         float reference[RL_ACTION_SIZE]);
 void RL_Observation_Init(rl_observation_state_t *state);
-void RL_Observation_Param_Init(rl_observation_param_t *param);
+void RL_Observation_Param_Init(rl_observation_param_t *param,
+                               const machine_rl_cfg_t *config);
 void RL_Observation_Reset(rl_observation_state_t *state);
 uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3]);
 uint8_t RL_Observation_Build(rl_observation_state_t *state,

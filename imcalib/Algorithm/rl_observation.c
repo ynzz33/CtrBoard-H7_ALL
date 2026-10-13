@@ -12,8 +12,6 @@
 #include <math.h>
 #include <string.h>
 
-#define RL_QUAT_EPS 1.0e-6f
-
 /* 左右交换，腿反号；同一变换也是逆变换 */
 static void RL_Observation_Transform_Roles(const float input[RL_ACTION_SIZE],
                                            float output[RL_ACTION_SIZE])
@@ -21,14 +19,9 @@ static void RL_Observation_Transform_Roles(const float input[RL_ACTION_SIZE],
     static const uint8_t source[RL_ACTION_SIZE] = {3u, 4u, 5u, 0u, 1u, 2u};
     static const float sign[RL_ACTION_SIZE] = {-1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f};
     float snapshot[RL_ACTION_SIZE];
-    uint32_t i;
 
-    if (input == NULL || output == NULL)
-    {
-        return;
-    }
     memcpy(snapshot, input, sizeof(snapshot));
-    for (i = 0u; i < RL_ACTION_SIZE; i++)
+    for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
     {
         output[i] = sign[i] * snapshot[source[i]];
     }
@@ -48,52 +41,28 @@ void RL_Observation_Roles_From_Training(const float training[RL_ACTION_SIZE],
     RL_Observation_Transform_Roles(training, reference);
 }
 
-/* 检查参数 */
-static uint8_t RL_Observation_Param_Valid(const rl_observation_param_t *param)
-{
-    if (param == NULL || !param->configured) return 0u;
-    if (!Float_Array_Finite(param->obs_dof_pos, 4u)) return 0u;
-    if (!Float_Array_Finite(param->command_scale, 3u)) return 0u;
-    if (!Float_Array_Finite(param->gyro_scale, 3u)) return 0u;
-    if (!Float_Array_Finite(param->joint_vel_scale, 6u)) return 0u;
-    return 1u;
-}
-
 /* 初始化观测 */
 void RL_Observation_Init(rl_observation_state_t *state)
 {
     RL_Observation_Reset(state);
 }
 
-/* 初始化参数: 训练侧观测缩放 + 默认角 (见 rl_observation.h) */
-void RL_Observation_Param_Init(rl_observation_param_t *param)
+/* 从本机RL配置加载训练缩放、默认角和裁剪，运行状态另行初始化。 */
+void RL_Observation_Param_Init(rl_observation_param_t *param,
+                               const machine_rl_cfg_t *config)
 {
-    uint32_t i;
-
-    if (param == NULL) return;
     memset(param, 0, sizeof(*param));
-    param->obs_dof_pos[0] = RL_OBS_DOF_POS_L_THIGH;
-    param->obs_dof_pos[1] = RL_OBS_DOF_POS_L_SHANK;
-    param->obs_dof_pos[2] = RL_OBS_DOF_POS_R_THIGH;
-    param->obs_dof_pos[3] = RL_OBS_DOF_POS_R_SHANK;
-    param->command_scale[0] = RL_OBS_CMD_VX_SCALE;
-    param->command_scale[1] = RL_OBS_CMD_YAW_SCALE;
-    param->command_scale[2] = RL_OBS_CMD_HEIGHT_SCALE;
-    for (i = 0u; i < 3u; i++)
-    {
-        param->gyro_scale[i] = RL_OBS_GYRO_SCALE;
-    }
-    for (i = 0u; i < 6u; i++)
-    {
-        param->joint_vel_scale[i] = RL_OBS_JOINT_VEL_SCALE;
-    }
-    param->configured = 1u;
+    memcpy(param->obs_dof_pos, config->default_pos, sizeof(param->obs_dof_pos));
+    memcpy(param->command_scale, config->observation.command_scale, sizeof(param->command_scale));
+    memcpy(param->gyro_scale, config->observation.gyro_scale, sizeof(param->gyro_scale));
+    memcpy(param->joint_vel_scale, config->observation.joint_vel_scale, sizeof(param->joint_vel_scale));
+    param->obs_clip = config->observation.obs_clip;
+    param->configured = config->configured;
 }
 
 /* 清空观测 */
 void RL_Observation_Reset(rl_observation_state_t *state)
 {
-    if (state == NULL) return;
     memset(state, 0, sizeof(*state));
 }
 
@@ -129,18 +98,9 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
 {
     float norm;
     float quat_unit[4];
-    uint32_t i;
 
-    if (quat == NULL || gravity == NULL)
-    {
-        return 0u;
-    }
     norm = sqrtf(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
-    if (!isfinite(norm) || norm < RL_QUAT_EPS)
-    {
-        return 0u;
-    }
-    for (i = 0u; i < 4u; i++)
+    for (uint32_t i = 0u; i < 4u; i++)
     {
         quat_unit[i] = quat[i] / norm;
     }
@@ -151,7 +111,7 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3])
 /* 构建观测 */
 /*
  * 按训练契约把角速度、投影重力、指令、关节角/速和上次动作组织为25维观测。
- * 原训练缩放/角色顺序/裁剪保持；无效来源不构造可执行历史。
+ * 原训练缩放/角色顺序/裁剪保持；输入由反馈/映射端验证，source_valid为可用标志。
  */
 uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              const rl_observation_param_t *param,
@@ -163,15 +123,8 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
                              uint8_t source_valid)
 {
     float gravity[3];    /* 投影重力 */
-    uint32_t i;          /* 循环索引 */
 
-    if (state == NULL) return 0u;
-    if (!source_valid || !RL_Observation_Param_Valid(param)
-        || !Float_Array_Finite(gyro_rad_s, 3u)
-        || !Float_Array_Finite(quat, 4u)
-        || !Float_Array_Finite(command, 3u)
-        || !Float_Array_Finite(joint_pos, 4u)
-        || !Float_Array_Finite(joint_vel, 6u))
+    if (!source_valid || !param->configured)
     {
         RL_Observation_Reset(state);
         return 0u;
@@ -184,33 +137,43 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
     }
 
     /* imu_state 已由 machine.imu 完成轴映射与极性校正；策略按训练 XYZ 直接读取。 */
-    for (i = 0u; i < 3u; i++)
+    for (uint32_t i = 0u; i < 3u; i++)
+    {
         state->obs[RL_OBS_GYRO_X + i] = gyro_rad_s[i] * param->gyro_scale[i];
-    for (i = 0u; i < 3u; i++)
+    }
+    for (uint32_t i = 0u; i < 3u; i++)
+    {
         state->obs[RL_OBS_GRAV_X + i] = gravity[i];
-    for (i = 0u; i < 3u; i++)
+    }
+    for (uint32_t i = 0u; i < 3u; i++)
+    {
         state->obs[RL_OBS_CMD_VX + i] = command[i] * param->command_scale[i];
+    }
 
     state->obs[RL_OBS_L_THIGH] = joint_pos[0] - param->obs_dof_pos[0];
     state->obs[RL_OBS_L_SHANK] = joint_pos[1] - param->obs_dof_pos[1];
     state->obs[RL_OBS_R_THIGH] = joint_pos[2] - param->obs_dof_pos[2];
     state->obs[RL_OBS_R_SHANK] = joint_pos[3] - param->obs_dof_pos[3];
 
-    for (i = 0u; i < 6u; i++)
+    for (uint32_t i = 0u; i < 6u; i++)
+    {
         state->obs[RL_OBS_L_THIGH_VEL + i] = joint_vel[i] * param->joint_vel_scale[i];
-    for (i = 0u; i < RL_ACTION_SIZE; i++)
+    }
+    for (uint32_t i = 0u; i < RL_ACTION_SIZE; i++)
+    {
         state->obs[RL_OBS_LAST_ACTION + i] = state->last_action[i];
+    }
 
     /* 整体裁剪 */
-    for (i = 0u; i < RL_OBS_SIZE; i++)
+    for (uint32_t i = 0u; i < RL_OBS_SIZE; i++)
     {
-        if (state->obs[i] > RL_OBS_CLIP)
+        if (state->obs[i] > param->obs_clip)
         {
-            state->obs[i] = RL_OBS_CLIP;
+            state->obs[i] = param->obs_clip;
         }
-        else if (state->obs[i] < -RL_OBS_CLIP)
+        else if (state->obs[i] < -param->obs_clip)
         {
-            state->obs[i] = -RL_OBS_CLIP;
+            state->obs[i] = -param->obs_clip;
         }
     }
 
@@ -231,9 +194,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state,
  */
 void RL_Observation_Update_History(rl_observation_state_t *state)
 {
-    uint32_t i;  /* 循环索引 */
-
-    if (state == NULL || !state->valid)
+    if (!state->valid)
     {
         RL_Observation_Reset(state);
         return;
@@ -241,24 +202,21 @@ void RL_Observation_Update_History(rl_observation_state_t *state)
 
     if (!state->history_ready)
     {
-        for (i = 0u; i < RL_OBS_HISTORY_FRAMES; i++)
-            memcpy(&state->history[i * RL_OBS_SIZE], state->obs,
-                   RL_OBS_SIZE * sizeof(float));
+        for (uint32_t i = 0u; i < RL_OBS_HISTORY_FRAMES; i++)
+        {
+            memcpy(&state->history[i * RL_OBS_SIZE], state->obs, RL_OBS_SIZE * sizeof(float));
+        }
         state->history_ready = 1u;
         return;
     }
 
-    memmove(&state->history[0], &state->history[RL_OBS_SIZE],
-            (RL_OBS_HISTORY_SIZE - RL_OBS_SIZE) * sizeof(float));
-    memcpy(&state->history[RL_OBS_HISTORY_SIZE - RL_OBS_SIZE], state->obs,
-           RL_OBS_SIZE * sizeof(float));
+    memmove(&state->history[0], &state->history[RL_OBS_SIZE], (RL_OBS_HISTORY_SIZE - RL_OBS_SIZE) * sizeof(float));
+    memcpy(&state->history[RL_OBS_HISTORY_SIZE - RL_OBS_SIZE], state->obs, RL_OBS_SIZE * sizeof(float));
 }
 
 /* 保存动作 */
 void RL_Observation_Set_Last_Action(rl_observation_state_t *state,
                                     const float action[RL_ACTION_SIZE])
 {
-    if (state == NULL || action == NULL) return;
-
     memcpy(state->last_action, action, RL_ACTION_SIZE * sizeof(float));
 }
