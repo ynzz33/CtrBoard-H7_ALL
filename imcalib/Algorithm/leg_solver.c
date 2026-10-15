@@ -14,22 +14,10 @@
 #define LEG_EPS         1.0e-6f
 #define LEG_MIN_LENGTH  1.0e-3f
 
-/* 角度环绕 [-π, π] */
-static float Leg_Wrap(float angle)
-{
-    while (angle > LEG_PI)  { angle -= LEG_2PI; }
-    while (angle < -LEG_PI) { angle += LEG_2PI; }
-    return angle;
-}
-
-/* 检查输入有效性 */
+/* 杆长/零偏直接使用初始化配置，只检查本次反馈；几何奇异性在求解时判断。 */
 static uint8_t Leg_Input_Valid(const leg_state_t *leg)
 {
     const leg_input_t *in = &leg->input;
-    const leg_config_t *cfg = &leg->config;
-
-    if (!cfg->configured) { return 0u; }
-    if (cfg->lu <= LEG_EPS || cfg->lg <= LEG_EPS) { return 0u; }
     if (!isfinite(in->hip_f) || !isfinite(in->hip_b) || !isfinite(in->d_hip_f) || !isfinite(in->d_hip_b))
     {
         return 0u;
@@ -89,15 +77,15 @@ static uint8_t Leg_Solve_Geometry_z(leg_state_t *leg, leg_solver_cache_t *cache)
     //求腿角
     cache->virtual_leg_angle_abs  = atan2f(OP[1], OP[0]);
     //原本是后点为零点，像逆时针是正的，现在取负，并且加上偏置就变成竖直向下90°是一个零点然后向顺时针是正方向
-    leg->output.virtual_leg_angle =Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs+ leg->config.offset_phi0);
+    leg->output.virtual_leg_angle =Angle_Wrap_180(LEG_HALF_PI - cache->virtual_leg_angle_abs+ leg->config.offset_phi0);
     //前下杆角度
     cache->phi_a = atan2f(OP[1] - A[1],OP[0] - A[0]);
     //后下杆角度
     cache->phi_b = atan2f(OP[1] - B[1], OP[0] - B[0]);
     //前上杆，大腿角
-    leg->output.thigh_angle = Leg_Wrap(cache->qf);
+    leg->output.thigh_angle = Angle_Wrap_180(cache->qf);
     //虚拟小腿角
-    leg->output.virtual_shank_angle = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
+    leg->output.virtual_shank_angle = Angle_Wrap_180(cache->phi_a - cache->qf - LEG_HALF_PI);
     return 1u;
 }
 
@@ -203,14 +191,14 @@ static uint8_t Leg_Solve_Geometry(leg_state_t *leg, leg_solver_cache_t *cache)
 
     /* 虚拟腿摆角 (相对竖直方向) */
     cache->virtual_leg_angle_abs  = atan2f(y_p, x_p);
-    leg->output.virtual_leg_angle = Leg_Wrap(LEG_HALF_PI - cache->virtual_leg_angle_abs + leg->config.offset_phi0);
+    leg->output.virtual_leg_angle = Angle_Wrap_180(LEG_HALF_PI - cache->virtual_leg_angle_abs + leg->config.offset_phi0);
 
     /* 大腿角 = qf (前髋上连杆, 去镜像后与 hip_f 一致) */
-    leg->output.thigh_angle = Leg_Wrap(cache->qf);
+    leg->output.thigh_angle = Angle_Wrap_180(cache->qf);
 
     /* 虚拟小腿角 = φ_a - qf - π/2 (小腿相对大腿) */
-    vs_raw = Leg_Wrap(cache->phi_a - cache->qf - LEG_HALF_PI);
-    leg->output.virtual_shank_angle = Leg_Wrap(vs_raw);
+    vs_raw = Angle_Wrap_180(cache->phi_a - cache->qf - LEG_HALF_PI);
+    leg->output.virtual_shank_angle = Angle_Wrap_180(vs_raw);
     return 1u;
 }
 

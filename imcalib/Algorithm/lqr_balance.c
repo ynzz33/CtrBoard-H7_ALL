@@ -30,14 +30,6 @@
 #define LQR_IMU_GYRO_YAW     2u
 
 lqr_debug_t lqr_debug;
-/* 角度环绕 [-π, π] */
-static float LQR_Wrap_Pi(float angle)
-{
-    while (angle > LEG_PI)  { angle -= LEG_2PI; }
-    while (angle < -LEG_PI) { angle += LEG_2PI; }
-    return angle;
-}
-
 /* 初始化 */
 void LQR_Init(lqr_state_t *st)
 {
@@ -174,7 +166,7 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
         st->x[LQR_X_S] = st->pos;
         return;
     }
-    legs_ready = (uint8_t)(fabsf(LQR_Wrap_Pi(st->x[LQR_X_THL] - machine->lqr.leg_trim[0])) <= LQR_POS_LEG_TOL && fabsf(LQR_Wrap_Pi(st->x[LQR_X_THR] - machine->lqr.leg_trim[1])) <= LQR_POS_LEG_TOL);
+    legs_ready = (uint8_t)(fabsf(Angle_Wrap_180(st->x[LQR_X_THL] - machine->lqr.leg_trim[0])) <= LQR_POS_LEG_TOL && fabsf(Angle_Wrap_180(st->x[LQR_X_THR] - machine->lqr.leg_trim[1])) <= LQR_POS_LEG_TOL);
     if (st->target[LQR_X_DS] != 0.0f)
     {
         st->pos = 0.0f;
@@ -314,7 +306,7 @@ void LQR_Control_Update(lqr_state_t *st)
             }
             else if (j == LQR_X_PHI)
             {
-                term = lqr_debug.yaw_hold ? st->K[i][j] * LQR_Wrap_Pi(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j]) : 0.0f;                        /* 关: 偏航角不参与 */
+                term = lqr_debug.yaw_hold ? st->K[i][j] * Angle_Wrap_180(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j]) : 0.0f;                        /* 关: 偏航角不参与 */
             }
             else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold) || (j == LQR_X_S && !lqr_debug.pos_hold))
             {

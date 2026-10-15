@@ -28,6 +28,7 @@ static void Motor_State_Update(motor_state_t *next)
 
         next->dm.pos_rad[i] = feedback->pos_rad;
         next->dm.pos_zero_rad[i] = feedback->pos_zero_rad;
+        next->dm.pos_continuous_rad[i] = feedback->pos_continuous_rad; /* RL连续角随同一电机快照发布。 */
         next->dm.vel_rad_s[i] = feedback->vel_rad_s;
         next->dm.trq_nm[i] = feedback->trq_nm;
         next->dm.last_rx_tick[i] = feedback->last_rx_tick;
@@ -54,7 +55,8 @@ static void Motor_State_Update(motor_state_t *next)
 /* 更新单腿 */
 static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, leg_state_t *leg)
 {
-    if (map->configured && (uint8_t)map->dm_front < DM_MOTOR_NUM && (uint8_t)map->dm_rear < DM_MOTOR_NUM && motor->dm.online[map->dm_front] && motor->dm.online[map->dm_rear])
+    /* 前后电机下标由初始化固定绑定，这里只判断两路反馈是否在线。 */
+    if (motor->dm.online[map->dm_front] && motor->dm.online[map->dm_rear])
     {
         //杆长向后为零点
         leg->input.hip_f = motor->dm.pos_zero_rad[map->dm_front] + LEG_PI;
@@ -72,7 +74,7 @@ static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, le
 /* 更新腿部状态 */
 /*
  * 按电机物理反馈更新双腿输入，再调用leg_solver得到几何、速度和力映射有效性。
- * 腿几何用于LQR/RL/离地估计；不在此调整极性、零点或替控制器设目标。
+ * 腿几何用于LQR/离地估计；RL直接使用实体电机反馈，不在此调整极性、零点或设目标。
  */
 static void Leg_State_Update(const motor_state_t *motor, leg_state_t *left, leg_state_t *right)
 {
@@ -128,11 +130,12 @@ static void Robot_Fault_Update(void)
     {
         fault |= FAULT_MOTOR;
     }
-    if (ctrl_strategy == CTRL_STRATEGY_RL && (!action_state.updated || HAL_GetTick() - action_state.last_ok_tick >= machine->rl.action_timeout_ms))
+    /* 模型就绪且已有动作后才判停更；等待首帧由下面的持续不可用保护处理。 */
+    if (ctrl_strategy == CTRL_STRATEGY_RL && rl_control.policy.ready && action_state.updated && HAL_GetTick() - action_state.last_ok_tick >= machine->rl.action_timeout_ms)
     {
         fault |= FAULT_ACTION;
     }
-    /* 动作持续不可用 */
+    /* 实际投入但动作持续不可用；与已发布动作停更分别计时。 */
     if (output_task_rl_engaged() && action_state.rl_ready == 0)
     {
         if (rl_ready_lost_tick == 0u)

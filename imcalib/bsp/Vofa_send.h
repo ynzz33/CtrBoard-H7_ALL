@@ -12,7 +12,7 @@
 #include "usart.h"
 #include "machine_config.h"
 
-#define VOFA_MAX_CH 39u /* 通道容量 */
+#define VOFA_MAX_CH 43u /* 3路状态+39维观测+1路推理耗时 */
 
 /* 真正选择硬件串口，数字是端口号，不是传输类型。 */
 #if MACHINE_VOFA_PORT == 8u

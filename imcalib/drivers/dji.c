@@ -125,10 +125,7 @@ void Dji_Init(void)
 
         FDCAN_HandleTypeDef *handle = Can_Bus_Handle(machine->dji_bus);
 
-        if (handle == NULL || config->feedback_id > 0x7FFu)
-        {
-            continue;
-        }
+        /* 固定总线/反馈ID不做初始化合法性扫描，CAN层负责实际收发边界。 */
         Can_Bus_Register(handle, config->feedback_id, Dji_Read, feedback);
     }
 }

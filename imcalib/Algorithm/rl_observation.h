@@ -1,85 +1,35 @@
-/*
- * 文件职责：训练侧观测构建和历史队列（rl_observation.h）。
- * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：机体角速度/四元数、训练角色关节状态、遥控指令和上次动作。
- * 输出/去向：构建25维观测、5帧125维历史；完成实体角色与训练角色互逆转换。
- * 关键边界：缩放、裁剪、默认角和历史顺序需与训练一致；这里不推理、不选策略、不输出电机。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
- */
-
+/* RL39输入接口：模型原生反馈和最新样本；采样归执行任务，观测/原始动作历史归策略任务。 */
 #ifndef RL_OBSERVATION_H
 #define RL_OBSERVATION_H
-
-#include <stdint.h>
 #include "rl_types.h"
 #include "machine_config.h"
-
-#define RL_OBS_SIZE           25u
-#define RL_OBS_HISTORY_FRAMES 5u
-#define RL_OBS_HISTORY_SIZE   (RL_OBS_SIZE * RL_OBS_HISTORY_FRAMES)
-
-/* 观测索引 */
+/* 每段起点对应训练actor拼接顺序；位置和速度均使用rl_types中的实体电机顺序。 */
 typedef enum {
-    RL_OBS_GYRO_X = 0,       /* 角速度 */
-    RL_OBS_GYRO_Y,
-    RL_OBS_GYRO_Z,
-    RL_OBS_GRAV_X,           /* 投影重力 */
-    RL_OBS_GRAV_Y,
-    RL_OBS_GRAV_Z,
-    RL_OBS_CMD_VX,           /* 控制指令 */
-    RL_OBS_CMD_YAW_RATE,
-    RL_OBS_CMD_HEIGHT,
-    RL_OBS_L_THIGH,          /* 关节角度 */
-    RL_OBS_L_SHANK,
-    RL_OBS_R_THIGH,
-    RL_OBS_R_SHANK,
-    RL_OBS_L_THIGH_VEL,      /* 关节速度 */
-    RL_OBS_L_SHANK_VEL,
-    RL_OBS_L_WHEEL_VEL,
-    RL_OBS_R_THIGH_VEL,
-    RL_OBS_R_SHANK_VEL,
-    RL_OBS_R_WHEEL_VEL,
-    RL_OBS_LAST_ACTION = 19  /* 上次动作 */
+    RL_OBS_CMD_VX = 0, RL_OBS_CMD_VY, RL_OBS_CMD_YAW_RATE, RL_OBS_CMD_HEIGHT,
+    RL_OBS_GYRO_X, RL_OBS_GYRO_Y, RL_OBS_GYRO_Z,
+    RL_OBS_GRAV_X, RL_OBS_GRAV_Y, RL_OBS_GRAV_Z,
+    RL_OBS_MOTOR_POS = 10, RL_OBS_MOTOR_VEL = 16, RL_OBS_LAST_ACTION = 22, RL_OBS_CONTROL_MODE = 28,
+    RL_OBS_GROUND_START = 35, RL_OBS_POLICY_ACTIVE, RL_OBS_AIRBORNE, RL_OBS_STEP_ACTIVE
 } rl_obs_index_t;
-
+/* 一份模型坐标反馈，未进行观测缩放或减名义角。 */
 typedef struct {
-    float obs_dof_pos[4];        /* 观测中位 */
-    float command_scale[3];      /* 指令缩放 */
-    float gyro_scale[3];         /* 陀螺缩放 */
-    float joint_vel_scale[6];    /* 速度缩放 */
-    float obs_clip;              /* 观测裁剪 */
-    uint8_t configured;          /* 参数有效 */
-} rl_observation_param_t;
-
+    float gyro[3];                  /* 机体XYZ角速度，rad/s */
+    float gravity[3];               /* 机体系单位重力 */
+    float pos[RL_LEG_MOTOR_NUM];     /* 四电机连续角，rad */
+    float vel[RL_ACTION_SIZE];      /* 四电机与左右轮速度，rad/s */
+} rl_observation_sample_t;
 typedef struct {
-    float obs[RL_OBS_SIZE];              /* 当前观测 */
-    float history[RL_OBS_HISTORY_SIZE];  /* 五帧历史 */
-    float last_action[RL_ACTION_SIZE];   /* 上次动作 */
-    uint8_t valid;                       /* 观测有效 */
-    uint8_t history_ready;               /* 历史有效 */
+    float obs[RL_OBS_SIZE];         /* 唯一网络输入，已按训练裁剪/缩放 */
+    float last_action[RL_ACTION_SIZE]; /* 上一次网络原始请求，保持左右两侧顺序 */
+    rl_observation_sample_t sample; /* 最新500Hz反馈，不主动添加观测延迟 */
+    uint8_t sample_valid;           /* 最新反馈可用，坏反馈立即清除 */
+    uint8_t valid;                  /* 本次obs39构建成功 */
 } rl_observation_state_t;
-
-/* reference 为机器表校准后的实体 [左大腿 左膝 左轮 右大腿 右膝 右轮]。
- * training 为 [lf0 lf1 lfwheel rf0 rf1 rfwheel]；转换互逆，支持原地调用。 */
-void RL_Observation_Roles_To_Training(const float reference[RL_ACTION_SIZE],
-                                      float training[RL_ACTION_SIZE]);
-void RL_Observation_Roles_From_Training(const float training[RL_ACTION_SIZE],
-                                        float reference[RL_ACTION_SIZE]);
-void RL_Observation_Init(rl_observation_state_t *state);
-void RL_Observation_Param_Init(rl_observation_param_t *param,
-                               const machine_rl_cfg_t *config);
-void RL_Observation_Reset(rl_observation_state_t *state);
+uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_state_t *out);
 uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3]);
-uint8_t RL_Observation_Build(rl_observation_state_t *state,
-                             const rl_observation_param_t *param,
-                             const float gyro_rad_s[3],
-                             const float quat[4],
-                             const float command[3],
-                             const float joint_pos[4],
-                             const float joint_vel[6],
-                             uint8_t source_valid);
-void RL_Observation_Update_History(rl_observation_state_t *state);
-void RL_Observation_Set_Last_Action(rl_observation_state_t *state,
-                                    const float action[RL_ACTION_SIZE]);
-
+void RL_Observation_Reset(rl_observation_state_t *state);
+void RL_Observation_Sample(rl_observation_state_t *state, const float gyro[3], const float quat[4], const rl_motor_state_t *motor, uint8_t source_valid);
+uint8_t RL_Observation_Read_Sample(const rl_observation_state_t *state, rl_observation_sample_t *sample);
+uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg_t *config, const rl_observation_sample_t *sample, uint8_t source_valid);
+void RL_Observation_Set_Last_Action(rl_observation_state_t *state, const float action[RL_ACTION_SIZE]);
 #endif

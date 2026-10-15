@@ -1,204 +1,81 @@
 /*
- * 文件职责：RL观测准备、预热、推理与动作发布（task_policy.c）。
- * 输入/来源：一致反馈快照、遥控指令、机器RL映射和networkzn1。
- * 输出/去向：构建训练角色观测/历史，按策略节拍推理并发布可执行动作。
- * 关键边界：无效/未就绪时清动作；只发布动作，不直接发送DM/DJI报文。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 50Hz策略：复制500Hz最新反馈及原始动作历史→组装obs39→推理→发布原始action6。
+ * 选中RL即可在零出力状态运行；NORMAL静站不添加启动延迟，实际出力与PD归执行任务。
+ * 共享样本/动作只在短临界区读写，观测构建和网络调用均放在临界区之外。
  */
-
 #include "robot_control.h"
 #include "robot_state.h"
 #include "rl_observation.h"
 #include "rl_policy.h"
-#include "machine_config.h"
-#include "pid.h"
-#include "math_utils.h"
-
 #include <string.h>
-
-/* 选中 RL 后预热，再运行 networkzn1 推理；观测无效时发布零动作。 */
-static uint16_t warmup_cnt;     /* 预热计数 */
-enum { RL_OBSERVATION_PREVIEW, RL_OBSERVATION_HISTORY };
-
-
-
-/* 机器表校准后交换角色: 训练 LF 对应实体右腿，RF 对应实体左腿 */
-/*
- * 先按机器表对实体关节角/速度做已有校准，再转换到训练角色顺序。
- * 观测映射和执行映射必须互逆；不把训练角色交换误当电机物理极性改变。
- */
-uint8_t RL_Joint_Map(const robot_feedback_t *feedback, float joint_pos[4], float joint_vel[6])
+/* 策略任务启动时创建本机网络；configured是机型启用开关，不扫描固定配置。 */
+void ctrl_task_init(void)
 {
-    const machine_rl_cfg_t *map = &machine->rl;
-    float q[RL_ACTION_SIZE] = {0.0f};
-    float qd[6];
-
-    if (!map->configured)
-    {
-        return 0u;
-    }
-    q[0] = (float)map->sign[0] * Angle_Wrap_180(feedback->left.output.thigh_angle - map->zero[0]);
-    q[1] = (float)map->sign[1] * Angle_Wrap_180(feedback->left.output.virtual_shank_angle - map->zero[1]);
-    q[3] = (float)map->sign[3] * Angle_Wrap_180(feedback->right.output.thigh_angle - map->zero[2]);
-    q[4] = (float)map->sign[4] * Angle_Wrap_180(feedback->right.output.virtual_shank_angle - map->zero[3]);
-    RL_Observation_Roles_To_Training(q, q);
-    joint_pos[0] = q[0];
-    joint_pos[1] = q[1];
-    joint_pos[2] = q[3];
-    joint_pos[3] = q[4];
-    qd[0] = feedback->left.input.d_hip_f;
-    qd[1] = feedback->left.output.d_virtual_shank_angle;
-    qd[2] = feedback->motor.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
-    qd[3] = feedback->right.input.d_hip_f;
-    qd[4] = feedback->right.output.d_virtual_shank_angle;
-    qd[5] = feedback->motor.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
-    for (uint8_t i = 0u; i < 6u; i++)
-    {
-        qd[i] *= (float)map->sign[i];
-    }
-    RL_Observation_Roles_To_Training(qd, joint_vel);
-    return (uint8_t)(Float_Array_Finite(joint_pos, 4u) && Float_Array_Finite(joint_vel, 6u));
+    if (machine->rl.configured) { (void)RL_Policy_Init(&rl_control.policy); }
 }
-
-/* 采集与构建 */
-static uint8_t RL_Control_Update_Observation(const robot_feedback_t *feedback, const float command[3], uint8_t mode)
+/* 本地构造后完整发布；清零期间仍在途的推理不能覆盖新控制段的动作。 */
+void ctrl_task_body(void)
 {
-    const imu_state_t *imu = &feedback->imu;
-    float joint_pos[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    float joint_vel[6] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-    uint8_t source_valid;
-
-    source_valid = (uint8_t)(imu->online && feedback->left.output.valid && feedback->right.output.valid && (mode == RL_OBSERVATION_PREVIEW || feedback->motor.valid) && RL_Joint_Map(feedback, joint_pos, joint_vel));
-    if (mode == RL_OBSERVATION_PREVIEW)
+    rl_observation_state_t observation;
+    rl_observation_sample_t sample;
+    float action[RL_ACTION_SIZE] = {0.0f};
+    uint32_t reset_count;
+    uint8_t selected;
+    uint8_t sampled;
+    uint8_t built;
+    if (!machine->rl.configured) { return; }
+    /* 样本缓存由高优先级执行任务推进，先在临界区复制，避免读取半更新帧。 */
+    taskENTER_CRITICAL();
+    selected = (uint8_t)(rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL);
+    reset_count = action_state.reset_count;
+    if (selected)
     {
-        RL_Observation_Reset(&rl_control.observation);
-    }
-    if (!RL_Observation_Build(&rl_control.observation, &rl_control.param, imu->gyro_rad_s, imu->quat, command, joint_pos, joint_vel, source_valid))
-    {
-        return 0u;
-    }
-    if (mode == RL_OBSERVATION_HISTORY)
-    {
-        RL_Observation_Update_History(&rl_control.observation);
-        return rl_control.observation.history_ready;
-    }
-    return rl_control.observation.valid;
-}
-
-/* 发布动作 (固件关节空间) */
-static void RL_Action_Publish(const float action[RL_ACTION_SIZE], uint8_t rl_ready)
-{
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-    memcpy(action_state.a, action, sizeof(action_state.a));
-    action_state.updated = 1u;
-    action_state.last_ok_tick = HAL_GetTick();
-    action_state.rl_ready = rl_ready;
-    __set_PRIMASK(primask);
-}
-
-/* 遥控 → 策略指令 */
-static void RL_Command_From_Rc(const rc_command_t *rc, float command[3])
-{
-    /* 公共量程 */
-    command[0] = rc->vel;
-    command[1] = -rc->yaw;
-    command[2] = rc->len;
-    input_command.vx_cmd = command[0];
-    input_command.yaw_cmd = command[1];
-    input_command.height_cmd = command[2];
-}
-
-/* 训练动作先裁剪再保存历史；配置限幅非正时沿用不裁剪语义。 */
-static void RL_Action_Clip(float action[RL_ACTION_SIZE])
-{
-    float limit = machine->rl.action_clip;
-
-    if (limit <= 0.0f)
-    {
-        return;
-    }
-    for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
-    {
-        action[i] = clampf(action[i], -limit, limit);
-    }
-}
-
-/* 推理路径单周期 */
-static void RL_Infer_Body(const robot_feedback_t *feedback)
-{
-    const machine_rl_cfg_t *map = &machine->rl;
-    float command[3];
-    float action_t[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};   /* 训练空间 */
-    float action_ref[RL_ACTION_SIZE] = {0.0f};  /* 实体参考 */
-    float action[RL_ACTION_SIZE] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};     /* 固件空间 */
-    uint8_t engaged;
-
-    RL_Command_From_Rc(&feedback->rc, command);
-    engaged = output_task_rl_engaged();
-
-    /* 未投入: 清历史 (预览观测照算供 VOFA), 发零动作保持新鲜 (LQR 挡也走这里) */
-    if (!engaged)
-    {
-        warmup_cnt = 0u;
-        (void)RL_Control_Update_Observation(feedback, command, RL_OBSERVATION_PREVIEW);
-        RL_Action_Publish(action, 0u);
-        return;
-    }
-    if (!RL_Control_Update_Observation(feedback, command, RL_OBSERVATION_HISTORY))
-    {
-        /* 观测无效: 重新预热, 零力矩 */
-        warmup_cnt = 0u;
-        RL_Action_Publish(action, 0u);
-        return;
-    }
-
-
-    if (warmup_cnt < machine->rl.warmup_steps)
-    {
-        warmup_cnt++;
+        sampled = RL_Observation_Read_Sample(&rl_control.observation, &sample);
+        memcpy(observation.last_action, rl_control.observation.last_action, sizeof(observation.last_action));
     }
     else
     {
-        if (!RL_Policy_Run(&rl_control.policy, &rl_control.observation, action_t))
+        sampled = 0u;
+        RL_Observation_Reset(&rl_control.observation);
+    }
+    taskEXIT_CRITICAL();
+    if (!selected)
+    {
+        Action_State_Clear();
+        return;
+    }
+    built = RL_Observation_Build(&observation, &machine->rl, &sample, sampled);
+    taskENTER_CRITICAL();
+    if (reset_count != action_state.reset_count)
+    {
+        taskEXIT_CRITICAL();
+        return;
+    }
+    memcpy(rl_control.observation.obs, observation.obs, sizeof(observation.obs));
+    rl_control.observation.valid = built;
+    taskEXIT_CRITICAL();
+    if (!built || !RL_Policy_Run(&rl_control.policy, &observation, action))
+    {
+        taskENTER_CRITICAL();
+        if (reset_count == action_state.reset_count)
         {
-            RL_Observation_Set_Last_Action(&rl_control.observation, action_t);   /* 失败: 记录零动作 */
-            RL_Action_Publish(action, 0u);   /* 推理失败 */
-            return;
+            memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
+            Action_State_Clear();
         }
-        RL_Action_Clip(action_t);
+        taskEXIT_CRITICAL();
+        return;
     }
-
-    RL_Observation_Set_Last_Action(&rl_control.observation, action_t);
-    RL_Observation_Roles_From_Training(action_t, action_ref);
-    for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
+    /* 请求动作不反号、不全局裁剪；观测裁剪与目标裁剪由各自生成端完成。
+     * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
+    taskENTER_CRITICAL();
+    if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL)
     {
-        action[i] = (float)map->sign[i] * action_ref[i];   /* 参考 → 固件 */
+        RL_Observation_Set_Last_Action(&rl_control.observation, action);
+        memcpy(action_state.a, action, sizeof(action_state.a));
+        action_state.last_ok_tick = HAL_GetTick();
+        action_state.updated = 1u;
+        action_state.rl_ready = 1u;
     }
-    RL_Action_Publish(action, 1u);
-}
-
-/* 策略初始化 */
-void ctrl_task_init(void)
-{
-    if (machine->rl.configured)
-    {
-        (void)RL_Policy_Init(&rl_control.policy);
-    }
-}
-
-/* 策略单周期 */
-/*
- * 读取策略所需快照，按模式/许可推进预热和推理；未就绪或失败时发布零动作。
- * 执行任务读取已发布动作，不在这里发送电机报文。
- */
-void ctrl_task_body(void)
-{
-    static robot_feedback_t feedback;
-
-    if (machine->rl.configured)
-    {
-        (void)Robot_Feedback_Read(&feedback);
-        RL_Infer_Body(&feedback);
-    }
+    /* 不匹配时直接丢弃；不能用旧推理的失败路径清掉新控制段。 */
+    taskEXIT_CRITICAL();
 }

@@ -79,7 +79,6 @@ typedef struct {
 extern air_param_t air_param;
 extern air_detection_t air_detection;
 extern volatile air_detection_t air_debug;
-uint8_t Air_Detection_Init(air_detection_t *state);
 void Air_Detection_Reset(air_detection_t *state);
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input);
 uint8_t Air_Detection_Active(const air_detection_t *state);

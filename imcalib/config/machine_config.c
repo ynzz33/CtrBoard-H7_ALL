@@ -65,13 +65,13 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dm_trq_max     = 54.0f,                       /* MIT 刻度, 勿改 */
         .dm_trq_clamp   = 54.0f,                       /* 满量程 */
         /* 极性: 前左/后左/前右/后右 */
-        .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
-        .dji_sign       = {{-1, -1}, {1, 1}},
+        .dm_sign        = {{1, 1}, {1, 1}, {1, 1}, {1, 1}},
+        .dji_sign       = {{-1, -1}, {-1, -1}},
         /* 总线: 腿 4 台全在 FDCAN1, 轮在 FDCAN3 */
         .dm_bus         = {1, 1, 1, 1},
         .dji_bus        = 3,
         /* 电机零点: 前左/后左/前右/后右 (作者标定) */
-        .dm_zero        = {0.476998f, 1.974491f,0.476998f, 1.974491f },
+        .dm_zero        = {0.476998f, 1.974491f,-0.476998f, -1.974491f },
         /* 腿几何: 杆长 0.21/0.25; 腿长区间为实测工作区间 */
         .leg_lu         = 0.21f,
         .leg_lg         = 0.25f,
@@ -109,33 +109,27 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .hip_enable = 1u,                        /* 摆腿矩输出 */
             .len_pid_enable = 1u,                    /* 腿长PID */
         },
-        /* RL 关节映射候选 A (作者 2026-09-23 定, 依据变更 97 URDF 推导):
-         * lf0 = −(thigh − 2.476872), lf1 = −(vs − 3.086386), 右腿反号; 轮 sign 按训练轴/台架后退方向校正
-         * 默认站姿固件应读 thigh ≈ 2.54 / vs ≈ 2.99 (VOFA ch11/ch13), 不符则回看候选 B */
+        /* model3023采用原生关节角；实机sign/zero仍保留原假设，待台架配对标定。 */
         .rl = {
-            .sign       = {-1, -1, -1, 1, 1, 1},
-            .zero       = {2.476872f, 3.086386f, 2.476872f, 3.086386f},
+            .motor_sign = {1, 1, 1, 1, 1, 1},
+            .motor_zero = {0.0f, 0.0f, 0.0f, 0.0f},
+            /* 版本化XML与训练model.py微蹲闭链姿态：四腿顺序LF前/后、RF前/后。 */
+            .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
+            .reference_pos = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
             .configured = 1u,
-            /* networkzn1训练默认角，观测与执行共用。 */
-            .default_pos = {-0.06f, 0.10f, 0.06f, -0.10f},
-            .observation = {
-                .gyro_scale = {0.25f, 0.25f, 0.25f},
-                .command_scale = {2.0f, 0.25f, 5.0f},
-                .joint_vel_scale = {0.05f, 0.05f, 0.05f, 0.05f, 0.05f, 0.05f},
-                .obs_clip = 100.0f,
-            },
+            .height = 0.30f, /* 本次交付范围：NORMAL静站、零速度命令 */
+            .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* gyro/height/velocity缩放及两种裁剪 */
             .torque = {
                 .pos_scale = 0.5f,
                 .wheel_vel_scale = 10.0f,
-                .p_gains = {10.0f, 10.0f, 10.0f, 10.0f},
-                .d_gains = {1.0f, 1.0f, 1.0f, 1.0f},
-                .leg_pid_max_output = 1000.0f,
-                /* Kp/Ki/Kd/内部输出限幅/积分限幅 */
-                .wheel_pid = {{0.1f, 0.0f, 0.0f, 1000.0f, 0.0f},
-                              {0.1f, 0.0f, 0.0f, 1000.0f, 0.0f}},
+                .p_gains = {60.0f, 60.0f, 60.0f, 60.0f},
+                .d_gains = {2.0f, 2.0f, 2.0f, 2.0f},
+                .wheel_gain = {0.1f, 0.1f},
+                .position_limit = 3.14f,
+                .wheel_speed_limit = 150.0f,
+                .leg_torque_limit = 40.0f, /* 训练电机饱和；公共DM限幅与MIT刻度保持原值 */
+                .wheel_torque_limit = 3.9f,
             },
-            .warmup_steps = 10u,
-            .action_clip = 100.0f,
             .action_timeout_ms = 100u,
             .ready_timeout_ms = 100u,
         },
@@ -197,11 +191,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .quat_sign = {-1, 1, -1},
         },
         /* RL 关节映射: 模型对应大机器, 小机器未配置 */
-        .rl = {
-            .sign       = {0, 0, 0, 0, 0, 0},
-            .zero       = {0.0f, 0.0f, 0.0f, 0.0f},
-            .configured = 0u,
-        },
+        .rl = { .configured = 0u },
     },
 };
 

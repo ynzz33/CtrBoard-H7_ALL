@@ -30,14 +30,10 @@ void Slip_Reset(slip_state_t *st)
     memset(st, 0, sizeof(*st));
 }
 
-/* 已验证状态建先验 */
+/* 已验证反馈建先验；初始方差直接取固定参数，只检查新求出的门限。 */
 void Slip_Init(slip_state_t *st, float v0, float a0)
 {
     Slip_Reset(st);
-    if (!(slip_param.p0_velocity >= 0.0f) || !(slip_param.p0_acceleration >= 0.0f))
-    {
-        return;
-    }
     st->velocity = v0;
     st->acceleration = a0;
     st->covariance[0][0] = slip_param.p0_velocity;
@@ -59,7 +55,8 @@ static uint8_t Slip_Correct(slip_state_t *st, uint8_t axis,
     float cross;
 
     variance = st->covariance[axis][axis] + noise;
-    if (!(noise > 0.0f) || !isfinite(variance) || variance <= 0.0f)
+    /* 方差由当前协方差和噪声计算，是实际除数；这里只检查运算是否可用。 */
+    if (!isfinite(variance) || variance <= 0.0f)
     {
         return 0u;
     }
@@ -107,11 +104,6 @@ uint8_t Slip_Update_Contact(slip_state_t *st, float wheel_v, float imu_acc,
     float noise;
 
     st->valid = 0u;
-    if (!(slip_param.q_velocity >= 0.0f) || !(slip_param.q_acceleration >= 0.0f) || !(slip_param.r_velocity > 0.0f) || !(slip_param.r_acceleration > 0.0f) || !(slip_param.gate > 0.0f) || !(slip_param.gate_min > 0.0f))
-    {
-        Slip_Reset(st);
-        return 0u;
-    }
     if (!st->initialized)
     {
         Slip_Init(st, wheel_contact ? wheel_v : 0.0f, imu_acc);

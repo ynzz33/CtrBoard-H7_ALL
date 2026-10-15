@@ -52,6 +52,7 @@ typedef struct {
     int32_t           angle_total;
     float             pos_rad;          /* 解码角 */
     float             pos_zero_rad;     /* 加零点 */
+    float             pos_continuous_rad; /* 标定角加整数圈，rad；RL使用，旧几何仍用pos_zero_rad */
     float             vel_rad_s;
     float             trq_nm;
     volatile uint8_t  raw_pending;

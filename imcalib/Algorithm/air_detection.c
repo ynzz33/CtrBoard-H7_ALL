@@ -67,19 +67,6 @@ static void Air_Invalid(air_detection_t *state)
     state->fault = 1u;
 }
 
-/* 参数有限且有序 */
-static uint8_t Air_Params_Valid(void)
-{
-    return (uint8_t)(isfinite(air_param.wheel_mass) && air_param.wheel_mass > 0.0f && isfinite(air_param.force_off) && air_param.force_off >= 0.0f && isfinite(air_param.force_on) && air_param.force_on > air_param.force_off && isfinite(air_param.time_off) && air_param.time_off > 0.0f && isfinite(air_param.time_on) && air_param.time_on > 0.0f && isfinite(air_param.derivative_tau) && air_param.derivative_tau >= 0.0f && isfinite(air_param.force_tau) && air_param.force_tau >= 0.0f && isfinite(air_param.hip_max) && air_param.hip_max > 0.0f && (!air_param.compression_enabled || (isfinite(air_param.compression_on) && air_param.compression_on > 0.0f && isfinite(air_param.compression_time) && air_param.compression_time > 0.0f)));
-}
-
-/* 上电参数检查 */
-uint8_t Air_Detection_Init(air_detection_t *state)
-{
-    Air_Detection_Reset(state);
-    return Air_Params_Valid();
-}
-
 /* 单腿支持力 */
 /*
  * 由同侧前后髋反馈反解电机轴向力/摆矩，读取本拍实体弹簧力与原姿态引用的自重摆矩。

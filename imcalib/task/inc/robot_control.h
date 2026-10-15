@@ -2,7 +2,7 @@
  * 文件职责：共享控制状态定义与全机控制初始化（robot_control.h）。
  * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
  * 输入/来源：机器表、各算法初始化接口、TIM6分频节拍。
- * 输出/去向：初始化几何/LQR/RL/自起/离地与信号量，提供动作清零和模型切换。
+ * 输出/去向：初始化几何/LQR/RL/自起/离地与信号量，提供动作清零及任务接口。
  * 关键边界：共享变量在这里定义；策略仲裁和发送在task_actuation；不在初始化中重标定物理量。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
@@ -25,6 +25,10 @@ typedef struct {
     leg_state_t right;
     rc_command_t rc;
     float wheel_vel[2];
+    float motor_pos[4];         /* 本拍固件连续标定角，rad */
+    float motor_vel[4];         /* 本拍固件电机速度，rad/s */
+    rl_motor_state_t rl_motor;  /* 当前RL控制子步的模型坐标反馈，供采样与PD共用 */
+    uint8_t motor_valid;        /* 源电机组在线且无故障，与虚拟腿几何valid分开 */
     float joint_torque[4];
     leg_compensation_values_t compensation;
     uint8_t joint_ready;
@@ -63,13 +67,10 @@ uint8_t Robot_Control_Enable_Allowed(void);
 void Action_State_Clear(void);
 /* TIM6 节拍分频: 每 MACHINE_POLICY_DIV 拍释放策略节拍 (ISR 调用) */
 void Policy_Tick_Div(void);
-uint8_t RL_Control_Select_Model(rl_model_t model);
 void imu_task_init(void);
 void imu_task_body(void);
 void ctrl_task_init(void);
 void ctrl_task_body(void);
-/* 固件虚拟腿关节 -> RL 关节；输出以 RL zero 为零，不叠加训练默认角。 */
-uint8_t RL_Joint_Map(const robot_feedback_t *feedback, float joint_pos[4], float joint_vel[6]);
 void output_task_init(void);
 void output_task_body(void);
 uint8_t output_task_lqr_engaged(void);

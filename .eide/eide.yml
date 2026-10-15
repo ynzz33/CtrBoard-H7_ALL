@@ -123,7 +123,7 @@ virtualFolder:
             - path: Middlewares/Third_Party/FreeRTOS/Source/timers.c
             - path: Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.c
             - path: Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
-            - path: Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c
+            - path: gcc_support/FreeRTOS/ARM_CM4F/port.c
           folders: []
         - name: USB_Device_Library
           files:
@@ -144,7 +144,7 @@ virtualFolder:
       folders: []
     - name: Lib
       files:
-        - path: Middlewares/ST/AI/Lib/GCC/STM32H7/NetworkRuntime1020_CM7_GCC.a
+        - path: gcc_support/AI/NetworkRuntime1020_CM7_GCC.a
         - path: Drivers/CMSIS/DSP/Lib/GCC/libarm_cortexM7lfdp_math.a
       folders: []
 dependenceList: []
@@ -180,7 +180,7 @@ targets:
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
         - .cmsis/include
-        - Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM4F
+        - gcc_support/FreeRTOS/ARM_CM4F
         - Drivers/CMSIS/DSP/Include
       libList: []
     excludeList: []

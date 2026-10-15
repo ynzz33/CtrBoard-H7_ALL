@@ -30,9 +30,9 @@
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_TICK_DT           0.001f
-#define MACHINE_RL_CTRL_DIV       2u      /* 500 Hz */
+#define MACHINE_RL_CTRL_DIV       2u      /* RL实体PD/反馈采样/正常下发：500Hz */
+#define MACHINE_POLICY_DIV        20u     /* actor推理50Hz；一个action保持10个2ms控制子步 */
 #define MACHINE_DM_OFFLINE_MS     50u
-#define MACHINE_POLICY_DIV        10u     /* 100 Hz */
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u
@@ -88,39 +88,39 @@ typedef struct {
     float len_rate;             /* m/s */
 } machine_rc_cfg_t;
 
-/* 缩放与裁剪必须匹配训练模型。数组依次为XYZ、前进/偏航/高度和六个训练关节。 */
+/* RL39：缩放前裁剪，模型原生q/dq供电机PD使用。 */
 typedef struct {
-    float gyro_scale[3];
-    float command_scale[3];
-    float joint_vel_scale[6];
-    float obs_clip;
+    float gyro_scale;          /* 机体角速度观测缩放 */
+    float height_scale;        /* 固定高度命令观测缩放 */
+    float joint_vel_scale;     /* 六路电机速度观测缩放 */
+    float obs_clip;            /* 角速度/重力/角差/action的缩放前裁剪幅值 */
+    float velocity_clip;       /* 电机速度缩放前裁剪幅值，rad/s */
 } machine_rl_observation_cfg_t;
-
-/* 腿增益按实体左大腿/左膝/右大腿/右膝排列；轮PID按左/右。
- * 腿部P先做内部限幅，再叠加速度阻尼；实体力矩限幅仍取机器公共字段。 */
 typedef struct {
-    float pos_scale;            /* rad/action */
-    float wheel_vel_scale;      /* rad/s/action */
-    float p_gains[4];
-    float d_gains[4];
-    float leg_pid_max_output;
-    machine_pid_cfg_t wheel_pid[2];
+    float pos_scale;           /* action→相对名义角偏移，rad/action */
+    float wheel_vel_scale;     /* action→轮轴速度目标，rad/s/action */
+    float p_gains[4];          /* 实体电机位置比例，Nm/rad */
+    float d_gains[4];          /* 实体电机速度阻尼，Nm/(rad/s) */
+    float wheel_gain[2];       /* 轮轴速度比例，Nm/(rad/s) */
+    float position_limit;     /* q_reference两侧的目标范围，rad；不限制反馈或环绕角差 */
+    float wheel_speed_limit;  /* 轮轴速度目标幅值，rad/s */
+    float leg_torque_limit;   /* RL腿力矩限幅，Nm；与MIT编码刻度分开 */
+    float wheel_torque_limit; /* RL轮力矩限幅，Nm；与公共满电流限幅分开 */
 } machine_rl_torque_cfg_t;
-
-/* RL默认配置。关节映射仍为sign × wrap(固件角 − zero)，不改变物理标定。
- * sign按实体六关节排列，zero去掉轮；default_pos按训练LF大腿/膝、RF大腿/膝排列。
- * 默认角供观测与执行共用；预热以策略步计，两个看门狗以ms计。 */
+/* 实体顺序LF前/后、RF前/后、左轮/右轮。
+ * 电机反馈已包含驱动机械标定；motor_zero基于pos_continuous_rad，不再叠加旧虚拟关节零位。
+ * 本次单位映射是作者指定的软件假设，后续实测仅调整此配对入口。 */
 typedef struct {
-    int8_t sign[6];
-    float zero[4];
-    uint8_t configured;
-    float default_pos[4];       /* rad */
+    int8_t motor_sign[6];      /* 固件↔模型配对方向，输入角/速与输出力矩共用 */
+    float motor_zero[4];       /* 固件标定连续角至模型零位的额外偏移，rad */
+    float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
+    float reference_pos[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
+    uint8_t configured;        /* 本机是否启用RL接口；小机当前未接入 */
+    float height;             /* 模型固定高度命令，m，不跟随rc.len */
     machine_rl_observation_cfg_t observation;
     machine_rl_torque_cfg_t torque;
-    uint16_t warmup_steps;
-    float action_clip;          /* 非正不裁 */
-    uint32_t action_timeout_ms;
-    uint32_t ready_timeout_ms;
+    uint32_t action_timeout_ms; /* 已发布动作停止更新的故障期限 */
+    uint32_t ready_timeout_ms; /* 实际投入后动作持续不可用的故障期限 */
 } machine_rl_cfg_t;
 
 typedef struct {

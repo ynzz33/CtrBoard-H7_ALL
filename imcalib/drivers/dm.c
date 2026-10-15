@@ -115,10 +115,7 @@ void Dm_Init(void)
         const dm_motor_config_t *config = &dm_motor_config[i];
         FDCAN_HandleTypeDef *handle = Can_Bus_Handle(machine->dm_bus[i]);
 
-        if (handle == NULL || config->feedback_id > 0x7FFu || config->control_id > 0x7FFu)
-        {
-            continue;
-        }
+        /* 总线/报文ID直接取固定表；接收帧与实际发送结果仍由CAN层处理。 */
         /* 反馈 ID 兼容两种 Master ID: 0x10+ID (表里值) 与 0+ID (等同控制 ID) */
         Can_Bus_Register(handle, config->feedback_id, Dm_Read, &dm_motor_feedback[i]);
         if (config->control_id != config->feedback_id)
@@ -172,6 +169,8 @@ void Dm_Parse(void)
         feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw, -machine->dm_vel_max, machine->dm_vel_max, 12u);
         feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw, -machine->dm_trq_max, machine->dm_trq_max, 12u);
         Dm_Update_Angle(i);
+        /* 原单圈标定角加计圈量得到RL连续角，避免跨±π产生跳变；旧几何反馈保持原值。 */
+        feedback->pos_continuous_rad = feedback->pos_zero_rad + (float)((feedback->angle_total - (int32_t)feedback->angle_raw) / DM_ANGLE_CPR) * (2.0f * machine->dm_pos_max);
         feedback->parsed_rx_ns = rx_ns;
         feedback->parsed_seen = 1u;
     }

@@ -53,14 +53,6 @@ float Deadband_Soften(float err, float deadband)
     return 0.0f;
 }
 
-/* 环绕角度 [-π, π] (最短路径) */
-float Angle_Wrap_180(float angle)
-{
-    while (angle > 3.14159265f) angle -= 6.28318530f;
-    while (angle < -3.14159265f) angle += 6.28318530f;
-    return angle;
-}
-
 /* 计算PID */
 /*
  * 位置式误差=set-get；P响应当前误差，I按dt积分，D沿用误差的逐拍差分。

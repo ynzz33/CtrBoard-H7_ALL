@@ -1,7 +1,7 @@
 /*
- * 文件职责：普通VOFA状态快照与39通道打包（vofa_debug.c）。
+ * 文件职责：固定43通道赋值与VOFA发送（vofa_debug.c）。
  * 输入/来源：共享反馈/控制/离地/补偿诊断及驱动记录。
- * 输出/去向：直接构造普通39通道JustFloat帧，由后台循环与DMA忙状态安排发送。
+ * 输出/去向：后台每次调用固定赋值后提交一帧；改通道时手动注释旧赋值、启用新赋值。
  * 关键边界：只读观测，不推进检测或修改目标；异步来源同帧不等于同一物理采样时刻，通道表见md/file-guide.md#vofa。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
@@ -9,14 +9,9 @@
 #include "vofa_debug.h"
 #include "robot_state.h"
 #include "dm.h"
-#include "dji.h"
-#include "air_detection.h"
-#include "Attitude_Algorithm.h"
 #include "Vofa_send.h"
-#include "mono_ns.h"
 #include "dr16.h"
 
-#include <math.h>
 #include <string.h>
 
 void Vofa_Debug_Send(void)
@@ -51,24 +46,25 @@ void Vofa_Debug_Send(void)
     dbg[1] = (float)state_bits;
     dbg[2] = (float)ctrl_fault;
 
-    dbg[3] = (float)leg_l.input.hip_f;
-    dbg[4] = (float)leg_l.input.hip_b;
-    dbg[5] = (float)leg_r.input.hip_f;
-    dbg[6] = (float)leg_r.input.hip_b;
-    dbg[7] = (float)leg_l.output.virtual_leg_length;
-    dbg[8] = (float)leg_l.output.virtual_leg_angle;
-    dbg[9] = (float)leg_l.output.virtual_shank_angle;
-    dbg[10] = (float)leg_r.output.virtual_leg_length;
-    dbg[11] = (float)leg_r.output.virtual_leg_angle;
-    dbg[12] = (float)leg_r.output.virtual_shank_angle;
-    dbg[13] = (float)leg_l.output.d_virtual_leg_length;
-    dbg[14] = (float)leg_l.output.d_virtual_leg_angle;
-    dbg[15] = (float)leg_l.output.d_virtual_shank_angle;
-    dbg[16] = (float)leg_r.output.d_virtual_leg_length; 
-    dbg[17] = (float)leg_r.output.d_virtual_leg_angle;
-    dbg[18] = (float)leg_r.output.d_virtual_shank_angle;
+    /* 旧腿部通道，保留为手动改布局时的参考。 */
+    // dbg[3] = (float)leg_l.input.hip_f;
+    // dbg[4] = (float)leg_l.input.hip_b;
+    // dbg[5] = (float)leg_r.input.hip_f;
+    // dbg[6] = (float)leg_r.input.hip_b;
+    // dbg[7] = (float)leg_l.output.virtual_leg_length;
+    // dbg[8] = (float)leg_l.output.virtual_leg_angle;
+    // dbg[9] = (float)leg_l.output.virtual_shank_angle;
+    // dbg[10] = (float)leg_r.output.virtual_leg_length;
+    // dbg[11] = (float)leg_r.output.virtual_leg_angle;
+    // dbg[12] = (float)leg_r.output.virtual_shank_angle;
+    // dbg[13] = (float)leg_l.output.d_virtual_leg_length;
+    // dbg[14] = (float)leg_l.output.d_virtual_leg_angle;
+    // dbg[15] = (float)leg_l.output.d_virtual_shank_angle;
+    // dbg[16] = (float)leg_r.output.d_virtual_leg_length;
+    // dbg[17] = (float)leg_r.output.d_virtual_leg_angle;
+    // dbg[18] = (float)leg_r.output.d_virtual_shank_angle;
 
-
+    /* LQR通道参考；需要时手动启用并注释当前赋值。 */
     // for(int i = 0;i<10;i++)
     // {
     //     dbg[i + 3] = lqr_state.x[i];
@@ -78,6 +74,19 @@ void Vofa_Debug_Send(void)
     //     dbg[i + 13] = lqr_state.target[i];
     // }
     // dbg[23] = lqr_state.a_fwd;
+
+    /* 当前固定布局：ch3～41=obs[0～38]，ch42=网络调用耗时(us)，不按模式切换。 */
+    taskENTER_CRITICAL();
+    for (uint8_t i = 0u; i < RL_OBS_SIZE; i++)
+    {
+        dbg[3u + i] = rl_control.observation.obs[i];
+    }
+    dbg[35] = (float)motor_state.dm.pos_continuous_rad[0];
+    dbg[36] = (float)motor_state.dm.pos_continuous_rad[1];
+    dbg[37] = (float)motor_state.dm.pos_continuous_rad[2];
+    dbg[38] = (float)motor_state.dm.pos_continuous_rad[3];
+    dbg[42] = (float)rl_control.policy.run_us;
+    taskEXIT_CRITICAL();
 
     Vofa_Send(dbg, VOFA_MAX_CH);
 }

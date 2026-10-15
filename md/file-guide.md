@@ -1,12 +1,31 @@
 # 工程代码总览
 
-2026-10-13按当前工作区源码整理。本文说明职责、调用关系和参数入口；数值以源码为准，编译成功不等于实机标定或控制效果已验证。
+2026-10-15按当前工作区源码更新。本文说明职责、调用关系和参数入口；数值以源码为准，编译成功不等于实机标定或控制效果已验证。
 
 ## 文档与阅读顺序
 
 工程只保留四份Markdown：[AGENTS.md](AGENTS.md)是AI协作规则，[CLAUDE.md](CLAUDE.md)是阅读入口，本文是现行代码总览，[sysid-change-map.md](sysid-change-map.md)保存历史变更及删除前文档快照。历史中的旧参数、旧通道和工具命令不能当作现行操作依据。
 
 先看`main.c → freertos.c → robot_control.c`了解启动，再看`task_comm/task_imu → feedback_snapshot → task_actuation`了解控制主链；处理RL时继续看`task_policy → rl_observation/rl_policy/rl_torque`。
+
+## 本轮修改概要
+
+当前外围软件按model3023的39维观测/6维实体电机请求迁移；作者已生成并替换networkzn1，网络接口、权重及电脑端数值核对通过，板端初始化/数值/时序与实机标定仍待完成。下表是现行实现摘要，具体参数和函数以源码及后文为准。
+
+| 文件组 | 已实现变化 |
+| --- | --- |
+| rl_types、rl_observation C/H | 内部四腿两轮，网络原始action为左右两侧顺序；唯一映射[0,1,3,4,2,5]供目标/历史观测共用；原生q/dq构造obs39，仅保留最新样本，无人为延迟 |
+| rl_policy C/H | 单float32输入39、输出6及独立I/O缓冲；保留SDK接口/返回/输出检查；作者已替换model3023生成网络，板端ready与运行待验证 |
+| rl_torque C/H、machine_config C/H | 跟随训练默认角与参考角、腿60/2及轮0.1速度环；目标与力矩分别限幅，再配对还原固件方向；不使用CPU回放的轮0.12/0.02或装配角目标 |
+| dm、feedback_snapshot、task_comm | 新增保留原驱动标定的累计角rad，并经同一快照传到执行；旧pos_zero_rad继续供几何使用，动作停更/持续不可用分开处理 |
+| robot_control、robot_state、task_policy、task_actuation | 大机500Hz采样/PD/正常下发、50Hz推理；NORMAL无200ms保持；投入/退出/失能清旧动作，reset_count拒绝清零前在途推理；观测完整发布，统一输出口复查许可 |
+| air_detection、slip、leg_solver、斜坡、DM/DJI初始化 | 删除固定配置/初始参数合法性扫描及无消费者的状态字段；反馈、新运算、奇异性、公共协议/SDK边界、状态机和出力许可仍检查 |
+| math_utils、PID/腿解算/LQR消费者 | clip、clampf和相同逐圈环绕统一公共内联入口；保留原NaN/Inf、负零、端点和舍入语义，独有fmodf/非有限清零/协议行为保持 |
+| vofa_debug C/H | 所有模式固定通道赋值、一次发送；旧腿部/LQR赋值注释保留，换布局手动编辑，不用模式/就绪标志选帧 |
+
+当前额外motor_sign/zero采用作者授权的单位映射/零偏为0假设，硬件标定和IMU安装值保持；实际是否满足模型坐标待台架确认。作者已接入新networkzn1生成文件，下一步核对板端同输入推理输出，并实测电机顺序、极性、零点、IMU方向及执行周期。权重正确和电脑端通过不等于机器人已验证能站立。
+
+LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周期；RL专属坐标、增益、限矩和节拍不套到LQR。RL计算频率增加会改变任务及总线负载，实机调度和控制效果尚未验证。
 
 ## 目录职责
 
@@ -20,9 +39,11 @@
 | imcalib/drivers | DR16、HI229、DM/DJI等协议解析、反馈换算、在线判定与报文发送 |
 | imcalib/bsp | CAN/UART、DMA缓存、单调时间、VOFA发送及板级适配 |
 | imcalib/common | PID、斜坡、低通、数学/DSP及motor/RC/RL纯类型；kalman是保留数学工具 |
+| [imcalib/common/math_utils.h](../imcalib/common/math_utils.h) | 纯数学公共内联入口：区间clampf、对称clip、逐圈Angle_Wrap_180及Float_Array_Finite；不依赖几何/PID任务状态 |
 | [tools/matlab/run_all.m](../tools/matlab/run_all.m) | LQR模型、Q/R选择及增益表生成入口 |
 | X-CUBE-AI/App、Middlewares/ST/AI | networkzn1生成网络/权重和AI运行库；通过rl_policy封装调用 |
 | Drivers、Middlewares | HAL/CMSIS、FreeRTOS、USB及厂商运行库，保留其版权和生成边界 |
+| gcc_support | eIDE专用GCC补充依赖：原版FreeRTOS ARM_CM4F端口及CubeAI10.2.0 GCC库，置于CubeMX生成目录之外，内容与原版本一致 |
 | USB_DEVICE | USB设备/CDC基础实现，当前不承担VOFA传输或电机控制协议 |
 
 ## 启动与任务主链
@@ -33,7 +54,7 @@
 | --- | --- | --- |
 | [comm_task_body](../imcalib/task/task_comm.c) | DM/DJI解析与物理量刷新、两腿解算、遥控解算/发布、故障/跌倒与使能看门狗 | freertos中的osDelay |
 | [imu_task_body](../imcalib/task/task_imu.c) | HI229读取/去重、按机器表取轴和符号、姿态/补角、IMU发布 | freertos中的osDelay |
-| [ctrl_task_body](../imcalib/task/task_policy.c) | RL观测/历史、预热、CubeAI推理、动作发布 | TIM6按MACHINE_POLICY_DIV释放策略信号量 |
+| [ctrl_task_body](../imcalib/task/task_policy.c) | RL39观测、CubeAI推理、原始动作发布 | TIM6按MACHINE_POLICY_DIV释放策略信号量 |
 | [output_task_body](../imcalib/task/task_actuation.c) | 快照与许可、速度/离地更新、模式求解、唯一力矩分发 | TIM6基础执行信号量；RL按MACHINE_RL_CTRL_DIV执行分频 |
 | [background_task_body](../imcalib/task/background_service.c) | 普通VOFA与灯效；USB初始化仍在默认任务入口 | 默认任务循环及osDelay |
 
@@ -43,9 +64,10 @@ LQR使用`MACHINE_LQR_DT`，RL内环使用`MACHINE_RL_CTRL_DT`，策略使用`MA
 flowchart LR
     Sensors[IMU / CAN / 遥控] --> Prepare[IMU与通信任务]
     Prepare --> Snapshot[公共反馈快照]
-    Snapshot --> Policy[RL观测与推理]
-    Policy --> Action[动作发布]
     Snapshot --> Act[执行任务与许可]
+    Act --> Sample[500Hz模型原生反馈采样]
+    Sample --> Policy[50Hz RL观测与推理]
+    Policy --> Action[原始动作发布]
     Action --> Act
     Act --> Solve[LQR / 自起 / RL / 补偿求解]
     Solve --> Dispatch[唯一力矩分发]
@@ -55,7 +77,7 @@ flowchart LR
 <a id="shared-state"></a>
 ## 状态所有权与模块边界
 
-[robot_control.c](../imcalib/task/robot_control.c)定义共享实例、总初始化、动作清零和模型切换；[robot_control.h](../imcalib/task/inc/robot_control.h)声明任务/许可接口，[robot_state.h](../imcalib/task/inc/robot_state.h)声明共享状态。算法不能包含这两个任务头，应接收显式参数或读取只读机器配置。
+[robot_control.c](../imcalib/task/robot_control.c)定义共享实例、总初始化和动作清零；[robot_control.h](../imcalib/task/inc/robot_control.h)声明任务/许可接口，[robot_state.h](../imcalib/task/inc/robot_state.h)声明共享状态。当前单模型RL已删除切换入口，参数直接读机器表；算法不能包含这两个任务头，应接收显式参数或读取只读机器配置。
 
 执行拍类型`control_frame_t`定义在robot_control.h，实例仍由task_actuation.c私有持有；其compensation字段保存本拍统一预计算的模型值。发布元数据集合类型`feedback_metadata_t`定义在feedback_snapshot.h，metadata实例仍由feedback_snapshot.c私有持有。工程自有结构体类型统一放入对应头文件，类型可见不代表实例跨模块共享。
 
@@ -64,18 +86,19 @@ flowchart LR
 | imu_state | IMU任务 | 经公共快照供策略/执行读取 |
 | motor_state、leg_l/r | 通信任务 | 电机反馈及对应双腿解算配套发布 |
 | rc_command、robot_state、ctrl_fault | 通信任务；有效落地更新公共len | 执行/策略消费命令和许可，后台读取状态 |
-| RL指令、观测/历史、policy、action_state | 策略任务 | 执行任务消费已发布动作；内部量由Watch查看 |
+| RL最新反馈样本、PD/目标与力矩 | 执行任务500Hz | 策略在短临界区读取样本；PD使用当拍反馈 |
+| RL39观测、上一请求、policy、action_state | 策略任务50Hz | 执行消费原始请求；执行清零时递增reset_count使旧推理失效 |
 | lqr_state、leg_balance、自起/离地/速度状态、最终力矩及补偿诊断 | 执行任务 | 求解和最终输出；Watch及后台按实际代码读取 |
 
-[feedback_snapshot.c](../imcalib/task/feedback_snapshot.c) / [头文件](../imcalib/task/inc/feedback_snapshot.h)由发布方在短临界区提交，策略和执行每周期各读取一次。成功复制不代表传感器有效，各消费者仍检查在线、几何、历史和许可；同一软件快照不代表物理采样同步。
+[feedback_snapshot.c](../imcalib/task/feedback_snapshot.c) / [头文件](../imcalib/task/inc/feedback_snapshot.h)由发布方在短临界区提交，执行任务每基础拍读取完整快照；策略任务读取执行任务准备的RL最新样本，不另直接读取原始快照。成功复制不代表传感器有效，各消费者仍检查所需online/valid和许可；同一软件快照不代表物理采样同步。
 
-快照中已有TODO标记的元数据/时间字段仍属作者选择保留的预留链路；当前控制消费者不使用这些字段，不能把它们当作已经接入的样本龄门控。离地已改为固定周期，DM接收时间不再传入离地输入；驱动及快照保留的时间元数据不参与其dt计算。
+快照中已有TODO标记的元数据/时间字段仍属作者选择保留的预留链路；当前控制消费者不使用这些时间字段，不能把它们当作已经接入的样本龄门控。离地已改为固定周期，DM接收时间不再传入离地输入；驱动及快照保留的时间元数据不参与其dt计算。
 
 几何、速度和雅可比只归`leg_solver`；DR16字节解析只归驱动，遥控死区/量程与模式请求解码只归`rc_command`；网络生命周期只归`rl_policy`。实际出力许可、控制求解与力矩下发只归`task_actuation`，通信任务保留电机使能/失能/故障看门狗职责。
 
 ## 数据有效性与校验边界
 
-当前调用关系中，控制/观测对象和数组由任务提供固定有效地址；相应固定指针防御和重复扫描已精简。SDK返回的动态缓冲区、可选模型指针、通用接口允许的空指针、几何奇异性、设备/动作失联超时、运行时参数和最终发送许可仍分别按实际语义检查。离地不再另设样本龄、四髋时间偏差或新帧门控。
+当前调用关系中，控制/观测对象和数组由任务提供固定有效地址；相应固定指针防御和重复扫描已精简。固定配置和代码初始化参数直接使用，不在初始化或实时循环扫描合法性。SDK动态缓冲区、可选模型、公共接口边界、反馈有效性、几何奇异性、新运算结果、设备/动作失联超时和最终发送许可仍按实际语义检查。离地不再另设样本龄、四髋时间偏差或新帧门控。
 
 | 数据 | 当前保证与消费者 |
 | --- | --- |
@@ -83,12 +106,14 @@ flowchart LR
 | 双腿 | comm在两路源电机在线时解算，否则清输出有效标志；Leg_Solve统一验证腿长/腿角/变化率/虚拟关节量与各雅可比，成功后valid=1。force_valid另外保证力映射行列式有限且满足原奇异性阈值。LQR/自起/离地消费这两个标志，不重复扫描原始反馈 |
 | 电机组 | motor.valid由通信更新时一次汇总四髋/双轮online及四髋无DM故障；故障沿用Dm_Has_Fault原判据，与反馈复制共用一次遍历。RL、执行许可和Robot_Fault_Update直接读组标志，不再另遍历DM故障；CAN异常仍单独检查，数据可用不等同于电机已使能或命令已执行 |
 | 轮速/遥控 | 轮速由int16_t RPM及本机固定非零齿比换算，LQR/RL的重复轮速有限性扫描已删；RC用整数通道及固定公共量程产生有限命令，LQR目标更新只保留在线门控 |
-| RL观测/动作 | 输入反馈由发布端验证；RL_Joint_Map在角色映射后验证新关节数组并返回可用状态，RL_Observation_Build消费source_valid，不再重扫陀螺仪/关节/RC命令。原投影和训练缩放/裁剪表达式保持，生成观测的结果验证后valid=1，历史由有效观测复制。推理信任valid/history_ready；动态网络缓冲区、推理返回值、输出动作仍检查 |
+| RL观测/动作 | 电机和IMU由发布端保证；RL_Motor_Map验证新模型位置/速度，投影在采样生成处检查。RL39生成后发布valid，推理信任valid；SDK形状/类型、动态缓冲区、返回值及6维输出动作仍检查。不存在125维历史或latent |
 | 补偿 | 执行拍准备阶段使用固定本机模型和同拍几何计算实体弹簧力、抵消量及两种角度引用的重力值；模型新结果在准备端验证，消费端读取valid，保留反馈反解和叠加新结果检查。模型、坐标、符号及原叠加顺序保持 |
 
-LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右腿valid后进行状态构建；速度融合、位置积分、PID/斜坡等实际使用周期的函数仍传各自周期。执行入口读取本拍IMU/补角/双腿/电机组可用标志后形成drive，避免仅等待缓存故障汇总。自起角度范围、运行参数、新计算结果、最终出力许可仍保留必要检查。纯计算助手只在调用方确认反馈可用后使用，不能把无效数据强行标为有效。
+LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右腿valid后进行状态构建；速度融合、位置积分、PID/斜坡等实际使用周期的函数仍传各自周期。执行入口读取本拍IMU/补角/双腿/电机组可用标志后形成drive，避免仅等待缓存故障汇总。自起实测角度范围、运行状态、新计算结果、最终出力许可仍保留必要检查。纯计算助手只在调用方确认反馈可用后使用，不能把无效数据强行标为有效。
 
-2026-10-13再次按作者要求检查当前全部自有源码调用：固定对象/数组不重复检查NULL；Slip消费LQR已验证的运动学速度/加速度和固定周期，LQR速度回填消费Slip.valid，不再逐层检查同一速度。斜坡实测量由几何保证、周期由任务保证，目标/速率及新斜坡结果仍检查。自起保留入口反馈标志与阶段/许可，删掉后续重复补角检查；补偿台架信任normal已包含的补角许可。Rc_Axis不再重复夹取DR16_Validate已验证范围内的原始通道，公共命令量程与腿长限幅保持。DM/DJI接收回调信任Can_Bus已经检查的标准数据帧和8字节长度，缓冲地址和上下文由注册表固定提供；协议入口、缓存容量、设备状态、SDK返回及最终发送保护仍保留。
+2026-10-13再次按作者要求检查当前全部自有源码调用：固定对象/数组不重复检查NULL；Slip消费LQR已验证的运动学速度/加速度和固定周期，LQR速度回填消费Slip.valid，不再逐层检查同一速度。斜坡实测量由几何保证、周期由任务保证，目标及新斜坡结果仍检查，固定速率范围检查已于2026-10-14删除。自起保留入口反馈标志与阶段/许可，删掉后续重复补角检查；补偿台架信任normal已包含的补角许可。Rc_Axis不再重复夹取DR16_Validate已验证范围内的原始通道，公共命令量程与腿长限幅保持。DM/DJI接收回调信任Can_Bus已经检查的标准数据帧和8字节长度，缓冲地址和上下文由注册表固定提供；协议入口、缓存容量、设备状态、SDK返回及最终发送保护仍保留。
+
+2026-10-14按作者要求扩展检查所有自有模块：删除Air_Params_Valid及仅转调复位/校验的Air_Detection_Init，初始化直接Reset；Slip删除初始方差/Q/R/门限参数范围和独立noise正值检查，保留计算方差的有限/正值及状态/协方差结果检查。Leg_Input_Valid只验反馈，固定杆长和腿配置就绪标志不再扫描；腿map与config中无人消费的configured字段及初始化赋值同步删除。comm只按绑定电机的online决定腿解算；DM/DJI初始化不再扫描固定总线/ID。轨迹速率直接使用配置，保留目标/运算结果检查。机器功能开关、状态机保护、实际限幅、协议/公共接口边界以及SDK模型接口检查保持。
 
 ## 拨杆模式与输出许可
 
@@ -111,10 +136,10 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 
 | 配置 | 内容与生效位置 |
 | --- | --- |
-| machine.rc | 公共前进/偏航量程、腿长初值/速率；Rc_Command_Update统一解算，LQR/RL直接读取，RL保留原偏航方向适配 |
+| machine.rc | 公共前进/偏航量程、腿长初值/速率；Rc_Command_Update统一解算，LQR直接读取；新RL静站模型只读取模式许可，四命令固定 |
 | machine.lqr | trim/位移目标、停车条件、角速度低通、腿长/横滚PID、支撑前馈和运行开关默认值 |
 | lqr_debug | LQR运行时工作配置与对照入口；初始化取机器默认值，部分物理符号对照保持原源码，不能擅改 |
-| machine.rl | 训练映射/默认角、观测缩放/裁剪、动作缩放、腿PD/轮PID、预热与两条动作看门狗 |
+| machine.rl | 实体motor_sign/motor_zero、原生nominal_pos/reference_pos、RL39缩放/裁剪、训练四腿PD/轮速度比例及独立限矩；两条动作看门狗，无人为延迟或NORMAL启动保持 |
 | standup_param / air_param / slip_param | 独立自起、接触估计/空中接入、速度融合模块参数，读取对应源文件顶部 |
 | machine.spring / machine.gravity | 弹簧几何模型及完整腿自重模型；大机绑定，小机按NULL旁路 |
 | DM/DJI量程、极性、零点、几何、IMU映射 | 物理标定；只能由作者实测决定，遵守AGENTS红线 |
@@ -135,20 +160,66 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 
 通用[pid.c](../imcalib/common/pid.c)位置式D使用每拍误差差分，未除周期；RL腿D则直接乘实际关节速度，两者不能按同一Kd口径解释。PID_History_Set只预置历史，不能每拍调用来抹掉真实阻尼。
 
-## RL观测、推理与执行
+2026-10-14按作者要求将重复纯数学助手统一到math_utils.h：rl_observation/rl_torque的clip、原leg_solver.h的clampf，以及腿解算/LQR/PID的逐圈角度环绕均共用该头。leg_solver.h和pid.h引入公共头维持现有调用可见性；新增调用可直接include math_utils.h。短函数使用static inline，无需新增C文件或修改构建清单。NaN处理、比较顺序、float常量与±π端点保持；Standup_Wrap原fmodf预处理、abs_limit非有限清零、fminf/fmaxf边界夹取及协议编码限幅保持原实现，不按名称强行替换。
 
-`task_policy`按机器映射处理实体关节，再通过`RL_Observation_Roles_To_Training/From_Training`做当前训练角色与实体角色互逆转换；角色交换不等同修改电机极性。
+<a id="rl39"></a>
+## RL39观测、推理与实体电机执行
 
-| 模块 | 契约 |
+2026-10-15按作者批准方案迁移至`chuanliantui-huananhu-multimode-39-82-v1`、model3023；训练仓交付提交773f88e，导出源码记录269ba935eeb3a39fc3fedcb87b554a4f654ffcec。权威源为训练仓`docs/onnx-huananhu-multimode-model3023.md`、`docs/model-deliveries/20261015-model3023-onnx-export.md`及对应v14_observations、huananhu_action/env_cfg、model.py和版本化XML。本轮只改外部H7外围，不改训练源码和生成网络。首轮范围为平地NORMAL静站，不实现跳跃、台阶、坡地和地面恢复状态机。
+
+模型位置/速度、PD目标/诊断及观测电机段采用`[lf0,lf00,rf0,rf00,lfwheel,rfwheel]`；网络原始action、action_state.a及last_action采用`[lf0,lf00,lfwheel,rf0,rf00,rfwheel]`。RL_Action_Index统一[0,1,3,4,2,5]，供PD目标与上一动作观测共用；这是通道排列，不是左右角色交换或极性变更。
+
+### 输入与映射
+
+DM新增`pos_continuous_rad`：在原`pos_zero_rad`上补已解包的整数圈，原驱动极性/机械零点和供几何使用的反馈保持。此连续量随电机/双腿快照一起发布，RL不再用thigh、virtual_shank或固定加π作为电机位置。
+
+`motor_sign[6]`与`motor_zero[4]`仅描述已标定固件反馈至模型实体坐标的映射：`q_model=s*(q_continuous-zero)`、`dq_model=s*dq_firmware`；输出采用`tau_firmware=s*tau_model`，驱动继续执行其既有物理极性和单位编码。
+
+作者明确要求先假设现有极性正确、实测留到后续。因此本次额外模型映射为单位映射、额外零偏为0，未推导或改变`dm_sign/dji_sign/dm_zero`及IMU安装表。旧RL虚拟角sign/zero退役，不能移作后电机实测标定。实际是否已满足模型坐标需要后续台架确认；软件假设不是实测结论。
+
+| 索引 | actor39内容 |
 | --- | --- |
-| [rl_observation.c](../imcalib/Algorithm/rl_observation.c) | 当前观测25维，5帧历史125维；缩放/默认角/裁剪来自machine.rl，首帧按既有规则填满历史 |
-| [rl_policy.c](../imcalib/Algorithm/rl_policy.c) | 仅networkzn1；校验25/125输入、6维动作和3维latent输出，管理网络/工作区与耗时/成功失败计数 |
-| [task_policy.c](../imcalib/task/task_policy.c) | 未投入只预览；投入后先零动作预热，随后推理/裁剪/保存训练last_action/角色转换/发布；无效或失败发不可用零动作 |
-| [rl_torque.c](../imcalib/Algorithm/rl_torque.c) | 动作缩放成默认角偏移或轮速目标，腿P加实际速度阻尼、左右轮独立PID，经雅可比/弹簧/机器限幅输出 |
+| 0～2 | 固定vx/vy/wz=0 |
+| 3 | 高度先限[0,1]再×5；本次静站0.30m，与公共rc.len分开 |
+| 4～6 | 机体系gyro限±100后×0.5 |
+| 7～9 | inverse quaternion投影世界重力[0,0,-1]，限±100 |
+| 10～13 | 四实体模型角减名义角，限±100 |
+| 14～15 | 轮位置槽固定0 |
+| 16～21 | 同顺序实测速度限±200后×0.1 |
+| 22～27 | 上一拍原始网络action按[0,1,3,4,2,5]重排，再限±100 |
+| 28～34 | 固定[1,0,0,0,0,0,0]，不是拨杆/预热标志 |
+| 35～38 | 固定[0,1,0,0]，对应ground_start/policy_active/airborne/step_active |
 
-腿部p_gains/d_gains只有四维，按实体左大腿/左膝/右大腿/右膝排列；六维动作的0/1/3/4对应腿增益0/1/2/3，两轮继续使用wheel_pid。腿PID的Ki及积分限幅固定为零；腿默认角和观测默认角共用machine.rl.default_pos。
+nominal_pos是训练微蹲默认姿态在模型原生坐标下的q_nominal；reference_pos是XML的qpos0，二者不是实机编码器零点。版本化XML与主线XML的19个body、19个joint、14个site属性一致；本机未安装指定mjlab环境，按相同前腿目标和定位点独立核算后链闭合，得到原生默认角，未冒充运行过训练环境。参数以machine_config.c为准。输入单位rad/rad/s，轮速已由驱动按轮轴齿比换算，不重复换算。
 
-RL高度指令直接取公共`rc.len`，进入网络观测；`input_command.height_cmd`仅保存镜像。LQR左右最终腿长同样取`rc.len`，两套控制器均不再重复积分；LQR的原执行斜坡继续使用`rc.len_rate`。动作停更与持续不可用是两条独立看门狗阈值，均由通信任务处理。
+执行任务500Hz保存最新模型样本，策略50Hz在短临界区复制样本和动作历史，在本地构造39维输入后完整发布，避免遥测读到半更新观测。坏反馈立即清sample_valid。部署不主动添加训练噪声、观测/目标延迟或均值方差归一化，仅存在实际任务、总线与设备延迟。四个模型标志固定为静站交付值，不借用SDK ready或现有离地检测伪装完整multimode判断。
+
+### 输出与启动
+
+先按唯一映射取得各实体action。腿目标`clampf(q_nominal+0.5*a,q_reference-3.14,q_reference+3.14)`；轮速目标`clip(10*a,150)`。腿力矩为`60*(target-q)-2*dq`；轮为`0.1*(target-dq)`。采用训练侧定义，不使用独立CPU回放的q_reference目标或轮0.12/0.02公式。位置误差不做最短路径环绕，PD使用当前未缩放的模型原生反馈。先按RL独立40Nm/3.9Nm裁剪，再通过相同motor_sign还原固件电机力矩，进入唯一输出口。
+
+训练腿D项是实际速度阻尼，现有pid_calc的位置式D是两拍误差差分且未除dt，目标变化也会进入D；相同Kd数值不能直接互换。当前直接计算训练公式，不维护多余PID历史或积分；若将来复用PID，必须保证P/D含义和P+D合成后的限幅顺序一致，不能先限P再叠D。RL独立限矩与公共DM/DJI限幅、MIT编码刻度分别维护。
+
+RL不调用雅可比、不叠加弹簧抵消或重力。实体被动弹簧仍存在；LQR/自起/台架的几何、补偿和原参数保持。RL许可不再依赖虚拟几何valid，仍检查IMU、补角、电机组、模型、故障和实际输出许可。
+
+大机基础/LQR仍1kHz，RL分频2→500Hz，策略分频20→50Hz，一个原始action保持10个2ms控制子步。正常力矩每RL子步计算/下发，中间基础拍保持命令；退出/故障仍每基础拍检查。增加的执行与总线负载需要实测逐次周期、漏拍和发送成功，不能用宏定义或平均频率代替实测。
+
+实际投入、退出及失能清原始动作/历史/PD目标，等待本控制段首个有效推理。Action_State_Clear递增reset_count；策略复制其值并在发布前比较，拒绝清零前已开始、清零后才结束的推理，避免旧动作越过投入/退出边界。该计数只处理真实任务竞态，不是模型版本或配置检查。NORMAL不添加200ms零力矩保持；地面起立的ground_start/200ms门控不在本次范围。未投入但选择RL时可零出力推理。零action不是零力矩。
+
+退出/坏观测/推理失败清动作可用性并发送零输出；模型未就绪不触发尚未开始的动作超时。动作停更和实际投入持续不可用仍分别使用现有期限保护；SDK就绪、模型policy_active、实际硬件出力许可保持独立语义。
+
+### 网络与接入
+
+`rl_policy`仅接受float32单输入[1,39]、单输出[1,6]、batch1；初始化检查生成头及SDK实际逻辑元素数/格式，显式绑定独立的39/6维I/O缓冲，不依赖导出时是否将I/O放在activation。作者已用ST Edge AI Core 2.2.0 / CubeAI 10.2.0生成并替换model3023网络，输入obs39、输出actions6、四层Dense和三个ELU；输出无tanh。当前静态接口匹配，板端policy.ready及实际SDK调用尚未验证，不能仅凭宏定义声称上板成功。
+
+本次核对桌面ONNX的SHA256与3023交付记录一致；按生成C实际偏移逐字节比对8组权重/偏置，共51782个float，全部与ONNX一致。ST工具host模式用交付前64组参考输入/输出核对，384个输出最大绝对误差约6.635e-6，小于1e-4；该结果来自电脑端C模型，不代替板端数值验收。生成配置启用activation内I/O分配，与当前封装另行绑定独立I/O的方式兼容，无需为此修改作者生成文件。
+
+2026-10-14按作者要求删除RL_Config_Valid及初始化中的配置限矩比较；固定RL极性、零点、缩放、增益、延迟和期限直接读取机器表，不扫描合法性。configured保留为机型启用开关；SDK接口/返回值、新观测/动作/力矩的运行时检查与最终出力许可保持。RL算法、配置及任务C/H已补核心流程、坐标、单位、延迟和状态切换注释。
+
+新ONNX须使用上述实体契约及配套JSON；在CubeAI中保持网络名`networkzn1`，生成并成套替换`X-CUBE-AI/App/networkzn1.c/h`、`networkzn1_data*.c/h`及`networkzn1_config.h`（按实际生成清单），保留该工具链配套运行库。不能只改尺寸宏、只换部分权重或复用旧模型。当前只有单模型入口，旧多模型切换/索引及无人消费的命令镜像删除。导入后正常初始化自动恢复policy.ready，再做同输入PyTorch/ONNX/CubeAI对照。
+
+Watch输入为`rl_control.observation.obs[0..38]`；原始请求为`action_state.a[0..5]`，按网络左右两侧顺序；PD目标、当前模型位置/速度、模型裁剪力矩及固件请求为`rl_control.torque_state.target/pos/vel/motor_torque/last_torque`，按四腿两轮顺序。最终门控后命令为`rl_output_dm_cmd_nm/rl_output_wheel_cmd_nm`，不能混为同一层量。板端网络数值与实际2ms/20ms周期、反馈更新和总线发送仍待验证。
+
 
 ## 自起、离地与姿态补角
 
@@ -158,7 +229,7 @@ RL高度指令直接取公共`rc.len`，进入网络观测；`input_command.heig
 
 作者2026-10-13进一步要求取消离地时间戳处理，统一固定dt并允许旧缓存参与。估力差分、两级滤波、初次支撑/离地与左右压缩计时均使用MACHINE_LQR_DT（当前两机1ms），不再传接收时间或按样本去重；首次和估计失败恢复仍先播种差分，首次有效拍也推进计时。joint_ready只汇总原四髋在线/实际使能条件，不包含新帧和时间偏差判断。竖直加速度随新IMU帧生成并随online发布，离地读取imu.accel_vertical。
 
-Air_Detection_Init在Robot_Control_Init中一次校验参数并清历史，失败进入Error_Handler；实时Update不再全量扫描参数，参数数值修改后应重新初始化。IMU时间戳停滞门控仍按作者此前要求删除；本轮继续删除rx_ns/now_ns/sample_ns/valid_ns、sample_timeout/sample_skew及执行快照接收时间中转。输入可用性由原反馈标志和joint_ready保证，新估力结果仍验证；失败清连续计时、保留flight，并立即置诊断fault，恢复成功清fault，不新增失败时间计数器。
+Robot_Control_Init直接调用Air_Detection_Reset清检测历史；固定air_param不在上电或实时Update扫描合法性。IMU时间戳停滞门控仍按作者此前要求删除；本轮继续删除rx_ns/now_ns/sample_ns/valid_ns、sample_timeout/sample_skew及执行快照接收时间中转。输入可用性由原反馈标志和joint_ready保证，新估力结果仍验证；失败清连续计时、保留flight，并立即置诊断fault，恢复成功清fault，不新增失败时间计数器。
 
 固定周期假设每次调用经过一个执行拍；重复缓存也持续满足条件时会完成状态切换。若反馈实际间隔变长，腿投影速度的阶跃差分可能增大；若执行任务漏拍，累计时间不补偿真实调度延迟。全项目审核发现其他控制算法已使用固定MACHINE周期，自起阶段计时已按固定dt累计，无其他接收时间dt链路需要替换。DM/DJI/DR16/HI229在线超时、RL动作停更/持续不可用、CAN重试/死链、SPI发送预算仍使用实际时钟；改成固定调用次数会在任务延迟或阻塞时改变保护时限。推理/任务耗时统计与预留接收元数据不属于控制dt门控。
 
@@ -172,11 +243,11 @@ Air_Detection_Init在Robot_Control_Init中一次校验参数并清历史，失�
 
 当前模型把弹簧轴向推力作为常量force_n，随腿长变化的是几何传动比；没有另建弹簧行程/压力、摩擦或迟滞模型。命令路径先算Fs，再将F=-Fs、Tp=0转换为前后髋增量，与原控制力矩相加并在调用方限幅。只作用于四髋，不直接修改轮矩。
 
-RL仅叠加弹簧抵消；地面LQR、自起和补偿台架走弹簧加完整重力的组合入口。LQR空中轴向释放时跳过命令侧弹簧抵消，使实体弹簧自然伸腿，重力摆矩仍保留。GAS_SPRING_COMP_ENABLE控制是否生成/叠加抵消量，不关闭离地所需的实体力估计；未绑定spring的小机返回零实体弹簧力并旁路补偿。Gas_Spring_Force是准备端的模型入口，后续消费者直接读缓存force，不再重复调用。
+RL不叠加弹簧或重力；地面LQR、自起和补偿台架走弹簧加完整重力的组合入口。LQR空中轴向释放时跳过命令侧弹簧抵消，使实体弹簧自然伸腿，重力摆矩仍保留。GAS_SPRING_COMP_ENABLE控制是否生成/叠加抵消量，不关闭离地所需的实体力估计；未绑定spring的小机返回零实体弹簧力并旁路补偿。Gas_Spring_Force是准备端的模型入口，后续消费者直接读缓存force，不再重复调用。
 
-执行任务顺序为Control_Frame_Read → Control_Compensation_Update → Control_State_Update → 路由求解 → 唯一分发。Control_Compensation_Update按模式/许可选择准备项，结果放在control_frame.compensation（leg_compensation_values_t）：spring供实体力和抵消量，gravity供原姿态引用，gravity_world供pitch_world补角引用。未投入时清空值；RL无动作或分频等待拍不计算模型，RL始终不接入重力。恢复路径重建LQR状态仍使用同拍准备值，不重复计算。缓存仅属于当前快照，不新增跨周期命中、序号或时间状态。
+执行任务顺序为Control_Frame_Read → Control_Compensation_Update → Control_State_Update → 路由求解 → 唯一分发。Control_Compensation_Update按模式/许可选择准备项，结果放在control_frame.compensation（leg_compensation_values_t）：spring供实体力和抵消量，gravity供原姿态引用，gravity_world供pitch_world补角引用。未投入时清空值；RL不准备控制补偿模型，RL始终不接入弹簧抵消或重力。恢复路径重建LQR状态仍使用同拍准备值，不重复计算。缓存仅属于当前快照，不新增跨周期命中、序号或时间状态。
 
-模型/检测链：准备Fs与原姿态引用重力摆矩 → Air_Estimate反馈反解 → 读取force[side]和gravity.leg[side].torque计算支持力。控制链：基础力矩 → 读取准备的spring.delta_dm → 读取对应gravity.delta_dm → 原限幅及诊断 → 唯一输出许可检查。LQR/自起/台架通过leg_compensation组合入口直接叠加；RL调用Gas_Spring_Apply，仅叠加弹簧值。
+模型/检测链：准备Fs与原姿态引用重力摆矩 → Air_Estimate反馈反解 → 读取force[side]和gravity.leg[side].torque计算支持力。控制链：基础力矩 → 读取准备的spring.delta_dm → 读取对应gravity.delta_dm → 原限幅及诊断 → 唯一输出许可检查。LQR/自起/台架通过leg_compensation组合入口直接叠加；RL直接输出实体电机PD，不调用Gas_Spring_Apply。
 
 [gravity_comp.c](../imcalib/Algorithm/gravity_comp.c)由腿长插值质心半径/偏角，用世界腿角算完整腿自重摆矩，只补摆矩，不增加轴向重力力。Gravity_Comp_Prepare生成摆矩、四髋增量和状态；两种引用需要同时准备时共用同腿查表值，相同规范化角度直接复用摆矩/映射，不再重复求值。原姿态角与pitch_world引用保持区别，自起原fmod环绕在有效角度域内与准备端规范化逐值核验一致；表外夹边界和诊断保持。旧Gravity_Comp_Apply包装已删除，叠加统一归leg_compensation。
 
@@ -196,21 +267,18 @@ debug_rx按作者要求保留用于后续VOFA接收；当前只是预留实例�
 <a id="vofa"></a>
 ## 当前VOFA与调试入口
 
-当前[vofa_debug.c](../imcalib/task/vofa_debug.c)直接填39个float，经[Vofa_send.c](../imcalib/bsp/Vofa_send.c)追加JustFloat帧尾、清理DCache并提交所选UART DMA。发送前先查DMA空闲，忙时跳过；没有页面切换、旧10ms节流或UART/USB运行时切换。USB基础初始化保留，当前VOFA只走串口。
+后台使用选定UART DMA直接发送43通道JustFloat；忙时跳过，没有新采样队列/独立页面管理或恢复USB电机协议。按作者要求使用源码固定赋值布局；改观测内容时手动注释旧赋值、写入新赋值。复制RL输入时使用短临界区，最后只有一次Vofa_Send调用。
 
-旧VOFA选页参数已从air_param清理；RL执行模块中未使用的虚拟小腿限位宏也已删除。实际观测通道、接触判据与输出限幅继续读取各自现行实现。
-
-| 通道 | 当前源码填充值 |
+| 固定布局 | 通道 |
 | --- | --- |
-| 0 | IMU、遥控、四髋与双轮在线位 |
-| 1 | 电机使能、翻倒、两腿有效及LQR/RL投入状态位 |
-| 2 | ctrl_fault |
-| 3～6 | 左前/左后/右前/右后髋输入角 |
-| 7～9 / 10～12 | 左/右腿长、虚拟腿角、虚拟小腿角 |
-| 13～15 / 16～18 | 左/右腿长速度、虚拟腿角速度、虚拟小腿角速度 |
-| 19～38 | 当前清零 |
+| 公共 | 0在线掩码；1状态位；2故障位 |
+| 当前启用 | 所有模式均为3～41=obs39；42为最近网络调用耗时µs |
+| 源码注释参考 | 旧3～18腿部量、LQR状态/目标赋值均保留注释，换布局时手动修改 |
 
-作者持续调整通道，采集前必须再次核对实际dbg赋值，不能沿用历史LQR、离地页或自起页下标。未上普通帧的LQR/RL/自起/离地/PID/补偿内部量使用Watch查看。查输出异常先核对采集/下标、最终门控与总线，再分析算法，不改极性或靠低通/降增益掩盖问题。
+状态位仅保留原0～9，新增的模型/观测/动作/选择RL四个状态位已删除。模型就绪与推理次数从Watch的policy.ready/run_ok查看，网络耗时不代表成功推理。非RL时当前观测会由策略任务清零，VOFA仍发送同一布局；CSV行数不代表控制/策略调用次数。实际RL下发间隔用control_time_debug.output_period_us（需启用现有计时宏）；基础执行period_us为1ms，稳定RL输出应为5ms，不将二者混淆。
+
+策略输入按50Hz读取最新500Hz样本，与每个PD子步的反馈时刻仍不同，不能将obs关节速度反缩放后当作同拍PD反馈。执行验证从torque_state读取同次计算的目标、位置、速度和力矩；需要CSV时调整本固定打包字段，不新增通用采样框架。所有实测结果仍待台架。
+
 
 <a id="matlab-gain"></a>
 ## MATLAB增益表与模型
@@ -222,7 +290,15 @@ debug_rx按作者要求保留用于后续VOFA接收；当前只是预留实例�
 <a id="build"></a>
 ## 构建与验证
 
+验证规模按作者2026-10-14要求，默认选择数十或数百个代表性特征点，覆盖正常输入、实际边界和关键状态切换；不是为了凑数量遍历几万组。已有检查通过后仅针对新改动或具体剩余疑点补覆盖。历史账本的大规模记录保留真实结果，不作为新工作的默认规模。
+
+RL39外围迁移时已做大小机各104项GCC编译及完整链接；旧BMI088 packed告警保持。工程外宿主编译实际rl_observation、rl_torque、machine_config、task_policy及Action_State_Clear，240项断言覆盖映射、裁剪/缩放、动作重排、PD/限幅、最新样本、失败/退出与清零期间在途推理；另执行实际output_task_body的200个基础拍，361项断言核对100次采样、10次策略推理、首个有效动作后99次正常下发及投入/退出/失能。反馈、时钟、网络、其他控制器与IO为替身，只证明软件步序。作者替换网络后，本轮另完成大机104项GCC编译/链接、权重字节核对及64组ST host数值验收；未重跑之前的替身测试，也未执行AC5、烧录、板端数值、周期/CAN测量或物理标定。
+
 Keil工程入口为[CtrBoard-H7_ALL.uvprojx](../MDK-ARM/CtrBoard-H7_ALL.uvprojx)，eIDE为[.eide/eide.yml](../.eide/eide.yml)。GCC/AC5分别使用各自的启动、FreeRTOS端口、硬浮点ABI与AI运行库，不混用厂商库。核验时读取当前compile_commands或工程参数，把对象、依赖、ELF/map输出到工程外临时目录，避免污染增量构建。
+
+CubeMX的.ioc目标为MDK-ARM，eIDE另用GCC。重生成曾删除Middlewares里的GCC端口和AI库；仅补回文件和关闭DeletePrevious后，文件再次丢失、开关也回到true。当前不再依赖该开关保留GCC文件：将原版port.c/portmacro.h迁至gcc_support/FreeRTOS/ARM_CM4F，AI库迁至gcc_support/AI，内容逐字节保持原样，.eide/eide.yml成套更新源、包含目录和链接库。原Middlewares旧GCC路径保持缺失时，eIDE实际unify_builder仍可全量编译并生成HEX/BIN；MDK继续使用自己的RVDS端口/Keil库，不改用RVDS头文件给GCC编译。没有新增自动恢复脚本或构建钩子。首次变更后重新加载eIDE工程再全量编译；若重新导入MDK工程，需保留这三项GCC专属引用。
+
+本次持久路径修复使用eIDE实际unify_builder 3.11.1，按当前参数仅替换以上三处路径并将产物改到工程外临时目录，103个C文件、1个启动汇编、2个库完整构建成功。旧生成目录依赖未恢复，因此验证未借用旧路径。Flash仍为597592B，仅既有BMI088 packed告警；未烧录或重跑网络/控制数值测试。
 
 变更共享头/配置后按两种MACHINE_DEFAULT核验相应消费者；需验证链接时使用完整来源清单。改动纯文档只检查文件、链接、历史保留与引用；注释/提示文字变更核验相应源文件。记录实际检查结果及告警，不能沿用旧测试计数宣称本轮通过。
 

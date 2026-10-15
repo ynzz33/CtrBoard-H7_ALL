@@ -11,6 +11,7 @@
 #define PID_H
 
 #include <stdint.h>
+#include "math_utils.h"
 
 enum {
     POSITION_PID,
@@ -69,7 +70,6 @@ void FeedForwardParamInit(FFC_t *ffc, float param1, float param2);
 float pid_calc(pid_t *pid, float get, float set, float delta_time);
 void PID_History_Set(pid_t *pid, float measured, float target, float error);
 float Deadband_Soften(float err, float deadband);
-float Angle_Wrap_180(float deg);
 float FeedForwardController(FFC_t *ffc, float target, float num1, float num2);
 void abs_limit(float *value, float abs_max);
 

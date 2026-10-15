@@ -31,7 +31,8 @@
 static slip_state_t slip_control;
 static uint8_t lqr_running;     /* 已投入 */
 static uint8_t rl_engaged;      /* RL 已投入 */
-static uint8_t rl_wait_ticks;   /* 执行分频 */
+static uint8_t rl_wait_ticks;   /* 500Hz采样/执行 */
+static uint8_t rl_started;     /* 实际投入沿已处理，与仅选中RL/模型就绪分开 */
 static control_frame_t control_frame;
 static compensation_debug_t pending_compensation;
 volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
@@ -68,10 +69,22 @@ static void Control_Frame_Read(void)
     control_frame.joint_ready = 1u;
     for (uint8_t i = 0u; i < 4u; i++)
     {
+        control_frame.motor_pos[i] = feedback.motor.dm.pos_continuous_rad[i];
+        control_frame.motor_vel[i] = feedback.motor.dm.vel_rad_s[i];
         control_frame.joint_torque[i] = feedback.motor.dm.trq_nm[i];
         control_frame.joint_ready &= (uint8_t)(feedback.motor.dm.online[i] && Dm_Is_Enabled(i));
     }
-    control_frame.drive = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && control_frame.left.output.valid && control_frame.right.output.valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
+    control_frame.motor_valid = feedback.motor.valid;
+    control_frame.drive = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
+    /* RL使用实体电机反馈，不依赖虚拟几何valid；其余路径仍需要双腿解算有效。 */
+    if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
+    {
+        control_frame.drive &= (uint8_t)(machine->rl.configured && rl_control.policy.ready);
+    }
+    else
+    {
+        control_frame.drive &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
+    }
     control_frame.normal = (uint8_t)(control_frame.drive && !robot_state.fallen);
     control_frame.recovery = (uint8_t)(control_frame.drive && standup_control.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
     taskEXIT_CRITICAL();
@@ -92,7 +105,7 @@ uint8_t output_task_lqr_engaged(void)
     return lqr_running;
 }
 
-/* RL 是否已投入: 左上 + 右中 + 电机使能 (供策略任务预热计时与 VOFA) */
+/* RL实际投入；推理可在零出力状态独立运行。 */
 uint8_t output_task_rl_engaged(void)
 {
     return rl_engaged;
@@ -153,6 +166,8 @@ static void output_dispatch(const torque_output_t *torque)
     }
     output_debug_dm_sent = (uint8_t)(Dm_Send_Torque(applied.dm) == HAL_OK);
     output_debug_dji_sent = (uint8_t)(Dji_Send_Wheel_Torque( applied.dji[DJI_MOTOR_WHEEL_LFT], applied.dji[DJI_MOTOR_WHEEL_RGT]) == HAL_OK);
+//     Dm_Send_Zero();
+//     Dji_All_Stop();
 }
 
 /* 本拍补偿预计算 */
@@ -174,10 +189,6 @@ static void Control_Compensation_Update(void)
         else if (strategy == CTRL_STRATEGY_COMPENSATION && control_frame.normal)
         {
             enabled = LEG_COMP_SPRING | LEG_COMP_GRAVITY_WORLD;
-        }
-        else if (strategy == CTRL_STRATEGY_RL && control_frame.normal && action_state.rl_ready && rl_wait_ticks == 0u && GAS_SPRING_COMP_ENABLE)
-        {
-            enabled = LEG_COMP_SPRING;
         }
     }
     Leg_Compensation_Prepare(&control_frame.compensation, &control_frame.left, &control_frame.right, &control_frame.imu, enabled);
@@ -408,18 +419,6 @@ static void solve_lqr_standup(torque_output_t *torque)
     }
 }
 
-/* RL: 动作 → 力矩; 前提: 遥控使能 + 电机使能 + 两腿有效 + 推理动作可用 */
-static void solve_rl(const float wheel_vel[2], torque_output_t *torque)
-{
-    if (RL_Torque_Compute(&control_frame.left, &control_frame.right, &control_frame.compensation.spring, &rl_control.torque_param[rl_control.policy.selected_model], wheel_vel, action_state.a, &rl_control.torque_state, torque) == 0u)
-    {
-        /* 失败: 零力矩 */
-        torque->valid = 0u;
-        return;
-    }
-    torque->valid = 1u;
-}
-
 /* ================= 主体: 估计 → 求解 → 分发 ================= */
 /*
  * 单周期主链：反馈快照 → 估计/离地/速度融合 → 策略路由求解 → 诊断发布 → 唯一输出口。
@@ -470,6 +469,13 @@ void output_task_body(void)
     if (strategy != CTRL_STRATEGY_RL)
     {
         rl_wait_ticks = 0u;
+        if (rl_started)
+        {
+            rl_started = 0u;
+            RL_Torque_Reset(&rl_control.torque_state);
+            Action_State_Clear();
+            memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
+        }
     }
 
     switch (strategy)
@@ -496,29 +502,42 @@ void output_task_body(void)
             break;
         }
 
-        case CTRL_STRATEGY_RL: lqr_running = 0u;
-            rl_engaged = (uint8_t)(control_frame.normal && control_frame.rc.mode.engage);
-            if (rl_engaged && action_state.rl_ready && control_frame.left.output.valid && control_frame.right.output.valid)
+        case CTRL_STRATEGY_RL:
+        {
+            /* 基础任务仍1kHz；选中RL后每2拍采样/PD，策略每20拍更新一次原始action。 */
+            uint8_t tick = (uint8_t)(rl_wait_ticks == 0u);
+            lqr_running = 0u;
+            rl_wait_ticks = tick ? MACHINE_RL_CTRL_DIV - 1u : rl_wait_ticks - 1u;
+            if (tick)
             {
-                if (rl_wait_ticks == 0u)
-                {
-                    solve_rl(wheel_vel, &torque);
-                    if (torque.valid)
-                    {
-                        rl_wait_ticks = MACHINE_RL_CTRL_DIV - 1u;
-                    }
-                }
-                else
-                {
-                    rl_wait_ticks--;
-                    dispatch = 0u;
-                }
+                (void)RL_Motor_Map(&machine->rl, control_frame.motor_pos, control_frame.motor_vel, wheel_vel, control_frame.motor_valid, &control_frame.rl_motor);
+                RL_Observation_Sample(&rl_control.observation, control_frame.imu.gyro_rad_s, control_frame.imu.quat, &control_frame.rl_motor, control_frame.imu.online);
             }
-            else
+            rl_engaged = (uint8_t)(control_frame.normal && control_frame.rc.mode.engage && control_frame.drive);
+            if (rl_engaged && !rl_started)
             {
-                rl_wait_ticks = 0u;
+                /* 实际投入开启新控制段；清旧动作/历史，等待本段首个有效推理。 */
+                rl_started = 1u;
+                RL_Torque_Reset(&rl_control.torque_state);
+                Action_State_Clear();
+                memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
+            }
+            else if (!rl_engaged && rl_started)
+            {
+                /* 退出/失能时清目标和动作，清零前仍在途的推理也不能重新发布。 */
+                rl_started = 0u;
+                RL_Torque_Reset(&rl_control.torque_state);
+                Action_State_Clear();
+                memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
+            }
+            if (rl_engaged && action_state.rl_ready && control_frame.rl_motor.valid)
+            {
+                /* 正常间隔拍保持上次已发命令；故障/退出不走保持分支，仍每基础拍清零。 */
+                if (tick) { (void)RL_Torque_Compute(&control_frame.rl_motor, &machine->rl, action_state.a, &rl_control.torque_state, &torque); }
+                else { dispatch = 0u; }
             }
             break;
+        }
 
         case CTRL_STRATEGY_DISABLE:
         default:
