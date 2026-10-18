@@ -57,7 +57,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .spring = &machine_spring_leg3,               /* 气弹簧表 */
         .gravity = &gravity_big,
         .dji_type       = 1u,                          /* M3508 + C620 */
-        .dji_gear_ratio = 15.5f,                       /* 转子→轮子总减速比 */
+        .dji_gear_ratio = 15.3333333f,                       /* 转子→轮子总减速比 */
         .dji_trq_clamp  = (0.30f * 20.0f) * (15.5f / 19.2f), /* 满电流 */
         .wheel_r        = 0.0525f,                     /* 作者确认 */
         .dm_pos_max     = 3.14159f,                    /* DM-J8009P: 上位机 ±π */
@@ -65,13 +65,13 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .dm_trq_max     = 54.0f,                       /* MIT 刻度, 勿改 */
         .dm_trq_clamp   = 54.0f,                       /* 满量程 */
         /* 极性: 前左/后左/前右/后右 */
-        .dm_sign        = {{1, 1}, {1, 1}, {1, 1}, {1, 1}},
-        .dji_sign       = {{-1, -1}, {-1, -1}},
+        .dm_sign        = {{1, 1}, {1, 1}, {-1, -1}, {-1, -1}},
+        .dji_sign       = {{-1, -1}, {1, 1}},
         /* 总线: 腿 4 台全在 FDCAN1, 轮在 FDCAN3 */
         .dm_bus         = {1, 1, 1, 1},
         .dji_bus        = 3,
         /* 电机零点: 前左/后左/前右/后右 (作者标定) */
-        .dm_zero        = {0.476998f, 1.974491f,-0.476998f, -1.974491f },
+        .dm_zero        = {0.476998f, 1.974491f,0.476998f, 1.974491f },
         /* 腿几何: 杆长 0.21/0.25; 腿长区间为实测工作区间 */
         .leg_lu         = 0.21f,
         .leg_lg         = 0.25f,
@@ -93,7 +93,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .lqr = {
             .leg_trim = {-0.0f, -0.0f},             /* 摆角目标 rad */
             .pitch_trim = 0.0f,                      /* 俯仰目标 rad */
-            .pos_target = 0.0f,                      /* 位移目标 m */
+            .pos_target = 0.4f,                      /* 位移目标 m */
             .pos_arm_vel = 0.1f,                     /* 松杆低速门槛 */
             /* 角速度低通顺序: pitch / yaw */
             .lpf_alpha = {0.3f, 0.3f},
@@ -109,15 +109,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .hip_enable = 1u,                        /* 摆腿矩输出 */
             .len_pid_enable = 1u,                    /* 腿长PID */
         },
-        /* model3023采用原生关节角；实机sign/zero仍保留原假设，待台架配对标定。 */
+        /* 公共驱动保留LQR标定；RL配对转换复现作者提供的可用RL方向与零点。 */
         .rl = {
-            .motor_sign = {1, 1, 1, 1, 1, 1},
+            .motor_sign = {1, 1, -1, -1, 1, -1}, /* 四腿两轮顺序；右腿/右轮转换到RL坐标 */
             .motor_zero = {0.0f, 0.0f, 0.0f, 0.0f},
             /* 版本化XML与训练model.py微蹲闭链姿态：四腿顺序LF前/后、RF前/后。 */
             .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
             .reference_pos = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
             .configured = 1u,
-            .height = 0.30f, /* 本次交付范围：NORMAL静站、零速度命令 */
             .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* gyro/height/velocity缩放及两种裁剪 */
             .torque = {
                 .pos_scale = 0.5f,

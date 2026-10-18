@@ -24,6 +24,9 @@ typedef struct {
     leg_state_t left;
     leg_state_t right;
     rc_command_t rc;
+    float height;
+    uint8_t height_valid;
+    uint8_t fallen;             /* 本拍公共姿态倒地；RL还单独判断低高度。 */
     float wheel_vel[2];
     float motor_pos[4];         /* 本拍固件连续标定角，rad */
     float motor_vel[4];         /* 本拍固件电机速度，rad/s */

@@ -40,7 +40,9 @@ typedef struct {
 typedef struct {
     uint8_t rc_enable;
     uint8_t motor_enabled;
-    uint8_t fallen;
+    uint8_t fallen; /* 公共姿态倒地：IMU俯仰或横滚角任一超过40度，不包含高度。 */
+    float height; /* 公共髋轮投影间距m；通信发布，LQR当前不消费。 */
+    uint8_t height_valid;
 } robot_state_t;
 
 /* 最新采样/PD归执行任务，观测/原始action历史归策略任务；参数直接读机器表。 */
@@ -48,6 +50,7 @@ typedef struct {
     rl_observation_state_t observation;
     rl_policy_t policy;
     rl_torque_state_t torque_state;
+    rl_recovery_state_t recovery; /* 执行任务推进，策略只复制；阶段供Watch观察。 */
 } rl_control_state_t;
 
 /* 写入归对应任务 */

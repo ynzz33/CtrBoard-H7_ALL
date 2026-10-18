@@ -1,5 +1,5 @@
 /*
- * 文件职责：固定43通道赋值与VOFA发送（vofa_debug.c）。
+ * 文件职责：固定48通道赋值与VOFA发送（vofa_debug.c）。
  * 输入/来源：共享反馈/控制/离地/补偿诊断及驱动记录。
  * 输出/去向：后台每次调用固定赋值后提交一帧；改通道时手动注释旧赋值、启用新赋值。
  * 关键边界：只读观测，不推进检测或修改目标；异步来源同帧不等于同一物理采样时刻，通道表见md/file-guide.md#vofa。
@@ -11,6 +11,8 @@
 #include "dm.h"
 #include "Vofa_send.h"
 #include "dr16.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #include <string.h>
 
@@ -64,29 +66,46 @@ void Vofa_Debug_Send(void)
     // dbg[17] = (float)leg_r.output.d_virtual_leg_angle;
     // dbg[18] = (float)leg_r.output.d_virtual_shank_angle;
 
-    /* LQR通道参考；需要时手动启用并注释当前赋值。 */
-    // for(int i = 0;i<10;i++)
-    // {
-    //     dbg[i + 3] = lqr_state.x[i];
-    // }
-    // for(int i = 0;i<10;i++)
-    // {
-    //     dbg[i + 13] = lqr_state.target[i];
-    // }
+    /* 一次复制LQR状态、总力矩和分项，避免控制任务在复制中途推进一拍。 */
+    taskENTER_CRITICAL();
+    for(int i = 0;i<10;i++)
+    {
+        dbg[i + 3] = lqr_state.x[i];
+    }
+    for(int i = 0;i<10;i++)
+    {
+        dbg[i + 13] = lqr_state.target[i];
+    }
+    dbg[23] = lqr_state.u[0];
+    dbg[24] = lqr_state.u[1];
+    dbg[25] = lqr_state.u[2];
+    dbg[26] = lqr_state.u[3];
+    for (uint8_t i = 0u; i < LQR_X_NUM; i++)
+    {
+        dbg[27u + i] = lqr_state.u_col[i];
+        dbg[37u + i] = lqr_state.u_hip_col[i];
+    }
+    dbg[47] = (float)lqr_state.air_control;
+    taskEXIT_CRITICAL();
     // dbg[23] = lqr_state.a_fwd;
 
-    /* 当前固定布局：ch3～41=obs[0～38]，ch42=网络调用耗时(us)，不按模式切换。 */
-    taskENTER_CRITICAL();
-    for (uint8_t i = 0u; i < RL_OBS_SIZE; i++)
-    {
-        dbg[3u + i] = rl_control.observation.obs[i];
-    }
-    dbg[35] = (float)motor_state.dm.pos_continuous_rad[0];
-    dbg[36] = (float)motor_state.dm.pos_continuous_rad[1];
-    dbg[37] = (float)motor_state.dm.pos_continuous_rad[2];
-    dbg[38] = (float)motor_state.dm.pos_continuous_rad[3];
-    dbg[42] = (float)rl_control.policy.run_us;
-    taskEXIT_CRITICAL();
+    /* RL布局参考：obs39及恢复诊断，切换观测时手动启用。 */
+    // taskENTER_CRITICAL();
+    // for (uint8_t i = 0u; i < RL_OBS_SIZE; i++)
+    // {
+    //     dbg[3u + i] = rl_control.observation.obs[i];
+    // }
+    // // dbg[35] = (float)motor_state.dm.pos_continuous_rad[0];
+    // // dbg[36] = (float)motor_state.dm.pos_continuous_rad[1];
+    // // dbg[37] = (float)motor_state.dm.pos_continuous_rad[2];
+    // // dbg[38] = (float)motor_state.dm.pos_continuous_rad[3];
+    // dbg[42] = (float)rl_control.policy.run_us;
+    // dbg[43] = (float)rl_control.recovery.phase; /* 0未投入/1启动保持/2恢复/3正常/4失败。 */
+    // dbg[44] = robot_state.height;
+    // dbg[45] = (float)robot_state.height_valid;
+    // dbg[46] = (float)rl_control.recovery.stable_ms;
+    // dbg[47] = (float)rl_control.recovery.fallen_ms;
+    // taskEXIT_CRITICAL();
 
     Vofa_Send(dbg, VOFA_MAX_CH);
 }

@@ -1,79 +1,79 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-10-15 20:24:38
-Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_3023_opset13.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace3646431773360014683123139981735924 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
+Created date          : 2026-10-17 19:35:23
+Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_5849_opset13.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace165236659163008493952508344157801 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
 
 Exec/report summary (generate)
-----------------------------------------------------------------------------------------------------------
-model file         :   C:\Users\ynz\Desktop\model_3023_opset13.onnx                                       
-type               :   onnx                                                                               
-c_name             :   networkzn1                                                                         
-compression        :   none                                                                               
-options            :   allocate-inputs, allocate-outputs                                                  
-optimization       :   time                                                                               
-target/series      :   stm32h7                                                                            
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace3646431773360014683123139981735924   
-output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                        
-model_fmt          :   float                                                                              
-model_name         :   model_3023_opset13                                                                 
-model_hash         :   0xef85e2a4d815448871159c628d8702ea                                                 
-params #           :   51,782 items (202.27 KiB)                                                          
-----------------------------------------------------------------------------------------------------------
-input 1/1          :   'obs', f32(1x39), 156 Bytes, activations                                           
-output 1/1         :   'actions', f32(1x6), 24 Bytes, activations                                         
-macc               :   56,710                                                                             
-weights (ro)       :   207,128 B (202.27 KiB) (1 segment)                                                 
-activations (rw)   :   1,536 B (1.50 KiB) (1 segment) *                                                   
-ram (total)        :   1,536 B (1.50 KiB) = 1,536 + 0 + 0                                                 
-----------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------
+model file         :   C:\Users\ynz\Desktop\model_5849_opset13.onnx                                      
+type               :   onnx                                                                              
+c_name             :   networkzn1                                                                        
+compression        :   none                                                                              
+options            :   allocate-inputs, allocate-outputs                                                 
+optimization       :   time                                                                              
+target/series      :   stm32h7                                                                           
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace165236659163008493952508344157801   
+output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                       
+model_fmt          :   float                                                                             
+model_name         :   model_5849_opset13                                                                
+model_hash         :   0xd08eafcefc806ad2b05e796fa9c49479                                                
+params #           :   51,782 items (202.27 KiB)                                                         
+---------------------------------------------------------------------------------------------------------
+input 1/1          :   'obs', f32(1x39), 156 Bytes, activations                                          
+output 1/1         :   'actions', f32(1x6), 24 Bytes, activations                                        
+macc               :   56,710                                                                            
+weights (ro)       :   207,128 B (202.27 KiB) (1 segment)                                                
+activations (rw)   :   1,536 B (1.50 KiB) (1 segment) *                                                  
+ram (total)        :   1,536 B (1.50 KiB) = 1,536 + 0 + 0                                                
+---------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - model_3023_opset13
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-m_id   layer (type,original)                         oshape          param/size           macc               connected to   | c_size            c_macc             c_type             
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-1      mlp_0_weight (Placeholder, Gemm)              [b:256,c:39]    9,984/39,936                                           | +1,024(+2.6%)     +10,240(+100.0%)   Dense_[0]          
-       mlp_0_bias (Placeholder, Gemm)                [b:256]         256/1,024                                              | -1,024(-100.0%)                      
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-3      mlp_2_weight (Placeholder, Gemm)              [b:128,c:256]   32,768/131,072                                         | +512(+0.4%)       +32,896(+100.0%)   Dense_[2]          
-       mlp_2_bias (Placeholder, Gemm)                [b:128]         128/512                                                | -512(-100.0%)                        
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-5      mlp_4_weight (Placeholder, Gemm)              [b:64,c:128]    8,192/32,768                                           | +256(+0.8%)       +8,256(+100.0%)    Dense_[4]          
-       mlp_4_bias (Placeholder, Gemm)                [b:64]          64/256                                                 | -256(-100.0%)                        
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-7      mlp_6_weight (Placeholder, Gemm)              [b:6,c:64]      384/1,536                                              | +24(+1.6%)        +390(+100.0%)      Dense_[o][6]       
-       mlp_6_bias (Placeholder, Gemm)                [b:6]           6/24                                                   | -24(-100.0%)                         
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-0      obs (Input, )                                 [b:1,c:39]                                                             |                                      
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-1      _mlp_mlp_0_Gemm_output_0 (Gemm, Gemm)         [b:1,c:256]                        10,240                        obs   |                   -10,240(-100.0%)   
-                                                                                                             mlp_0_weight   | 
-                                                                                                               mlp_0_bias   | 
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-2      _mlp_mlp_1_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:256]                         3,072   _mlp_mlp_0_Gemm_output_0   |                   -256(-8.3%)        Nonlinearity_[1]   
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-3      _mlp_mlp_2_Gemm_output_0 (Gemm, Gemm)         [b:1,c:128]                        32,896    _mlp_mlp_1_Elu_output_0   |                   -32,896(-100.0%)   
-                                                                                                             mlp_2_weight   | 
-                                                                                                               mlp_2_bias   | 
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-4      _mlp_mlp_3_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:128]                         1,536   _mlp_mlp_2_Gemm_output_0   |                   -128(-8.3%)        Nonlinearity_[3]   
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-5      _mlp_mlp_4_Gemm_output_0 (Gemm, Gemm)         [b:1,c:64]                          8,256    _mlp_mlp_3_Elu_output_0   |                   -8,256(-100.0%)    
-                                                                                                             mlp_4_weight   | 
-                                                                                                               mlp_4_bias   | 
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-6      _mlp_mlp_5_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:64]                            768   _mlp_mlp_4_Gemm_output_0   |                   -64(-8.3%)         Nonlinearity_[5]   
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
-7      actions (Gemm, Gemm)                          [b:1,c:6]                             390    _mlp_mlp_5_Elu_output_0   |                   -390(-100.0%)      
-                                                                                                             mlp_6_weight   | 
-                                                                                                               mlp_6_bias   | 
------- --------------------------------------------- --------------- ---------------- -------- -------------------------- --- ----------------- ------------------ ------------------ 
+Model name - model_5849_opset13
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+m_id   layer (type,original)                 oshape          param/size           macc       connected to   | c_size            c_macc             c_type             
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+1      node_0.weight (Placeholder, Gemm)     [b:256,c:39]    9,984/39,936                                   | +1,024(+2.6%)     +10,240(+100.0%)   Dense_[0]          
+       node_0.bias (Placeholder, Gemm)       [b:256]         256/1,024                                      | -1,024(-100.0%)                      
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+3      node_2.weight (Placeholder, Gemm)     [b:128,c:256]   32,768/131,072                                 | +512(+0.4%)       +32,896(+100.0%)   Dense_[2]          
+       node_2.bias (Placeholder, Gemm)       [b:128]         128/512                                        | -512(-100.0%)                        
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+5      node_4.weight (Placeholder, Gemm)     [b:64,c:128]    8,192/32,768                                   | +256(+0.8%)       +8,256(+100.0%)    Dense_[4]          
+       node_4.bias (Placeholder, Gemm)       [b:64]          64/256                                         | -256(-100.0%)                        
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+7      node_6.weight (Placeholder, Gemm)     [b:6,c:64]      384/1,536                                      | +24(+1.6%)        +390(+100.0%)      Dense_[o][6]       
+       node_6.bias (Placeholder, Gemm)       [b:6]           6/24                                           | -24(-100.0%)                         
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+0      obs (Input, )                         [b:1,c:39]                                                     |                                      
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+1      _0_Gemm_output_0 (Gemm, Gemm)         [b:1,c:256]                        10,240                obs   |                   -10,240(-100.0%)   
+                                                                                            node_0.weight   | 
+                                                                                              node_0.bias   | 
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+2      _1_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:256]                         3,072   _0_Gemm_output_0   |                   -256(-8.3%)        Nonlinearity_[1]   
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+3      _2_Gemm_output_0 (Gemm, Gemm)         [b:1,c:128]                        32,896    _1_Elu_output_0   |                   -32,896(-100.0%)   
+                                                                                            node_2.weight   | 
+                                                                                              node_2.bias   | 
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+4      _3_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:128]                         1,536   _2_Gemm_output_0   |                   -128(-8.3%)        Nonlinearity_[3]   
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+5      _4_Gemm_output_0 (Gemm, Gemm)         [b:1,c:64]                          8,256    _3_Elu_output_0   |                   -8,256(-100.0%)    
+                                                                                            node_4.weight   | 
+                                                                                              node_4.bias   | 
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+6      _5_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:64]                            768   _4_Gemm_output_0   |                   -64(-8.3%)         Nonlinearity_[5]   
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
+7      actions (Gemm, Gemm)                  [b:1,c:6]                             390    _5_Elu_output_0   |                   -390(-100.0%)      
+                                                                                            node_6.weight   | 
+                                                                                              node_6.bias   | 
+------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
 model/c-model: macc=57,158/56,710 -448(-0.8%) weights=207,128/207,128  activations=--/1,536 io=--/0
 
 
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : model_3023_opset13
+model name            : model_5849_opset13
 c-name                : networkzn1
 c-node #              : 7
 c-array #             : 16
@@ -84,76 +84,76 @@ inputs                : ['obs_output']
 outputs               : ['actions_output']
 
 C-Arrays (16)
------- ---------------------------------- -------------- ------------------------- ------------- --------- 
-c_id   name (*_array)                     item/size      domain/mem-pool           c-type        comment   
------- ---------------------------------- -------------- ------------------------- ------------- --------- 
-0      _mlp_mlp_0_Gemm_output_0_bias      256/1024       weights/weights           const float             
-1      _mlp_mlp_0_Gemm_output_0_output    256/1024       activations/**default**   float                   
-2      _mlp_mlp_0_Gemm_output_0_weights   9984/39936     weights/weights           const float             
-3      _mlp_mlp_1_Elu_output_0_output     256/1024       activations/**default**   float                   
-4      _mlp_mlp_2_Gemm_output_0_bias      128/512        weights/weights           const float             
-5      _mlp_mlp_2_Gemm_output_0_output    128/512        activations/**default**   float                   
-6      _mlp_mlp_2_Gemm_output_0_weights   32768/131072   weights/weights           const float             
-7      _mlp_mlp_3_Elu_output_0_output     128/512        activations/**default**   float                   
-8      _mlp_mlp_4_Gemm_output_0_bias      64/256         weights/weights           const float             
-9      _mlp_mlp_4_Gemm_output_0_output    64/256         activations/**default**   float                   
-10     _mlp_mlp_4_Gemm_output_0_weights   8192/32768     weights/weights           const float             
-11     _mlp_mlp_5_Elu_output_0_output     64/256         activations/**default**   float                   
-12     actions_bias                       6/24           weights/weights           const float             
-13     actions_output                     6/24           activations/**default**   float         /output   
-14     actions_weights                    384/1536       weights/weights           const float             
-15     obs_output                         39/156         activations/**default**   float         /input    
------- ---------------------------------- -------------- ------------------------- ------------- --------- 
+------ -------------------------- -------------- ------------------------- ------------- --------- 
+c_id   name (*_array)             item/size      domain/mem-pool           c-type        comment   
+------ -------------------------- -------------- ------------------------- ------------- --------- 
+0      _0_Gemm_output_0_bias      256/1024       weights/weights           const float             
+1      _0_Gemm_output_0_output    256/1024       activations/**default**   float                   
+2      _0_Gemm_output_0_weights   9984/39936     weights/weights           const float             
+3      _1_Elu_output_0_output     256/1024       activations/**default**   float                   
+4      _2_Gemm_output_0_bias      128/512        weights/weights           const float             
+5      _2_Gemm_output_0_output    128/512        activations/**default**   float                   
+6      _2_Gemm_output_0_weights   32768/131072   weights/weights           const float             
+7      _3_Elu_output_0_output     128/512        activations/**default**   float                   
+8      _4_Gemm_output_0_bias      64/256         weights/weights           const float             
+9      _4_Gemm_output_0_output    64/256         activations/**default**   float                   
+10     _4_Gemm_output_0_weights   8192/32768     weights/weights           const float             
+11     _5_Elu_output_0_output     64/256         activations/**default**   float                   
+12     actions_bias               6/24           weights/weights           const float             
+13     actions_output             6/24           activations/**default**   float         /output   
+14     actions_weights            384/1536       weights/weights           const float             
+15     obs_output                 39/156         activations/**default**   float         /input    
+------ -------------------------- -------------- ------------------------- ------------- --------- 
 
 C-Layers (7)
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-c_id   name (*_layer)             id   layer_type      macc    rom      tensors                               shape (array id)   
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-0      _mlp_mlp_0_Gemm_output_0   1    Dense           10240   40960    I: obs_output                         f32(1x39) (15)     
-                                                                        W: _mlp_mlp_0_Gemm_output_0_weights   f32(256x39) (2)    
-                                                                        W: _mlp_mlp_0_Gemm_output_0_bias      f32(256) (0)       
-                                                                        O: _mlp_mlp_0_Gemm_output_0_output    f32(1x256) (1)     
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-1      _mlp_mlp_1_Elu_output_0    2    Nonlinearity    2816    0        I: _mlp_mlp_0_Gemm_output_0_output    f32(1x256) (1)     
-                                                                        O: _mlp_mlp_1_Elu_output_0_output     f32(1x256) (3)     
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-2      _mlp_mlp_2_Gemm_output_0   3    Dense           32896   131584   I: _mlp_mlp_1_Elu_output_0_output     f32(1x256) (3)     
-                                                                        W: _mlp_mlp_2_Gemm_output_0_weights   f32(128x256) (6)   
-                                                                        W: _mlp_mlp_2_Gemm_output_0_bias      f32(128) (4)       
-                                                                        O: _mlp_mlp_2_Gemm_output_0_output    f32(1x128) (5)     
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-3      _mlp_mlp_3_Elu_output_0    4    Nonlinearity    1408    0        I: _mlp_mlp_2_Gemm_output_0_output    f32(1x128) (5)     
-                                                                        O: _mlp_mlp_3_Elu_output_0_output     f32(1x128) (7)     
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-4      _mlp_mlp_4_Gemm_output_0   5    Dense           8256    33024    I: _mlp_mlp_3_Elu_output_0_output     f32(1x128) (7)     
-                                                                        W: _mlp_mlp_4_Gemm_output_0_weights   f32(64x128) (10)   
-                                                                        W: _mlp_mlp_4_Gemm_output_0_bias      f32(64) (8)        
-                                                                        O: _mlp_mlp_4_Gemm_output_0_output    f32(1x64) (9)      
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-5      _mlp_mlp_5_Elu_output_0    6    Nonlinearity    704     0        I: _mlp_mlp_4_Gemm_output_0_output    f32(1x64) (9)      
-                                                                        O: _mlp_mlp_5_Elu_output_0_output     f32(1x64) (11)     
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
-6      actions                    7    Dense           390     1560     I: _mlp_mlp_5_Elu_output_0_output     f32(1x64) (11)     
-                                                                        W: actions_weights                    f32(6x64) (14)     
-                                                                        W: actions_bias                       f32(6) (12)        
-                                                                        O: actions_output                     f32(1x6) (13)      
------- -------------------------- ---- --------------- ------- -------- ------------------------------------- ------------------ 
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+c_id   name (*_layer)     id   layer_type      macc    rom      tensors                       shape (array id)   
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+0      _0_Gemm_output_0   1    Dense           10240   40960    I: obs_output                 f32(1x39) (15)     
+                                                                W: _0_Gemm_output_0_weights   f32(256x39) (2)    
+                                                                W: _0_Gemm_output_0_bias      f32(256) (0)       
+                                                                O: _0_Gemm_output_0_output    f32(1x256) (1)     
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+1      _1_Elu_output_0    2    Nonlinearity    2816    0        I: _0_Gemm_output_0_output    f32(1x256) (1)     
+                                                                O: _1_Elu_output_0_output     f32(1x256) (3)     
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+2      _2_Gemm_output_0   3    Dense           32896   131584   I: _1_Elu_output_0_output     f32(1x256) (3)     
+                                                                W: _2_Gemm_output_0_weights   f32(128x256) (6)   
+                                                                W: _2_Gemm_output_0_bias      f32(128) (4)       
+                                                                O: _2_Gemm_output_0_output    f32(1x128) (5)     
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+3      _3_Elu_output_0    4    Nonlinearity    1408    0        I: _2_Gemm_output_0_output    f32(1x128) (5)     
+                                                                O: _3_Elu_output_0_output     f32(1x128) (7)     
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+4      _4_Gemm_output_0   5    Dense           8256    33024    I: _3_Elu_output_0_output     f32(1x128) (7)     
+                                                                W: _4_Gemm_output_0_weights   f32(64x128) (10)   
+                                                                W: _4_Gemm_output_0_bias      f32(64) (8)        
+                                                                O: _4_Gemm_output_0_output    f32(1x64) (9)      
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+5      _5_Elu_output_0    6    Nonlinearity    704     0        I: _4_Gemm_output_0_output    f32(1x64) (9)      
+                                                                O: _5_Elu_output_0_output     f32(1x64) (11)     
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
+6      actions            7    Dense           390     1560     I: _5_Elu_output_0_output     f32(1x64) (11)     
+                                                                W: actions_weights            f32(6x64) (14)     
+                                                                W: actions_bias               f32(6) (12)        
+                                                                O: actions_output             f32(1x6) (13)      
+------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
 
 
 
 Number of operations per c-layer
-------- ------ ---------------------------------------- -------- -------------- 
-c_id    m_id   name (type)                                   #op           type 
-------- ------ ---------------------------------------- -------- -------------- 
-0       1      _mlp_mlp_0_Gemm_output_0 (Dense)           10,240   smul_f32_f32 
-1       2      _mlp_mlp_1_Elu_output_0 (Nonlinearity)      2,816     op_f32_f32 
-2       3      _mlp_mlp_2_Gemm_output_0 (Dense)           32,896   smul_f32_f32 
-3       4      _mlp_mlp_3_Elu_output_0 (Nonlinearity)      1,408     op_f32_f32 
-4       5      _mlp_mlp_4_Gemm_output_0 (Dense)            8,256   smul_f32_f32 
-5       6      _mlp_mlp_5_Elu_output_0 (Nonlinearity)        704     op_f32_f32 
-6       7      actions (Dense)                               390   smul_f32_f32 
-------- ------ ---------------------------------------- -------- -------------- 
-total                                                     56,710 
+------- ------ -------------------------------- -------- -------------- 
+c_id    m_id   name (type)                           #op           type 
+------- ------ -------------------------------- -------- -------------- 
+0       1      _0_Gemm_output_0 (Dense)           10,240   smul_f32_f32 
+1       2      _1_Elu_output_0 (Nonlinearity)      2,816     op_f32_f32 
+2       3      _2_Gemm_output_0 (Dense)           32,896   smul_f32_f32 
+3       4      _3_Elu_output_0 (Nonlinearity)      1,408     op_f32_f32 
+4       5      _4_Gemm_output_0 (Dense)            8,256   smul_f32_f32 
+5       6      _5_Elu_output_0 (Nonlinearity)        704     op_f32_f32 
+6       7      actions (Dense)                       390   smul_f32_f32 
+------- ------ -------------------------------- -------- -------------- 
+total                                             56,710 
 
 Number of operation types
 ---------------- -------- ----------- 
@@ -163,17 +163,17 @@ smul_f32_f32       51,782       91.3%
 op_f32_f32          4,928        8.7% 
 
 Complexity report (model)
------- ------------------------- ------------------------- ------------------------- ------ 
-m_id   name                      c_macc                    c_rom                     c_id   
------- ------------------------- ------------------------- ------------------------- ------ 
-1      mlp_0_weight              |||||             18.1%   |||||             19.8%   [0]    
-3      mlp_2_weight              ||||||||||||||||  58.0%   ||||||||||||||||  63.5%   [2]    
-5      mlp_4_weight              ||||              14.6%   ||||              15.9%   [4]    
-7      mlp_6_weight              |                  0.7%   |                  0.8%   [6]    
-2      _mlp_mlp_1_Elu_output_0   ||                 5.0%   |                  0.0%   [1]    
-4      _mlp_mlp_3_Elu_output_0   |                  2.5%   |                  0.0%   [3]    
-6      _mlp_mlp_5_Elu_output_0   |                  1.2%   |                  0.0%   [5]    
------- ------------------------- ------------------------- ------------------------- ------ 
+------ ----------------- ------------------------- ------------------------- ------ 
+m_id   name              c_macc                    c_rom                     c_id   
+------ ----------------- ------------------------- ------------------------- ------ 
+1      node_0.weight     |||||             18.1%   |||||             19.8%   [0]    
+3      node_2.weight     ||||||||||||||||  58.0%   ||||||||||||||||  63.5%   [2]    
+5      node_4.weight     ||||              14.6%   ||||              15.9%   [4]    
+7      node_6.weight     |                  0.7%   |                  0.8%   [6]    
+2      _1_Elu_output_0   ||                 5.0%   |                  0.0%   [1]    
+4      _3_Elu_output_0   |                  2.5%   |                  0.0%   [3]    
+6      _5_Elu_output_0   |                  1.2%   |                  0.0%   [5]    
+------ ----------------- ------------------------- ------------------------- ------ 
 macc=56,710 weights=207,128 act=1,536 ram_io=0
  
  Requested memory size by section - "stm32h7" target

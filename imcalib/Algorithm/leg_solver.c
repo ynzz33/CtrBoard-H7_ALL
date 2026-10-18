@@ -14,6 +14,15 @@
 #define LEG_EPS         1.0e-6f
 #define LEG_MIN_LENGTH  1.0e-3f
 
+/* 公共几何估计只发布数值，不决定LQR/RL的控制模式或触地状态。 */
+uint8_t Leg_Height_Estimate(const leg_state_t *left, const leg_state_t *right, float *height)
+{
+    *height = 0.0f;
+    if (!left->output.valid || !right->output.valid) { return 0u; }
+    *height = 0.5f * (left->output.virtual_leg_length * cosf(left->output.virtual_leg_angle) + right->output.virtual_leg_length * cosf(right->output.virtual_leg_angle));
+    return (uint8_t)isfinite(*height);
+}
+
 /* 杆长/零偏直接使用初始化配置，只检查本次反馈；几何奇异性在求解时判断。 */
 static uint8_t Leg_Input_Valid(const leg_state_t *leg)
 {

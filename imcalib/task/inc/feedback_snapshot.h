@@ -72,6 +72,8 @@ typedef struct robot_feedback {
     leg_state_t left;
     leg_state_t right;
     rc_command_t rc;
+    float height; /* 与motor/left/right同批发布的公共几何估计。 */
+    uint8_t height_valid;
     /* TODO: 死代码 —— 以下 6 个字段全工程无消费者，见 feedback_snapshot.c 内标记 */
     feedback_meta_t imu_meta;
     feedback_meta_t motor_meta;

@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    networkzn1.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-10-15T20:24:37+0800
+  * @date    2026-10-17T19:35:22+0800
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * @attention
@@ -23,7 +23,7 @@
 
 /******************************************************************************/
 #define AI_NETWORKZN1_MODEL_NAME          "networkzn1"
-#define AI_NETWORKZN1_ORIGIN_MODEL_NAME   "model_3023_opset13"
+#define AI_NETWORKZN1_ORIGIN_MODEL_NAME   "model_5849_opset13"
 
 /******************************************************************************/
 #define AI_NETWORKZN1_ACTIVATIONS_ALIGNMENT   (4)

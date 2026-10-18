@@ -258,7 +258,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,const leg_state
 /*
  * 按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
  * AIR只保留左右腿角/角速度四列，双轮贡献清零；地面使用完整反馈和既有偏置。
- * u_col记录左轮各列贡献，便于定位轮命令来源；gain_valid表示本次求解有效。
+ * u_col/u_hip_col记录左轮/左虚拟髋各列的实际求和项，便于定位震荡来源。
  */
 void LQR_Control_Update(lqr_state_t *st)
 {
@@ -271,6 +271,8 @@ void LQR_Control_Update(lqr_state_t *st)
 
     st->gain_valid = 0u;
     memset(st->u, 0, sizeof(st->u));
+    memset(st->u_col, 0, sizeof(st->u_col));
+    memset(st->u_hip_col, 0, sizeof(st->u_hip_col));
     if (!st->valid)
     {
         return;
@@ -324,11 +326,17 @@ void LQR_Control_Update(lqr_state_t *st)
             {
                 st->u_col[j] = term;                /* 左轮分项 */
             }
+            else if (i == LQR_U_BL)
+            {
+                st->u_hip_col[j] = term;            /* 左虚拟髋分项，复用实际控制计算 */
+            }
             sum += term;
         }
         if (!isfinite(sum))
         {
             memset(st->u, 0, sizeof(st->u));
+            memset(st->u_col, 0, sizeof(st->u_col));
+            memset(st->u_hip_col, 0, sizeof(st->u_hip_col));
             return;
         }
         if (i == LQR_U_WL || i == LQR_U_WR)

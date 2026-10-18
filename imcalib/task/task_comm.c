@@ -156,28 +156,23 @@ static void Robot_Fault_Update(void)
 
 /* 更新翻倒状态 */
 /*
- * 按既有姿态阈值更新实际跌倒保护状态。
- * 倒置/翻倒自救许可由执行层另行选择；不能以软件pitch异常直接推定实体翻倒原因。
+ * 直接读取IMU回传的俯仰/横滚角，任一绝对值超过40度写公共fallen。
+ * 不包含高度条件；恢复出力许可及完成保持由执行层另行选择。
  */
 static void Robot_Fallen_Update(void)
 {
-    float pitch_abs;
+    float pitch_deg;
+    float roll_deg;
 
     if (ctrl_fault & FAULT_IMU)
     {
         return;
     }
     taskENTER_CRITICAL();
-    pitch_abs = fabsf(imu_state.pitch_world);
+    pitch_deg = imu_state.euler_deg[ATTITUDE_ROLL]; /* 沿用LQR实际俯仰取轴。 */
+    roll_deg = imu_state.euler_deg[ATTITUDE_PITCH];
     taskEXIT_CRITICAL();
-    if (pitch_abs > 1.4f)
-    {
-        robot_state.fallen = 1u;
-    }
-    else if (pitch_abs < 1.0f)
-    {
-        robot_state.fallen = 0u;
-    }
+    robot_state.fallen = (uint8_t)(fabsf(pitch_deg) > 40.0f || fabsf(roll_deg) > 40.0f);
 }
 
 /* 更新使能状态: 使能沿发使能, 失能沿发失能; 两个方向都有看门狗兜底 */

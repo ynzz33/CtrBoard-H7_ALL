@@ -15,7 +15,7 @@
 
 #define PITCH_WORLD_PI                 3.14159265358979323846f
 #define PITCH_WORLD_2PI                6.28318530717958647692f
-#define PITCH_WORLD_HALF_PI            1.57079632679489661923f
+#define PITCH_WORLD_HALF_PI            1.5707963267948966192f
 
 /* 重力判向补角 */
 bool Pitch_World_Calc(float pitch, const float quat[4], float *pitch_world)

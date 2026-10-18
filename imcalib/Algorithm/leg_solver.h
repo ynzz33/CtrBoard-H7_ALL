@@ -73,6 +73,7 @@ typedef struct {
 
 void Leg_Init(leg_state_t *leg);
 uint8_t Leg_Solve(leg_state_t *leg);
+uint8_t Leg_Height_Estimate(const leg_state_t *left, const leg_state_t *right, float *height); /* 髋轴到轮轴的两腿投影均值m，不是绝对离地高度。 */
 uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
                               float torque, float output[2]);
 uint8_t Leg_Force_Map_Inverse(const leg_state_t *leg, const float input[2],

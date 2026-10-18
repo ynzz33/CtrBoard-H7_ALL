@@ -33,6 +33,8 @@ uint8_t Robot_Feedback_Read(robot_feedback_t *out)
     out->left = leg_l;
     out->right = leg_r;
     out->rc = rc_command;
+    out->height = robot_state.height;
+    out->height_valid = robot_state.height_valid;
     /*
      * ============================ TODO: 死代码 ============================
      * 下面 6 行搬的是"样本来源/数据龄"元数据，从设立至今【全工程没有任何读者】。
@@ -75,10 +77,16 @@ void Robot_Feedback_Publish_Imu(const imu_state_t *next, feedback_sample_t sampl
 void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     const leg_state_t *left, const leg_state_t *right)
 {
+    float height;
+    uint8_t height_valid;
+
+    height_valid = Leg_Height_Estimate(left, right, &height);
     taskENTER_CRITICAL();
     motor_state = *next;
     leg_l = *left;
     leg_r = *right;
+    robot_state.height = height;
+    robot_state.height_valid = height_valid;
     Feedback_Published(&metadata.motor);
     taskEXIT_CRITICAL();
 }

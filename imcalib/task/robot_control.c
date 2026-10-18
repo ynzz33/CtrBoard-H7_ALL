@@ -103,6 +103,7 @@ void Robot_Control_Init(void)
         RL_Observation_Reset(&rl_control.observation);
         RL_Policy_Reset(&rl_control.policy);
         RL_Torque_Reset(&rl_control.torque_state);
+        RL_Recovery_Reset(&rl_control.recovery);
     }
     Action_State_Clear();
 

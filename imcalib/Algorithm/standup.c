@@ -27,9 +27,9 @@ standup_param_t standup_param = {
     .extend_len              = 0.25f,                           /* 目标 m */
     .extend_tol              = 0.01f,                           /* 容差 m */
     .extend_timeout          = 4.0f,                            /* 超时 s */
-    .rear_angle              = -1.45f,                           /* 后点 rad */
+    .rear_angle              = -1.42f,                           /* 后点 rad */
     .rear_tol                = 0.1f,                            /* 容差 rad */
-    .rear_rate               = 5.7f,                            /* 目标 rad/s */
+    .rear_rate               = 6.7f,                            /* 目标 rad/s */
     .rear_timeout            = 1.0f,                            /* 超时 s */
 
     /* 收腿与站立 */

@@ -15,15 +15,17 @@ air_param_t air_param = {
     .enabled = 1u, .control_enabled = 1u,
     .landing_enabled = 1u, .compression_enabled = 1u,
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
-    .wheel_mass = 0.65f, .force_off = 20.0f, .force_on = 35.0f,
+    .wheel_mass = 0.65f, .force_off = 10.0f, .force_on = 50.0f,
     .hip_max = 10.0f,
+    .time_off = 0.05f, .time_on = 0.05f,
+    .compression_on = 0.02f, .compression_time = 0.10f,
 #else
     .wheel_mass = 0.13463f, .force_off = 6.0f, .force_on = 18.0f,
     .hip_max = 8.0f,
-#endif
     .time_off = 0.01f, .time_on = 0.02f,
-    .derivative_tau = 0.01f, .force_tau = 0.01f,
     .compression_on = 0.01f, .compression_time = 0.05f,
+#endif
+    .derivative_tau = 0.01f, .force_tau = 0.01f,
 };
 air_detection_t air_detection;
 volatile air_detection_t air_debug;

@@ -3,6 +3,18 @@
 #define RL_OBSERVATION_H
 #include "rl_types.h"
 #include "machine_config.h"
+#include "rc_types.h"
+/* RL实际投入阶段；数值供Watch查看，不直接作为网络模式编号。 */
+typedef enum {
+    RL_RECOVERY_IDLE = 0, RL_RECOVERY_HOLD, RL_RECOVERY_RECOVER, RL_RECOVERY_NORMAL, RL_RECOVERY_FAILED
+} rl_recovery_phase_t;
+typedef struct {
+    rl_recovery_phase_t phase;
+    uint8_t ground_start;          /* 实际投入时锁存，站起/中途倒地均不改写。 */
+    uint16_t hold_ms;              /* 趴地启动零力矩保持200ms。 */
+    uint16_t stable_ms;            /* 连续非倒地500ms后完成恢复。 */
+    uint16_t fallen_ms;            /* 连续倒地超过2000ms终止本次投入。 */
+} rl_recovery_state_t;
 /* 每段起点对应训练actor拼接顺序；位置和速度均使用rl_types中的实体电机顺序。 */
 typedef enum {
     RL_OBS_CMD_VX = 0, RL_OBS_CMD_VY, RL_OBS_CMD_YAW_RATE, RL_OBS_CMD_HEIGHT,
@@ -30,6 +42,8 @@ uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3]);
 void RL_Observation_Reset(rl_observation_state_t *state);
 void RL_Observation_Sample(rl_observation_state_t *state, const float gyro[3], const float quat[4], const rl_motor_state_t *motor, uint8_t source_valid);
 uint8_t RL_Observation_Read_Sample(const rl_observation_state_t *state, rl_observation_sample_t *sample);
-uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg_t *config, const rl_observation_sample_t *sample, uint8_t source_valid);
+void RL_Recovery_Reset(rl_recovery_state_t *state);
+void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t feedback_valid, uint8_t fallen, float height);
+uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg_t *config, const rl_observation_sample_t *sample, const rc_command_t *command, const rl_recovery_state_t *recovery, uint8_t source_valid);
 void RL_Observation_Set_Last_Action(rl_observation_state_t *state, const float action[RL_ACTION_SIZE]);
 #endif

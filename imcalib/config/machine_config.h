@@ -91,7 +91,7 @@ typedef struct {
 /* RL39：缩放前裁剪，模型原生q/dq供电机PD使用。 */
 typedef struct {
     float gyro_scale;          /* 机体角速度观测缩放 */
-    float height_scale;        /* 固定高度命令观测缩放 */
+    float height_scale;        /* 目标高度命令观测缩放 */
     float joint_vel_scale;     /* 六路电机速度观测缩放 */
     float obs_clip;            /* 角速度/重力/角差/action的缩放前裁剪幅值 */
     float velocity_clip;       /* 电机速度缩放前裁剪幅值，rad/s */
@@ -109,14 +109,13 @@ typedef struct {
 } machine_rl_torque_cfg_t;
 /* 实体顺序LF前/后、RF前/后、左轮/右轮。
  * 电机反馈已包含驱动机械标定；motor_zero基于pos_continuous_rad，不再叠加旧虚拟关节零位。
- * 本次单位映射是作者指定的软件假设，后续实测仅调整此配对入口。 */
+ * 配对映射将公共驱动坐标转换至RL坐标，不能照网络action顺序填写。 */
 typedef struct {
     int8_t motor_sign[6];      /* 固件↔模型配对方向，输入角/速与输出力矩共用 */
     float motor_zero[4];       /* 固件标定连续角至模型零位的额外偏移，rad */
     float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
     float reference_pos[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
     uint8_t configured;        /* 本机是否启用RL接口；小机当前未接入 */
-    float height;             /* 模型固定高度命令，m，不跟随rc.len */
     machine_rl_observation_cfg_t observation;
     machine_rl_torque_cfg_t torque;
     uint32_t action_timeout_ms; /* 已发布动作停止更新的故障期限 */

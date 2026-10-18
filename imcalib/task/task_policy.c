@@ -1,6 +1,6 @@
 /*
  * 50Hz策略：复制500Hz最新反馈及原始动作历史→组装obs39→推理→发布原始action6。
- * 选中RL即可在零出力状态运行；NORMAL静站不添加启动延迟，实际出力与PD归执行任务。
+ * 同帧复制公共遥控与恢复标志；趴地启动保持由执行任务控制，不以SDK就绪替代模型激活。
  * 共享样本/动作只在短临界区读写，观测构建和网络调用均放在临界区之外。
  */
 #include "robot_control.h"
@@ -18,6 +18,8 @@ void ctrl_task_body(void)
 {
     rl_observation_state_t observation;
     rl_observation_sample_t sample;
+    rl_recovery_state_t recovery;
+    rc_command_t command;
     float action[RL_ACTION_SIZE] = {0.0f};
     uint32_t reset_count;
     uint8_t selected;
@@ -30,6 +32,8 @@ void ctrl_task_body(void)
     reset_count = action_state.reset_count;
     if (selected)
     {
+        recovery = rl_control.recovery;
+        command = rc_command;
         sampled = RL_Observation_Read_Sample(&rl_control.observation, &sample);
         memcpy(observation.last_action, rl_control.observation.last_action, sizeof(observation.last_action));
     }
@@ -44,7 +48,7 @@ void ctrl_task_body(void)
         Action_State_Clear();
         return;
     }
-    built = RL_Observation_Build(&observation, &machine->rl, &sample, sampled);
+    built = RL_Observation_Build(&observation, &machine->rl, &sample, &command, &recovery, sampled);
     taskENTER_CRITICAL();
     if (reset_count != action_state.reset_count)
     {

@@ -32,7 +32,6 @@ static slip_state_t slip_control;
 static uint8_t lqr_running;     /* 已投入 */
 static uint8_t rl_engaged;      /* RL 已投入 */
 static uint8_t rl_wait_ticks;   /* 500Hz采样/执行 */
-static uint8_t rl_started;     /* 实际投入沿已处理，与仅选中RL/模型就绪分开 */
 static control_frame_t control_frame;
 static compensation_debug_t pending_compensation;
 volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
@@ -43,7 +42,9 @@ uint8_t Robot_Control_Enable_Allowed(void)
 {
     uint8_t recovery;
 
+    if (rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_FAILED) { return 0u; }
     recovery = (uint8_t)(standup_control.enabled && standup_control.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
+    recovery |= (uint8_t)(machine->rl.configured && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
     return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (!robot_state.fallen || recovery));
 }
 
@@ -64,6 +65,9 @@ static void Control_Frame_Read(void)
     control_frame.left = feedback.left;
     control_frame.right = feedback.right;
     control_frame.rc = feedback.rc;
+    control_frame.height = feedback.height;
+    control_frame.height_valid = feedback.height_valid;
+    control_frame.fallen = robot_state.fallen;
     control_frame.wheel_vel[0] = feedback.motor.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
     control_frame.wheel_vel[1] = feedback.motor.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
     control_frame.joint_ready = 1u;
@@ -85,8 +89,39 @@ static void Control_Frame_Read(void)
     {
         control_frame.drive &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
     }
-    control_frame.normal = (uint8_t)(control_frame.drive && !robot_state.fallen);
+    control_frame.normal = (uint8_t)(control_frame.drive && !control_frame.fallen);
     control_frame.recovery = (uint8_t)(control_frame.drive && standup_control.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
+    taskEXIT_CRITICAL();
+}
+
+/* 恢复仅改变RL许可/观测，不动LQR离地检测。实际投入/退出清历史，模式切换只撤销旧动作就绪。 */
+static void Control_RL_Recovery_Update(void)
+{
+    rl_recovery_state_t recovery;
+    rl_recovery_phase_t previous;
+    uint8_t request;
+
+    recovery = rl_control.recovery;
+    previous = recovery.phase;
+    request = (uint8_t)(control_frame.rc.online && control_frame.rc.mode.rc_enable && control_frame.rc.mode.strategy == CTRL_STRATEGY_RL && control_frame.rc.mode.engage);
+    RL_Recovery_Update(&recovery, request, (uint8_t)(control_frame.drive && control_frame.height_valid), control_frame.fallen, control_frame.height);
+    taskENTER_CRITICAL();
+    rl_control.recovery = recovery;
+    if (recovery.phase != previous)
+    {
+        if (previous == RL_RECOVERY_IDLE || recovery.phase == RL_RECOVERY_IDLE || recovery.phase == RL_RECOVERY_FAILED)
+        {
+            RL_Torque_Reset(&rl_control.torque_state);
+            Action_State_Clear();
+            memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
+        }
+        else
+        {
+            /* 保留训练的原始action历史；拒绝跨模式的在途推理，等待新模式首帧。 */
+            action_state.rl_ready = 0u;
+            action_state.reset_count++;
+        }
+    }
     taskEXIT_CRITICAL();
 }
 
@@ -142,6 +177,7 @@ static void output_dispatch(const torque_output_t *torque)
         }
     }
     zero_output = (uint8_t)(!applied.valid || !control_frame.drive || ctrl_fault != FAULT_NONE || !torque_output_enabled);
+    if (ctrl_strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase != RL_RECOVERY_NORMAL && rl_control.recovery.phase != RL_RECOVERY_RECOVER) { zero_output = 1u; }
     if (zero_output)
     {
         memset(&applied, 0, sizeof(applied));
@@ -444,6 +480,7 @@ void output_task_body(void)
 #endif
 
     Control_Frame_Read();
+    Control_RL_Recovery_Update();
     wheel_vel[0] = control_frame.wheel_vel[0];
     wheel_vel[1] = control_frame.wheel_vel[1];
     Control_Compensation_Update();
@@ -469,13 +506,6 @@ void output_task_body(void)
     if (strategy != CTRL_STRATEGY_RL)
     {
         rl_wait_ticks = 0u;
-        if (rl_started)
-        {
-            rl_started = 0u;
-            RL_Torque_Reset(&rl_control.torque_state);
-            Action_State_Clear();
-            memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
-        }
     }
 
     switch (strategy)
@@ -513,24 +543,8 @@ void output_task_body(void)
                 (void)RL_Motor_Map(&machine->rl, control_frame.motor_pos, control_frame.motor_vel, wheel_vel, control_frame.motor_valid, &control_frame.rl_motor);
                 RL_Observation_Sample(&rl_control.observation, control_frame.imu.gyro_rad_s, control_frame.imu.quat, &control_frame.rl_motor, control_frame.imu.online);
             }
-            rl_engaged = (uint8_t)(control_frame.normal && control_frame.rc.mode.engage && control_frame.drive);
-            if (rl_engaged && !rl_started)
-            {
-                /* 实际投入开启新控制段；清旧动作/历史，等待本段首个有效推理。 */
-                rl_started = 1u;
-                RL_Torque_Reset(&rl_control.torque_state);
-                Action_State_Clear();
-                memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
-            }
-            else if (!rl_engaged && rl_started)
-            {
-                /* 退出/失能时清目标和动作，清零前仍在途的推理也不能重新发布。 */
-                rl_started = 0u;
-                RL_Torque_Reset(&rl_control.torque_state);
-                Action_State_Clear();
-                memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
-            }
-            if (rl_engaged && action_state.rl_ready && control_frame.rl_motor.valid)
+            rl_engaged = (uint8_t)(control_frame.drive && control_frame.rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);
+            if (rl_engaged && rl_control.recovery.phase != RL_RECOVERY_HOLD && action_state.rl_ready && control_frame.rl_motor.valid)
             {
                 /* 正常间隔拍保持上次已发命令；故障/退出不走保持分支，仍每基础拍清零。 */
                 if (tick) { (void)RL_Torque_Compute(&control_frame.rl_motor, &machine->rl, action_state.a, &rl_control.torque_state, &torque); }

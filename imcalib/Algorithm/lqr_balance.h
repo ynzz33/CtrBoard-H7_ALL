@@ -66,6 +66,7 @@ typedef struct {
     float target[LQR_X_NUM]; /* 与x同序的目标，长度目标不在这个数组内 */
     float u[LQR_U_NUM]; /* 双轮及双腿摆矩输出N·m，尚未组合腿长力 */
     float u_col[LQR_X_NUM]; /* 左轮每个状态列的力矩贡献N·m */
+    float u_hip_col[LQR_X_NUM]; /* 左虚拟髋每个状态列的力矩贡献N·m */
     float K[LQR_U_NUM][LQR_X_NUM]; /* 增益矩阵，行输出/列状态 */
     float len[2]; /* 左右实测虚拟腿长m，用于增益调度 */
     float len_eval[2]; /* 上次求K使用的腿长m，只作重复计算判据 */
