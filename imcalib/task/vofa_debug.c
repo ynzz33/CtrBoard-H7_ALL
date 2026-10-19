@@ -19,6 +19,7 @@
 void Vofa_Debug_Send(void)
 {
     static float dbg[VOFA_MAX_CH];
+    static uint32_t observation_sequence;
     uint8_t online_mask;
     uint16_t state_bits;
 
@@ -66,26 +67,59 @@ void Vofa_Debug_Send(void)
     // dbg[17] = (float)leg_r.output.d_virtual_leg_angle;
     // dbg[18] = (float)leg_r.output.d_virtual_shank_angle;
 
-    /* 一次复制LQR状态、总力矩和分项，避免控制任务在复制中途推进一拍。 */
+    /* 本轮只替换VOFA通道：后台读取已有最新值，不增加控制拍采集或发布接口。
+     * 这些值来自不同生产任务，不保证与LQR本拍输入同一物理采样时刻。
+     * 当前通道含义以本函数赋值为准；31~34为四元数，42~44为含重力比力g。
+     */
     taskENTER_CRITICAL();
-    for(int i = 0;i<10;i++)
+    dbg[3] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT] * machine->wheel_r;
+    dbg[4] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT] * machine->wheel_r;
+    dbg[5] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_LFT];
+    dbg[6] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_RGT];
+    dbg[7] = 0.5f * (dbg[3] + dbg[4]); /* 原始轮线速度均值m/s */
+    dbg[8] = lqr_state.whl[0];        /* LQR已补偿的左轮角速度rad/s */
+    dbg[9] = lqr_state.whl[1];        /* LQR已补偿的右轮角速度rad/s */
+    dbg[10] = lqr_state.roll;         /* LQR横滚角rad */
+    dbg[11] = lqr_state.ds_raw;       /* 运动学速度m/s */
+    dbg[12] = lqr_state.a_fwd;        /* IMU前向加速度m/s^2 */
+    dbg[13] = lqr_state.ds_kf;        /* 融合速度m/s */
+    dbg[14] = imu_state.accel_vertical; /* 已有竖直加速度m/s^2 */
+    dbg[15] = imu_state.gyro_rad_s[0];
+    dbg[16] = imu_state.gyro_rad_s[2];
+    dbg[17] = lqr_state.x[LQR_X_THB];
+    dbg[18] = imu_state.gyro_rad_s[1]; /* 当前pitch原始角速度rad/s */
+    dbg[19] = lqr_state.x[LQR_X_DTHB]; /* pitch低通后角速度rad/s */
+    dbg[20] = leg_l.output.virtual_leg_angle;
+    dbg[21] = leg_l.output.d_virtual_leg_angle;
+    dbg[22] = leg_r.output.virtual_leg_angle;
+    dbg[23] = leg_r.output.d_virtual_leg_angle;
+    dbg[24] = leg_l.output.virtual_leg_length;
+    dbg[25] = leg_r.output.virtual_leg_length;
+    dbg[26] = leg_l.output.d_virtual_leg_length;
+    dbg[27] = leg_r.output.d_virtual_leg_length;
+    dbg[28] = lqr_state.x[LQR_X_S];
+    dbg[29] = lqr_state.target[LQR_X_DS];
+    dbg[30] = lqr_state.target[LQR_X_DPHI];
+    for (uint8_t i = 0u; i < 4u; i++)
     {
-        dbg[i + 3] = lqr_state.x[i];
+        dbg[31u + i] = imu_state.quat[i]; /* 已映射/归一化，w/x/y/z */
     }
-    for(int i = 0;i<10;i++)
+    dbg[35] = (float)lqr_state.air_control;
+    dbg[36] = (float)lqr_state.valid;
+    dbg[37] = sqrtf(imu_state.acc_g[0] * imu_state.acc_g[0] +
+                   imu_state.acc_g[1] * imu_state.acc_g[1] +
+                   imu_state.acc_g[2] * imu_state.acc_g[2]);
+    dbg[38] = (float)imu_state.last_timestamp_ms; /* IMU模块时间戳ms */
+    dbg[39] = lqr_state.u[LQR_U_WL];
+    dbg[40] = lqr_state.u[LQR_U_WR];
+    dbg[41] = lqr_state.u[LQR_U_BL];
+    for (uint8_t i = 0u; i < 3u; i++)
     {
-        dbg[i + 13] = lqr_state.target[i];
+        dbg[42u + i] = imu_state.acc_g[i]; /* 已映射三轴比力g，含重力 */
     }
-    dbg[23] = lqr_state.u[0];
-    dbg[24] = lqr_state.u[1];
-    dbg[25] = lqr_state.u[2];
-    dbg[26] = lqr_state.u[3];
-    for (uint8_t i = 0u; i < LQR_X_NUM; i++)
-    {
-        dbg[27u + i] = lqr_state.u_col[i];
-        dbg[37u + i] = lqr_state.u_hip_col[i];
-    }
-    dbg[47] = (float)lqr_state.air_control;
+    dbg[45] = lqr_state.u[LQR_U_BR];
+    dbg[46] = (float)HAL_GetTick();    /* 本次后台读取时间ms */
+    dbg[47] = (float)++observation_sequence; /* VOFA调用序号，非控制拍序号 */
     taskEXIT_CRITICAL();
     // dbg[23] = lqr_state.a_fwd;
 

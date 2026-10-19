@@ -93,14 +93,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .lqr = {
             .leg_trim = {-0.0f, -0.0f},             /* 摆角目标 rad */
             .pitch_trim = 0.0f,                      /* 俯仰目标 rad */
-            .pos_target = 0.4f,                      /* 位移目标 m */
+            .pos_target = 0.1f,                      /* 位移目标 m */
             .pos_arm_vel = 0.1f,                     /* 松杆低速门槛 */
             /* 角速度低通顺序: pitch / yaw */
             .lpf_alpha = {0.3f, 0.3f},
             /* PID 顺序: Kp / Ki / Kd / 输出限幅 / 积分限幅; 输出单位 N */
             .leg_len = {{2300.0f, 0.0f, 25000.0f, 5000.0f, 0.0f},
                         {2300.0f, 0.0f, 25000.0f, 5000.0f, 0.0f}}, /* 左右腿长 */
-            .roll = {500.0f, 0.0f, 100.0f, 5000.0f, 0.0f}, /* 横滚补偿 */
+            .roll = {600.0f, 0.0f, 100.0f, 5000.0f, 0.0f}, /* 横滚补偿 */
             .support_force = {20.534f * 9.81f * 0.5f, 20.534f * 9.81f * 0.5f}, /* 支撑前馈 N */
             .yaw_hold = 1u,                          /* 偏航角环 */
             .yaw_rate_hold = 1u,                     /* 偏航角速环 */
