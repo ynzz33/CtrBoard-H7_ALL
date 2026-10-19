@@ -1371,6 +1371,21 @@
                 <FileType>1</FileType>
                 <FilePath>../imcalib/task/control_air_response.c</FilePath>
               </File>
+              <File>
+                <FileName>control_strategy.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/task/control_strategy.c</FilePath>
+              </File>
+              <File>
+                <FileName>control_compute.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/task/control_compute.c</FilePath>
+              </File>
+              <File>
+                <FileName>control_output.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/task/control_output.c</FilePath>
+              </File>
             <File>
               <FileName>task_comm.c</FileName>
               <FileType>1</FileType>

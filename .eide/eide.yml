@@ -139,6 +139,9 @@ virtualFolder:
       files:
         - path: imcalib/task/control_detection.c
         - path: imcalib/task/control_air_response.c
+        - path: imcalib/task/control_strategy.c
+        - path: imcalib/task/control_compute.c
+        - path: imcalib/task/control_output.c
       folders: []
     - name: Doc
       files:
@@ -192,6 +195,9 @@ targets:
     excludeList:
       - imcalib/task/control_detection.c
       - imcalib/task/control_air_response.c
+      - imcalib/task/control_strategy.c
+      - imcalib/task/control_compute.c
+      - imcalib/task/control_output.c
     settings:
       debugger: cortex-debug
     toolchain: GCC

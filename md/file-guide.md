@@ -37,6 +37,9 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | imcalib/task | 反馈准备、策略仲裁、求解调用、最终输出及后台服务 |
 | [control_detection.c](../imcalib/task/control_detection.c) / [头文件](../imcalib/task/inc/control_detection.h) | 同拍检测输入组装、公共观测与三态调度；只返回进入FALLEN事件，不执行动作复位 |
 | [control_air_response.c](../imcalib/task/control_air_response.c) / [头文件](../imcalib/task/inc/control_air_response.h) | 消费已发布三态和落地沿，执行原AIR目标回置、基准复位及控制选择；不推进检测 |
+| [control_strategy.c](../imcalib/task/control_strategy.c) / [头文件](../imcalib/task/inc/control_strategy.h) | 同拍RL恢复、模型准备和公共检测；只确认本拍策略及进入FALLEN事件，不求力矩 |
+| [control_compute.c](../imcalib/task/control_compute.c) / [头文件](../imcalib/task/inc/control_compute.h) | 按已确认策略调用原LQR、自起、AIR、RL或补偿计算；只生成候选力矩，不发送报文 |
+| [control_output.c](../imcalib/task/control_output.c) / [头文件](../imcalib/task/inc/control_output.h) | 复查候选力矩与最终许可、发布诊断并唯一发送DM/DJI；不更新检测或控制器状态 |
 | imcalib/Algorithm | 姿态、几何、LQR/RL、自起、离地、速度融合与补偿；不直接发送控制报文 |
 | imcalib/drivers | DR16、HI229、DM/DJI等协议解析、反馈换算、在线判定与报文发送 |
 | imcalib/bsp | CAN/UART、DMA缓存、单调时间、VOFA发送及板级适配 |
@@ -57,7 +60,7 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | [comm_task_body](../imcalib/task/task_comm.c) | DM/DJI解析与物理量刷新、两腿解算、遥控解算/发布、故障/跌倒与使能看门狗 | freertos中的osDelay |
 | [imu_task_body](../imcalib/task/task_imu.c) | HI229读取/去重、按机器表取轴和符号、姿态/补角、IMU发布 | freertos中的osDelay |
 | [ctrl_task_body](../imcalib/task/task_policy.c) | RL39观测、CubeAI推理、原始动作发布 | TIM6按MACHINE_POLICY_DIV释放策略信号量 |
-| [output_task_body](../imcalib/task/task_actuation.c) | 快照与许可、速度/离地更新、模式求解、唯一力矩分发 | TIM6基础执行信号量；RL按MACHINE_RL_CTRL_DIV执行分频 |
+| [output_task_body](../imcalib/task/task_actuation.c) | 读取快照并同步调用策略准备、唯一控制运算和最终输出 | TIM6基础执行信号量；RL按MACHINE_RL_CTRL_DIV执行分频 |
 | [background_task_body](../imcalib/task/background_service.c) | 普通VOFA与灯效；USB初始化仍在默认任务入口 | 默认任务循环及osDelay |
 
 LQR使用`MACHINE_LQR_DT`，RL内环使用`MACHINE_RL_CTRL_DT`，策略使用`MACHINE_POLICY_DT`。公共腿长拨轮累加在通信任务的`Rc_Command_Update`完成，按`MACHINE_TICK_DT`推进。原通用周期兼容别名已移除，不能用一个周期替代各路径。大机RL间隔拍保持原已发输出，退出/故障仍在每个基础执行拍优先检查。
@@ -66,13 +69,13 @@ LQR使用`MACHINE_LQR_DT`，RL内环使用`MACHINE_RL_CTRL_DT`，策略使用`MA
 flowchart LR
     Sensors[IMU / CAN / 遥控] --> Prepare[IMU与通信任务]
     Prepare --> Snapshot[公共反馈快照]
-    Snapshot --> Act[执行任务与许可]
+    Snapshot --> Act[执行任务：策略准备]
     Act --> Sample[500Hz模型原生反馈采样]
     Sample --> Policy[50Hz RL观测与推理]
     Policy --> Action[原始动作发布]
     Action --> Act
-    Act --> Solve[LQR / 自起 / RL / 补偿求解]
-    Solve --> Dispatch[唯一力矩分发]
+    Act --> Solve[执行任务：唯一控制运算]
+    Solve --> Dispatch[执行任务：最终输出]
     Dispatch --> Motors[DM / DJI驱动]
 ```
 
@@ -256,7 +259,7 @@ RL恢复状态复用rl_observation.c/h内的模式生成逻辑，不新建公共
 
 FALLEN锁存原standup动作，不被自身扫腿或AIR结果重启；失败撤力和原延迟重试保持。原动作返回BALANCE时，检测已确认则选NORMAL或FLIGHT；检测尚未确认时保持DONE等待，不重启动作。FLIGHT只由原AIR落地退出规则转回NORMAL，不因低投影高度转FALLEN，回NORMAL先生成一拍正常候选后再判断后续倒地。未完成判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
 
-实际主链为反馈快照→一次模型准备→Control_Detection_Update→进入FALLEN时由执行层调用原Standup_Reset→原LQR状态/速度融合→唯一处理求解→诊断→唯一输出口。NORMAL/FLIGHT分别在原正常/AIR选择下调用原solve_lqr；FALLEN调用原solve_lqr_standup。原动作、LQR/腿力控公式、轨迹、PID、超时及重试参数保持。
+实际主链为反馈快照→`Control_Strategy_Prepare`（RL恢复、一次模型准备、`Control_Detection_Update`）→进入FALLEN时由`Control_Compute_Run`调用原`Standup_Reset`→原LQR状态/速度融合和唯一处理求解→`Control_Output_Apply`诊断与唯一输出口。NORMAL/FLIGHT分别在原正常/AIR选择下调用原LQR路径；FALLEN调用原standup路径。三段在同一actuationTask同步调用，不新增队列、任务或跨拍候选缓存；原动作、LQR/腿力控公式、轨迹、PID、超时及重试参数保持。
 
 2026-10-19进一步按作者确认分层：Algorithm/air_detection.c/h只负责支持力及离地算法，Algorithm/control_condition.c/h只负责触地与三态判断；task/control_detection.c组装快照并依次调用这两部分，返回进入FALLEN事件，不调用Standup_Reset或控制处理。task/control_air_response.c通过Control_Air_Response_Update消费三态/落地沿，原样保留目标写回临界区、位移/偏航复位、释放和限幅赋值；task_actuation.c保留原两个响应调用位置、动作交接和唯一输出。原Air_Detection_Active仅有的控制选择表达式移入响应文件，不再作为检测模块接口。公共状态与参数实例复用，无新增副本、任务、开关或时序条件；两个新头文件复用control_frame_t，只属于执行层，算法层不引入任务头。
 
