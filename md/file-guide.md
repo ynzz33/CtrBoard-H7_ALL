@@ -35,6 +35,8 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | [Core/Src/freertos.c](../Core/Src/freertos.c) | 五个任务的创建、初始化调用、等待与循环节拍 |
 | [imcalib/config/machine_config.c](../imcalib/config/machine_config.c) / [头文件](../imcalib/config/machine_config.h) | 两机只读配置、编译选机和节拍宏；驱动/几何/IMU/LQR/RL共用 |
 | imcalib/task | 反馈准备、策略仲裁、求解调用、最终输出及后台服务 |
+| [control_detection.c](../imcalib/task/control_detection.c) / [头文件](../imcalib/task/inc/control_detection.h) | 同拍检测输入组装、公共观测与三态调度；只返回进入FALLEN事件，不执行动作复位 |
+| [control_air_response.c](../imcalib/task/control_air_response.c) / [头文件](../imcalib/task/inc/control_air_response.h) | 消费已发布三态和落地沿，执行原AIR目标回置、基准复位及控制选择；不推进检测 |
 | imcalib/Algorithm | 姿态、几何、LQR/RL、自起、离地、速度融合与补偿；不直接发送控制报文 |
 | imcalib/drivers | DR16、HI229、DM/DJI等协议解析、反馈换算、在线判定与报文发送 |
 | imcalib/bsp | CAN/UART、DMA缓存、单调时间、VOFA发送及板级适配 |
@@ -242,11 +244,25 @@ RL恢复状态复用rl_observation.c/h内的模式生成逻辑，不新建公共
 
 ## 自起、离地与姿态补角
 
-公共robot_state.fallen继续直接用IMU euler_deg（沿用LQR实际取轴），pitch或roll任一严格超过40度为倒地；IMU故障保留旧标志。公共高度由Leg_Height_Estimate单独计算0.5*(L_left*cos(theta_left)+L_right*cos(theta_right))，随同批电机/双腿一起发布到robot_state.height/height_valid及反馈快照，LQR不消费高度，也不改air_detection。该值是机体系髋轮投影间距，悬空/倾斜时不等于绝对离地高度；按作者“阈值直接按仿真”要求，0.20m作为实机低高度替代门槛，不能宣称等同仿真base_contact>1N或root高度测量。
+公共robot_state.fallen继续直接用IMU euler_deg（沿用LQR实际取轴），pitch或roll任一严格超过40度为倒地；IMU故障保留旧标志。公共高度由Leg_Height_Estimate单独计算0.5*(L_left*cos(theta_left)+L_right*cos(theta_right))，随同批电机/双腿发布到robot_state.height/height_valid及反馈快照；RL原语义保持，LQR新触地判断消费同一高度。该值是机体系髋轮投影间距，悬空/倾斜时不等于绝对离地高度，也不等于仿真base_contact>1N；收腿悬空与低机身触地仍可能不可唯一辨识。
 
 [standup.c](../imcalib/Algorithm/standup.c)独立管理起立准备和倒置恢复，按姿态/许可推进阶段，生成目标后运行独立控制器与公共补偿；PREPARE/BALANCE/STOP路由交给执行层，准备过程两轮为零。正常自起和翻身共用独立长度速率standup_param.length_rate，与LQR长度速率分开。
 
-[air_detection.c](../imcalib/Algorithm/air_detection.c)用同侧髋反馈反解、弹簧/自重和IMU估计支撑力；armed是初次支撑确认，valid是本拍估计有效，flight是接触状态。缓存未更新也按固定MACHINE_LQR_DT处理；无效观测不会自动清flight，检测只发布状态。
+[air_detection.c](../imcalib/Algorithm/air_detection.c)用同侧髋反馈反解、弹簧/自重和IMU估计支持力；initialized表示已连续完成高或低支持力初判，valid是本拍估计有效，flight是接触状态。首次低支持力也可进入AIR，初次高/低力使用独立计时，不能互相接续。取消输入中的LQR运行/自起完成permit，改由已发布的IMU/双腿有效性、四髋在线/实际使能和模型结果保证反馈可用。缓存未更新仍按固定MACHINE_LQR_DT处理。
+
+2026-10-19首步仅提取检测调用；随后作者明确批准实际接入触地判断与三态，保留处理内部。[control_condition.c/h](../imcalib/Algorithm/control_condition.h)管理公共观测及NORMAL=0/FALLEN=1/FLIGHT=2选路，实例control_condition可Watch。valid=0表示本拍不能选路，不是第四种控制状态。初始或明确零出力阶段以公共height不大于control_condition_param.body_contact_height连续确认（本次锁定0.15 m/50 ms）；等值成立，候选中断、源姿态或高度无效清连续计时，待确认候选优先于离地初判。
+
+初始已支撑且无需恢复可直接进入NORMAL；NORMAL中的腿姿/俯仰异常沿用standup_param原门槛与持续时间，原倒置姿态条件也保留。只有已生成有效NORMAL候选后才累计新的异常触发；FLIGHT/FALLEN中的异常历史不带入正常运行。normal_ready仅表示求解候选有效，不证明HAL已发送或实体已执行。公共fallen和RL恢复不改用本模块。
+
+FALLEN锁存原standup动作，不被自身扫腿或AIR结果重启；失败撤力和原延迟重试保持。原动作返回BALANCE时，检测已确认则选NORMAL或FLIGHT；检测尚未确认时保持DONE等待，不重启动作。FLIGHT只由原AIR落地退出规则转回NORMAL，不因低投影高度转FALLEN，回NORMAL先生成一拍正常候选后再判断后续倒地。未完成判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
+
+实际主链为反馈快照→一次模型准备→Control_Detection_Update→进入FALLEN时由执行层调用原Standup_Reset→原LQR状态/速度融合→唯一处理求解→诊断→唯一输出口。NORMAL/FLIGHT分别在原正常/AIR选择下调用原solve_lqr；FALLEN调用原solve_lqr_standup。原动作、LQR/腿力控公式、轨迹、PID、超时及重试参数保持。
+
+2026-10-19进一步按作者确认分层：Algorithm/air_detection.c/h只负责支持力及离地算法，Algorithm/control_condition.c/h只负责触地与三态判断；task/control_detection.c组装快照并依次调用这两部分，返回进入FALLEN事件，不调用Standup_Reset或控制处理。task/control_air_response.c通过Control_Air_Response_Update消费三态/落地沿，原样保留目标写回临界区、位移/偏航复位、释放和限幅赋值；task_actuation.c保留原两个响应调用位置、动作交接和唯一输出。原Air_Detection_Active仅有的控制选择表达式移入响应文件，不再作为检测模块接口。公共状态与参数实例复用，无新增副本、任务、开关或时序条件；两个新头文件复用control_frame_t，只属于执行层，算法层不引入任务头。
+
+公共检测不再由lqr_idle或LQR私有重建复位；初始化和关闭检测才清全部历史。观测失败清valid、initialized和连续计时，保留flight及本次峰值；反馈恢复需重新初判，已有AIR不会因初次高力确认被直接清除，也不重新播种峰值。原AIR运行分支完整保留：峰值更新、任一腿独立连续压缩退出、landing_enabled关闭的计时清零、非压缩模式的高力退出和新AIR峰值播种均未替换，不增加支持力与压缩联合条件。
+
+当前VOFA布局未改。Watch建议观察control_condition.condition/valid/started、body_contact_candidate/body_contact_confirmed/contact_elapsed、trigger_elapsed/normal_ready、air_debug.initialized/valid/flight/mean_force及standup_control.phase/fault/retry。新判断已实际选路，软件检查通过不表示真实触地辨识或飞坡/掉落动作通过验收。
 
 大机按作者要求收紧确认条件：更低的支持力均值持续更久才判离地，首次支撑需要更高支持力且持续更久；压缩落地需要更大的单腿压缩量并持续更久。小机保留原门槛。参数统一在air_param初始化中按机型维护，数值以源码为准；本次不新增起立后固定屏蔽时间，不改变任一腿满足即可确认压缩落地的原逻辑。确认更严格会增加真实离地/落地的判定延迟，误触发改善仍待实机验证。
 
@@ -268,7 +284,7 @@ Robot_Control_Init直接调用Air_Detection_Reset清检测历史；固定air_par
 
 RL不叠加弹簧或重力；地面LQR、自起和补偿台架走弹簧加完整重力的组合入口。LQR空中轴向释放时跳过命令侧弹簧抵消，使实体弹簧自然伸腿，重力摆矩仍保留。GAS_SPRING_COMP_ENABLE控制是否生成/叠加抵消量，不关闭离地所需的实体力估计；未绑定spring的小机返回零实体弹簧力并旁路补偿。Gas_Spring_Force是准备端的模型入口，后续消费者直接读缓存force，不再重复调用。
 
-执行任务顺序为Control_Frame_Read → Control_Compensation_Update → Control_State_Update → 路由求解 → 唯一分发。Control_Compensation_Update按模式/许可选择准备项，结果放在control_frame.compensation（leg_compensation_values_t）：spring供实体力和抵消量，gravity供原姿态引用，gravity_world供pitch_world补角引用。未投入时清空值；RL不准备控制补偿模型，RL始终不接入弹簧抵消或重力。恢复路径重建LQR状态仍使用同拍准备值，不重复计算。缓存仅属于当前快照，不新增跨周期命中、序号或时间状态。
+Control_Compensation_Update按模式/许可准备原控制项，并在公共离地观测反馈可用时补齐其所需实体模型；仍每拍只准备一次，结果放在control_frame.compensation（leg_compensation_values_t）：spring供实体力和抵消量，gravity供原姿态引用，gravity_world供pitch_world补角引用。未投入或选RL时也可为公共检测准备实体弹簧/重力模型，但RL控制不叠加这些补偿。恢复路径重建LQR状态使用同拍准备值，不重复推进公共检测或计算模型。缓存仅属于当前快照，不新增跨周期命中、序号或时间状态；板端新增观测耗时尚未测量。
 
 模型/检测链：准备Fs与原姿态引用重力摆矩 → Air_Estimate反馈反解 → 读取force[side]和gravity.leg[side].torque计算支持力。控制链：基础力矩 → 读取准备的spring.delta_dm → 读取对应gravity.delta_dm → 原限幅及诊断 → 唯一输出许可检查。LQR/自起/台架通过leg_compensation组合入口直接叠加；RL直接输出实体电机PD，不调用Gas_Spring_Apply。
 
@@ -326,6 +342,8 @@ debug_rx按作者要求保留用于后续VOFA接收；当前只是预留实例�
 RL39外围迁移时已做大小机各104项GCC编译及完整链接；旧BMI088 packed告警保持。工程外宿主编译实际rl_observation、rl_torque、machine_config、task_policy及Action_State_Clear，240项断言覆盖映射、裁剪/缩放、动作重排、PD/限幅、最新样本、失败/退出与清零期间在途推理；另执行实际output_task_body的200个基础拍，361项断言核对100次采样、10次策略推理、首个有效动作后99次正常下发及投入/退出/失能。反馈、时钟、网络、其他控制器与IO为替身，只证明软件步序。作者替换网络后，本轮另完成大机104项GCC编译/链接、权重字节核对及64组ST host数值验收；未重跑之前的替身测试，也未执行AC5、烧录、板端数值、周期/CAN测量或物理标定。
 
 Keil工程入口为[CtrBoard-H7_ALL.uvprojx](../MDK-ARM/CtrBoard-H7_ALL.uvprojx)，eIDE为[.eide/eide.yml](../.eide/eide.yml)。GCC/AC5分别使用各自的启动、FreeRTOS端口、硬浮点ABI与AI运行库，不混用厂商库。核验时读取当前compile_commands或工程参数，把对象、依赖、ELF/map输出到工程外临时目录，避免污染增量构建。
+
+新增源必须核对eIDE实际生成的builder.params、compile_commands.json及objlist，不能仅凭srcDirs或工程外手工补齐来源清单的链接成功认定已接入IDE。2026-10-19两个新执行层文件曾未被收录，造成Control_Detection_Update/Control_Air_Response_Update未定义；刷新建议未解决，现由.eide/eide.yml的ControlModules虚拟源组显式登记。target.excludeList中的两个同名物理路径只排除目录扫描副本，虚拟路径仍编译，保证目录重新扫描后也各进入清单一次；不能单独删除虚拟登记或把这些排除项解释为禁用模块。修改工程配置后加载新配置再构建，不手工编辑生成的builder.params作为修复。此登记已用安装版eIDE源选择规则核对，并用实际unify_builder全量构建验证；实际IDE三份清单也已收录两个文件各一次。
 
 CubeMX的.ioc目标为MDK-ARM，eIDE另用GCC。重生成曾删除Middlewares里的GCC端口和AI库；仅补回文件和关闭DeletePrevious后，文件再次丢失、开关也回到true。当前不再依赖该开关保留GCC文件：将原版port.c/portmacro.h迁至gcc_support/FreeRTOS/ARM_CM4F，AI库迁至gcc_support/AI，内容逐字节保持原样，.eide/eide.yml成套更新源、包含目录和链接库。原Middlewares旧GCC路径保持缺失时，eIDE实际unify_builder仍可全量编译并生成HEX/BIN；MDK继续使用自己的RVDS端口/Keil库，不改用RVDS头文件给GCC编译。没有新增自动恢复脚本或构建钩子。首次变更后重新加载eIDE工程再全量编译；若重新导入MDK工程，需保留这三项GCC专属引用。
 

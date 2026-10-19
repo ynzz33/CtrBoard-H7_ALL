@@ -1,8 +1,8 @@
 /*
  * 文件职责：策略仲裁、控制求解及唯一电机输出出口（task_actuation.c）。
  * 输入/来源：一致反馈快照、拨杆模式、驱动/正常/自救许可和最新RL动作。
- * 输出/去向：选择补偿台架/LQR自起/RL/失能，统一门控后发送四髋/双轮力矩。
- * 关键边界：离地检测只发布状态，本文件决定释放/有效落地；零输出/故障在最终出口仍需复查。
+ * 输出/去向：选择补偿台架/LQR三态/RL/失能，统一门控后发送四髋/双轮力矩。
+ * 关键边界：公共检测与三态只决定选路；原处理生成力矩，零输出/故障在最终出口复查。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -17,12 +17,15 @@
 #include "standup.h"
 #include "slip.h"
 #include "air_detection.h"
+#include "control_condition.h"
+#include "control_detection.h"
+#include "control_air_response.h"
 #include <math.h>
 #include <string.h>
 
 /*
  * 输出任务三层结构 (作者 2026-09-22 定: 解算只算, 分发唯一):
- *   1 估计层  LQR_State_Update()            每拍必算, 不看挡位
+ *   1 判断层  公共检测/三态 → LQR_State_Update()与原速度融合
  *   2 求解层  solve_*()                      按策略算 torque_output_t, 只写 torque 不碰驱动
  *   3 分发层  output_dispatch()              全文件唯一的 Dm_Send / Dji_Send 调用点
  * 改输出行为 (总开关 / 限幅 / 斜坡 / 极性) 只动 output_dispatch(); 改控制律只动 solve_*()
@@ -227,65 +230,17 @@ static void Control_Compensation_Update(void)
             enabled = LEG_COMP_SPRING | LEG_COMP_GRAVITY_WORLD;
         }
     }
+    /* 公共观察器需要实体模型，不等待LQR投入或自起完成；命令补偿接入保持原样。 */
+    if (air_param.enabled && control_frame.imu.online && control_frame.left.output.valid && control_frame.right.output.valid && control_frame.joint_ready)
+    {
+        enabled |= LEG_COMP_SPRING | LEG_COMP_GRAVITY;
+    }
     Leg_Compensation_Prepare(&control_frame.compensation, &control_frame.left, &control_frame.right, &control_frame.imu, enabled);
-}
-
-/* 离地观测与切换 */
-/*
- * 用本拍快照更新离地观测，把检测flight组合为LQR空中/轴向释放选择。
- * 只有上次释放已生效且本次有效flight 1→0才触发0.20m目标复位；模式退出/检测复位不能伪造落地。
- * 切换时重建停车/朝向基准；目前确认落地即直接恢复地面控制，没有额外缓冲阶段。
- */
-static void Control_Air_Update(void)
-{
-    air_input_t input;
-    uint8_t active;
-    uint8_t was_active;
-    uint8_t was_flight;
-    uint8_t was_release;
-
-    memset(&input, 0, sizeof(input));
-    input.imu = &control_frame.imu;
-    input.leg[0] = &control_frame.left;
-    input.leg[1] = &control_frame.right;
-    input.compensation = &control_frame.compensation;
-    input.joint_ready = control_frame.joint_ready;
-    input.permit = (uint8_t)(lqr_running && control_frame.normal && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage && (!standup_control.enabled || standup_control.phase == STANDUP_DONE));
-    for (uint8_t side = 0u; side < 2u; side++)
-    {
-        for (uint8_t i = 0u; i < 2u; i++)
-        {
-            input.torque[side][i] = control_frame.joint_torque[side * 2u + i];
-        }
-    }
-    was_active = lqr_state.air_control;
-    was_flight = air_detection.flight;
-    was_release = lqr_state.air_release;
-    Air_Detection_Update(&air_detection, &input);
-    active = Air_Detection_Active(&air_detection);
-    control_frame.landed = (uint8_t)(was_release && was_flight && !air_detection.flight && air_detection.valid && input.permit && air_param.control_enabled && lqr_debug.air_release_enable);
-    if (control_frame.landed)
-    {
-        taskENTER_CRITICAL();
-        rc_command.len = 0.20f;
-        control_frame.rc.len = rc_command.len;
-        taskEXIT_CRITICAL();
-    }
-    if (active != was_active)
-    {
-        lqr_state.pos = 0.0f;
-        lqr_state.pos_armed = 0u;
-        lqr_state.yaw_tgt = lqr_state.x[LQR_X_PHI];
-    }
-    lqr_state.air_control = active;
-    lqr_state.air_release = (uint8_t)(active && lqr_debug.air_release_enable);
-    lqr_state.air_hip_max = air_param.hip_max;
-    air_detection.applied = active;
 }
 
 /* 组装观测、速度补偿、位置积分 */
 /*
- * 先构建LQR原始状态并更新接触检测，再选择是否接入轮速修正，最后回填融合速度。
+ * 公共检测已在主链更新；此处构建LQR状态、接入原AIR响应和速度融合。
  * AIR停止轮速修正，仍用IMU预测；检测退出AIR的同拍恢复轮速修正，需与轮输出时序一起判读。
  */
 static void Control_State_Update(uint8_t reset_velocity)
@@ -293,12 +248,13 @@ static void Control_State_Update(uint8_t reset_velocity)
     if (!LQR_State_Update(&lqr_state, &control_frame.imu, &control_frame.left, &control_frame.right, control_frame.wheel_vel))
     {
         Slip_Reset(&slip_control);
-        Air_Detection_Reset(&air_detection);
         lqr_state.air_control = 0u;
         lqr_state.air_release = 0u;
+        air_detection.applied = 0u;
+        control_condition.valid = 0u;
         return;
     }
-    Control_Air_Update();
+    Control_Air_Response_Update(&control_frame);
     if (reset_velocity || !slip_control.initialized)
     {
         Slip_Init(&slip_control, lqr_state.ds_raw, lqr_state.a_fwd);
@@ -324,7 +280,7 @@ static uint8_t lqr_engage_update(void)
     uint8_t ready;
     lqr_debug_t saved_debug;
 
-    ready = (uint8_t)(control_frame.normal && lqr_state.valid);
+    ready = (uint8_t)(lqr_state.valid && (control_condition.condition == CONTROL_FALLEN ? control_frame.normal : (control_frame.drive && control_condition.valid)));
     if (!ready)
     {
         lqr_running = 0u;
@@ -349,14 +305,14 @@ static uint8_t lqr_engage_update(void)
     return lqr_running;
 }
 
-/* LQR 退出 / 未投入: 清观测值 */
+/* LQR退出只清私有历史；公共检测的历史由检测模块维护。 */
 static void lqr_idle(void)
 {
     lqr_running = 0u;
     Leg_Balance_Reset(&leg_balance);
-    Air_Detection_Reset(&air_detection);
     lqr_state.air_control = 0u;
     lqr_state.air_release = 0u;
+    air_detection.applied = 0u;
 }
 
 /* ================= 2 求解层: 只写 torque, 不下发 ================= */
@@ -427,6 +383,14 @@ static void solve_lqr_standup(torque_output_t *torque)
     route = Standup_Update(&standup_control, &control_frame.imu, &control_frame.left, &control_frame.right, &control_frame.compensation, permit, 1u, MACHINE_LQR_DT, torque);
     if (route == STANDUP_ROUTE_BALANCE)
     {
+        /* 动作到位条件不变；先判断接回NORMAL还是FLIGHT，未知时等待而不重启动作。 */
+        Control_Condition_Recovery_Ready(&control_condition, &air_detection);
+        if (!control_condition.valid)
+        {
+            Torque_Output_Clear(torque);
+            return;
+        }
+        Control_Air_Response_Update(&control_frame);
         if (!was_done)
         {
             if (lqr_engage_update())
@@ -443,6 +407,8 @@ static void solve_lqr_standup(torque_output_t *torque)
             Standup_Fail(&standup_control, STANDUP_BAD_INPUT);
             Torque_Output_Clear(torque);
             lqr_idle();
+            control_condition.condition = CONTROL_FALLEN;
+            control_condition.normal_ready = 0u;
         }
     }
     else
@@ -457,7 +423,7 @@ static void solve_lqr_standup(torque_output_t *torque)
 
 /* ================= 主体: 估计 → 求解 → 分发 ================= */
 /*
- * 单周期主链：反馈快照 → 估计/离地/速度融合 → 策略路由求解 → 诊断发布 → 唯一输出口。
+ * 单周期主链：反馈快照 → 模型/公共检测/三态 → 原LQR状态及融合 → 唯一求解 → 诊断 → 唯一输出口。
  * torque初始为无效零值；只有求解成功的分支能置valid。大机RL间隔拍可保留已发输出，退出/故障仍复查。
  * RTOS节拍由freertos入口等待，本函数不创建任务或自行等待发送完成。
  */
@@ -485,7 +451,11 @@ void output_task_body(void)
     wheel_vel[1] = control_frame.wheel_vel[1];
     Control_Compensation_Update();
 
-    /* 1 估计与融合 */
+    /* 1 一次公共检测 → 三态选路 → 原LQR状态/速度融合 */
+    if (Control_Detection_Update(&control_frame))
+    {
+        Standup_Reset(&standup_control);
+    }
     Control_State_Update(0u);
 
     /* 2 求解: torque 默认全零 valid=0, 只有走通的分支才置 valid */
@@ -517,11 +487,33 @@ void output_task_body(void)
 
         case CTRL_STRATEGY_LQR:
         {
-            if (standup_control.enabled && control_frame.rc.mode.engage)
+            if (!control_frame.drive || !control_frame.rc.mode.engage)
             {
-                solve_lqr_standup(&torque);
+                if (control_condition.condition == CONTROL_FALLEN && standup_control.enabled && standup_control.phase != STANDUP_IDLE && control_frame.rc.mode.engage)
+                {
+                    solve_lqr_standup(&torque);
+                }
+                else
+                {
+                    lqr_idle();
+                }
             }
-            else if (control_frame.rc.mode.engage && lqr_engage_update())
+            else if (!control_condition.valid)
+            {
+                /* 初判/重确认期间保持默认无效零候选，不能清公共观察器计时。 */
+            }
+            else if (control_condition.condition == CONTROL_FALLEN)
+            {
+                if (standup_control.enabled)
+                {
+                    solve_lqr_standup(&torque);
+                }
+            }
+            else if (control_condition.condition == CONTROL_FLIGHT && !air_param.control_enabled)
+            {
+                /* 关闭AIR处理不能隐式改选NORMAL；保持默认无效零候选。 */
+            }
+            else if (lqr_engage_update())
             {
                 solve_lqr(&torque);
             }
@@ -529,6 +521,7 @@ void output_task_body(void)
             {
                 lqr_idle();
             }
+            control_condition.normal_ready = (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL && torque.valid);
             break;
         }
 

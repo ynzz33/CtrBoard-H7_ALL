@@ -11,6 +11,7 @@
 #include "machine_config.h"
 #include "standup.h"
 #include "air_detection.h"
+#include "control_condition.h"
 
 #include <string.h>
 
@@ -82,6 +83,7 @@ void Robot_Control_Init(void)
     rc_command.mode.strategy = CTRL_STRATEGY_DISABLE;
     Standup_Init(&standup_control);
     Air_Detection_Reset(&air_detection); /* 参数直接使用固定配置，初始化只清检测历史。 */
+    Control_Condition_Reset(&control_condition);
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);

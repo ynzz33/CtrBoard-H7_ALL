@@ -183,6 +183,7 @@
 
 - Linux 下 eIDE/GCC 的新机器依赖、路径约束和 `libhostfxr.so` 排错见 [构建与验证](file-guide.md#build)；本机 .NET 环境变量放在 VS Code 用户设置，提交前检查工具链配置中没有个人绝对路径。
 - 本项目是 **Keil MDK / eIDE** 工程。Keil AC5 在 `D:\keil\keil_core\ARM\armcc_5\bin\armcc.exe`，完整编译参数取自 `build/CtrBoard-H7_ALL/compile_commands.json`。改完先编译；核验编译必须把 `-o` 改到临时目录，不能污染 eIDE 增量构建目录。启动汇编用 `armasm.exe`。
+- 新增/迁移C源同时核对Keil登记和eIDE实际sourceList、compile_commands及objlist，确认各进入一次；不能只凭srcDirs或外部手工补齐清单后的链接宣称IDE接入成功。缺源修复归持久工程配置，不直接改生成的builder.params；虚拟登记与物理扫描并存时按实际源选择规则避免重复编译。当前两个control调度/响应源通过ControlModules显式登记，物理路径排除只用于去除扫描副本，详见file-guide构建节。
 - **完整GCC链接可在工程外验证，下载与上机不在本轮范围** → 物理符号、增益、轴向一律标 **"待台架 / 待实测"**。
 - **作者2026-10-11明确要求**：删除工程Python测试/工具文件，后续不允许生成额外Python测试文件。不改用其他语言批量新增多余测试文件；优先使用现有Keil/ARM GCC编译、MATLAB检查和VOFA实测。做过哪些核验如实说明，物理符号、增益、轴向只能台架确认。
 - **调参观测靠 Vofa+**：显示值不对 → **先查打包/下标，再怀疑算法**。
@@ -217,14 +218,14 @@
 
 ## 当前事实的阅读边界
 
-- 2026-10-17作者指定公共fallen直接使用IMU回传俯仰/横滚euler_deg，任一超过40度；不重复投影重力、不另增rl_fallen。公共高度仅计算两腿L*cos(theta)均值并发布有效标志，LQR不消费高度。现已接入RL平地命令与恢复：0.20m低高度替代门槛、200ms趴地保持、500ms连续稳定确认、连续倒地严格超过2000ms锁定失败。间距/低高度只是实机替代估计，不宣称等价仿真绝对高度/接触力测量；不接LQR离地检测，不恢复被撤销的公共接触改造。
+- 2026-10-17作者指定公共fallen直接使用IMU回传俯仰/横滚euler_deg，任一超过40度；不重复投影重力、不另增rl_fallen。公共高度仅计算两腿L*cos(theta)均值并发布有效标志。2026-10-19作者再次批准LQR触地与三态接入：control_condition消费同一height，初始触地采用独立门槛和连续确认；NORMAL/FALLEN/FLIGHT实际选路，原处理内部冻结。RL保持原0.20m低高度替代门槛、200ms趴地保持、500ms稳定确认及连续倒地严格超过2000ms失败，不消费LQR三态。投影高度不宣称等价仿真绝对高度/接触力测量。
 
 - 模式唯一解码入口是Rc_Command_Update，结果随rc.mode发布；左中右上是补偿台架，左中右中是自起/LQR，左上右中是RL，其余组合按实际许可输出零或失能；实际出力检查和求解仍在task_actuation。
 - 前进/偏航量程和腿长初值/速率仍共用machine.rc，RL只在观测入口按训练包线限幅。NORMAL/RECOVER共用原训练PD和电机映射；实际投入时锁存ground_start，中途倒地不重复启动保持，成功后ground_start不清零。模式切换保留原始动作历史，只撤销旧动作就绪并拒绝在途推理，等待新模式首帧；故障/退出/超时清动作，FAILED必须退出投入重试。
 - 大小机K表与machine配置均由MACHINE_DEFAULT编译绑定，固定使用各机当前表，无运行时K表切换、旧表对照或配套检查；LQR许可直接读取lqr_configured。实时输入/结果检查和表域限幅保留。
 - 作者要求原始反馈校验集中到处理端：IMU发布online、腿解算发布valid/force_valid、电机组发布motor.valid；消费者读取标志，不重复扫描已验证数值。映射/观测等新结果在生成处验证，固定配置/代码初始参数不做合法性扫描；保留运行反馈、奇异性、实际出力许可和最终结果检查。离地样本时间检查已删除，不能根据旧“保留采样时序”描述恢复。
 - debug_rx作为后续VOFA接收预留，当前未接通；Lowpass_Reset、Ramp_Init按作者要求暂留，不能按零调用自动删除。未使用的DR16_Rx_Cb、UART_Rx_Take、Slip_Update等旧入口不恢复，当前实际消费者使用带时间的UART快照接口及显式接触状态的Slip入口。
-- 弹簧/重力已按执行拍统一准备并复用；进一步整理output_task_body的具体函数拆分、调度及目标/积分顺序目前仅提出计划，尚未获得实施授权，也未实现。后续实现后同步此条及file-guide，不能把本次规范整理当作重构完成。
+- 2026-10-19作者已确认并接入公共检测、触地判断与三态实际选路，并再次确认分文件：task/control_detection.c调度原观测/判断，返回进入FALLEN事件，由执行层复位原动作；task/control_air_response.c承接原AIR响应，保留调用位置和处理行为。模型每拍准备一次，检测不依赖lqr_running/自起完成，也不由lqr_idle清历史。原AIR压缩分支、三态规则、standup动作、LQR/腿力控、物理参数和RL保持；分文件授权不等于修改处理公式。当前接口、Watch和软件验收见file-guide，实机效果及耗时待验证。
 - FDCAN1/3数据段机器配置目前在main中套用，不能沿用旧“不生效”描述。
 - VOFA只使用选定UART DMA，固定48路：状态3、完整obs39、网络耗时1、恢复阶段/公共高度/高度有效/稳定ms/倒地ms共5路；不选帧、不新增页面或采样框架。旧LQR/腿部赋值保留注释，按源码手动切换；见[file-guide.md](file-guide.md#vofa)。
 - 通用控制周期兼容别名、旧弹簧字段、Python测试/工具、Sysid控制和USB关节协议已清理；历史正文中的相关标识不是恢复功能的授权。

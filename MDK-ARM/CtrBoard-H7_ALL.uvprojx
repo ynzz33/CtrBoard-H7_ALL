@@ -1321,6 +1321,11 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/air_detection.c</FilePath>
             </File>
+              <File>
+                <FileName>control_condition.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/Algorithm/control_condition.c</FilePath>
+              </File>
             <File>
               <FileName>standup.c</FileName>
               <FileType>1</FileType>
@@ -1356,6 +1361,16 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/task/task_actuation.c</FilePath>
             </File>
+              <File>
+                <FileName>control_detection.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/task/control_detection.c</FilePath>
+              </File>
+              <File>
+                <FileName>control_air_response.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/task/control_air_response.c</FilePath>
+              </File>
             <File>
               <FileName>task_comm.c</FileName>
               <FileType>1</FileType>

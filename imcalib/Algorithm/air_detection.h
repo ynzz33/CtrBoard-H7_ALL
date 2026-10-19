@@ -2,7 +2,7 @@
  * 文件职责：离地/落地状态估计（air_detection.h）。
  * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
  * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩与IMU。
- * 输出/去向：发布支持力、armed/valid/flight及压缩诊断，执行层决定是否切换控制。
+ * 输出/去向：发布支持力、initialized/valid/flight及压缩诊断，执行层决定是否切换控制。
  * 关键边界：按固定执行周期处理缓存反馈；无效观测保留flight。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
@@ -39,7 +39,6 @@ typedef struct {
     const leg_compensation_values_t *compensation; /* 本拍模型值 */
     float torque[2][2]; /* 四髋物理反馈力矩N·m，已处理驱动极性 */
     uint8_t joint_ready; /* 四髋可用 */
-    uint8_t permit; /* 当前模式/使能/自起条件是否允许检测 */
 } air_input_t;
 
 /* 单腿估计中间量：电机贡献、实体模型、投影与轮重项分开保存便于判断。 */
@@ -69,8 +68,9 @@ typedef struct {
     air_landing_t landing[2]; /* 左右峰值/压缩/独立持续时间 */
     float mean_force; /* 左右滤波FN的均值N */
     float elapsed; /* 当前条件计时s；压缩AIR时为两腿计时最大值 */
+    float initial_unload_elapsed; /* 初次低支持力独立计时s，不与初次高力串用 */
     uint8_t flight; /* 1判定离地，0接地；短暂无效可保留上次值 */
-    uint8_t armed; /* 已连续确认首次支撑，才允许判离地 */
+    uint8_t initialized; /* 已连续完成高/低支持力初判，失效后重新确认 */
     uint8_t valid; /* 最近估计是否有效，不表示电机执行成功 */
     uint8_t fault; /* 本拍估计失败，不等同ctrl_fault */
     uint8_t applied; /* 执行层是否选中AIR控制，不证明实体执行 */
@@ -81,6 +81,5 @@ extern air_detection_t air_detection;
 extern volatile air_detection_t air_debug;
 void Air_Detection_Reset(air_detection_t *state);
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input);
-uint8_t Air_Detection_Active(const air_detection_t *state);
 
 #endif

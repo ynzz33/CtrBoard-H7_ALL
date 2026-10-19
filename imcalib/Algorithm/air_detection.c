@@ -1,7 +1,7 @@
 /*
  * 文件职责：离地/落地状态估计（air_detection.c）。
  * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩与IMU。
- * 输出/去向：发布支持力、armed/valid/flight及压缩诊断，执行层决定是否切换控制。
+ * 输出/去向：发布支持力、initialized/valid/flight及压缩诊断，执行层决定是否切换控制。
  * 关键边界：按固定执行周期处理缓存反馈；无效观测保留flight。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
@@ -32,27 +32,19 @@ volatile air_detection_t air_debug;
 
 /* 重新等待样本 */
 /*
- * 清空本次检测所有历史，包括armed、flight和悬空峰值。
- * 许可/模式退出调用此接口；再次投入必须重新确认初次支撑，不能把清零当作真实落地事件。
+ * 清空本次检测所有历史，包括initialized、flight和悬空峰值。
+ * 初始化/关闭检测调用；LQR退出不清公共观测，清零不能当作真实落地事件。
  */
 void Air_Detection_Reset(air_detection_t *state)
 {
     memset(state, 0, sizeof(*state));
 }
 
-/*
- * 按enabled/control_enabled/flight决定是否选择空中控制。
- * valid表示本拍估计可用，不等同于接地；估计失败期间仍保留上次AIR状态。
- */
-uint8_t Air_Detection_Active(const air_detection_t *state)
-{
-    return (uint8_t)(air_param.enabled && air_param.control_enabled && state->flight);
-}
-
 /* 清条件计时 */
 static void Air_Timer_Reset(air_detection_t *state)
 {
     state->elapsed = 0.0f;
+    state->initial_unload_elapsed = 0.0f;
     state->landing[0].elapsed = 0.0f;
     state->landing[1].elapsed = 0.0f;
 }
@@ -65,6 +57,7 @@ static void Air_Timer_Reset(air_detection_t *state)
 static void Air_Invalid(air_detection_t *state)
 {
     state->valid = 0u;
+    state->initialized = 0u;
     Air_Timer_Reset(state);
     state->fault = 1u;
 }
@@ -123,7 +116,7 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
 
 /* 均值迟滞计时 */
 /*
- * 先确认初次支撑armed，再按低支持力的连续时间确认离地。
+ * 首次高/低支持力分别连续确认，空中上电不要求已有支撑历史。
  * AIR每拍更新各腿峰值；压缩模式使用每腿独立计时，任一腿达时即可恢复整机接地。
  * landing_enabled关闭时只观察峰值/压缩，不退出AIR；非压缩模式才使用高支持力落地。
  */
@@ -134,13 +127,31 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input)
     float length;
     uint8_t condition;
 
-    if (!state->armed)
+    if (!state->initialized)
     {
         state->elapsed = state->mean_force > air_param.force_on ? state->elapsed + dt : 0.0f;
+        state->initial_unload_elapsed = state->mean_force < air_param.force_off ? state->initial_unload_elapsed + dt : 0.0f;
         if (state->elapsed + 1.0e-6f >= air_param.time_on)
         {
-            state->armed = 1u;
+            state->initialized = 1u;
             state->elapsed = 0.0f;
+            state->initial_unload_elapsed = 0.0f;
+        }
+        else if (state->initial_unload_elapsed + 1.0e-6f >= air_param.time_off)
+        {
+            state->initialized = 1u;
+            state->elapsed = 0.0f;
+            state->initial_unload_elapsed = 0.0f;
+            /* 已知AIR的失效重确认保留原峰值；只为新AIR播种。 */
+            if (!state->flight)
+            {
+                state->flight = 1u;
+                memset(state->landing, 0, sizeof(state->landing));
+                for (uint8_t side = 0u; side < 2u; side++)
+                {
+                    state->landing[side].peak_length = input->leg[side]->output.virtual_leg_length;
+                }
+            }
         }
         return;
     }
@@ -194,7 +205,7 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input)
 
 /* 固定执行周期 */
 /*
- * 许可/四髋可用 → 双腿估力 → 状态机；缓存未更新也按MACHINE_LQR_DT处理。
+ * 公共反馈/四髋可用 → 双腿估力 → 状态机；缓存未更新也按MACHINE_LQR_DT处理。
  * 首次或失败恢复先播种差分，连续条件计时每个有效执行拍推进。
  * 算法只更新state，执行层负责真实控制切换。
  */
@@ -202,12 +213,12 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
 {
     air_leg_t air_leg_temp[2];
 
-    if (!air_param.enabled || !input->permit)
+    if (!air_param.enabled)
     {
         Air_Detection_Reset(state);
         return;
     }
-    if (!input->joint_ready || !input->compensation->spring.valid || (machine->gravity != NULL && !input->compensation->gravity.valid))
+    if (!input->imu->online || !input->imu->pitch_world_valid || !input->leg[0]->output.valid || !input->leg[1]->output.valid || !input->joint_ready || !input->compensation->spring.valid || (machine->gravity != NULL && !input->compensation->gravity.valid))
     {
         Air_Invalid(state);
         return;

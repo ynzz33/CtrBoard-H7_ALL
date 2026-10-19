@@ -2,6 +2,34 @@
 
 本文件只保存历史变更、依据、验证与删除前的文档副本。当前规则看AGENTS.md，当前代码结构看file-guide.md；历史内容不能作为现行参数、已验证状态或可直接执行的操作步骤。阅读时按日期、模块或关键词检索，不必整份加载。
 
+## 2026-10-19 · 修复eIDE未收录两个新增执行源导致的链接失败
+
+- 作者两次报告Control_Air_Response_Update和Control_Detection_Update未定义。实际builder.params、compile_commands及objlist均缺两个新C，日志新增C编译数为0；首次仅建议刷新未解决。本次只修工程接入，不改判断或处理源码。以用户当次真实lnp和既有对象在临时目录重现同样3个未定义引用，未以数学/AI库或控制算法问题解释。
+- .eide/eide.yml新增ControlModules虚拟组，显式登记task/control_detection.c与task/control_air_response.c；target.excludeList排除这两个物理扫描路径，虚拟路径仍启用。直接运行已安装eIDE的getAllSources/isExcluded规则，验证目录树漏项与完整扫描两种情况下各收录一次，避免重复链接；未改编译/链接参数、库、头文件路径、工具链或生成缓存作为持久修复。
+- 按当前工程配置导出来源清单，使用eIDE实际unify_builder 3.11.1在工程外全量编译106个C源并链接，生成ELF/HEX/BIN；仅原BMI088 packed告警。两个函数在ELF中均为已定义T符号，实际IDE的三份生成清单随后也各包含两个文件一次。另执行同参数增量构建成功。产物、原始失败、源选择校验及最新K表稳定指纹在C:/Users/ynz/AppData/Local/Temp/s2rgap-eide-registration-3tqp3cyg/；没有写入项目对象缓存或烧录设备。
+- 本轮未修改任何C/H；核验期间检测到lqr_gain_big.c的外部更新，保留未覆盖，最终构建期间其指纹稳定；其余92个固件文件与本轮开始快照一致。file-guide及AGENTS补充实际IDE清单核验要求，纠正只依赖目录扫描的假设。未stage/commit/push，构建通过不表示实机接触/恢复或物理参数已验证。
+
+## 2026-10-19 · 检测调度与AIR后处理分文件，保持当前行为
+
+- 作者确认三态已接入后要求检测与后处理分层，逐项展示文件/接口并再次获准后实施。新增task/control_detection.c及task/inc/control_detection.h：合并原执行层两段检测调度，仍依次推进AIR观测和触地/三态判断，返回进入FALLEN事件；原Standup_Reset由task_actuation在相同位置消费事件，不进入检测文件。Algorithm/control_condition.c/h、触地参数和三态规则未改。
+- 新增task/control_air_response.c及配套头：原Control_Air_Update的目标回置临界区、基准复位、AIR选择、释放/限幅和applied赋值迁入Control_Air_Response_Update，两个原调用位置保留。Air_Detection_Active的原布尔表达式内联至响应，删除检测C/H中的旧定义/声明；检测算法其余文本保持。task_actuation删除三段私有实现，只保留调度、状态进入动作、处理求解和唯一输出；Keil登记两个新源，eIDE沿用原目录扫描。
+- 以本次迁移前的当前工作区为基线，大小机真实C执行夹具分别84/83项通过；每个检查点记录状态、计时、目标、控制量和最终发送候选，迁移前后十六进制浮点记录逐字节一致。固件/工具快照中仅原task_actuation.c及air_detection.c/h三个已有文件改变，其余99个文件（含作者当前K表和MATLAB改动）逐字节保持。执行层和响应体变换另作文本核对，无新增判断、配置副本或控制处理。
+- 大小机GCC分别106个C源完整编译链接通过，相关AC5共12对象通过；GCC只有原BMI088 packed告警。产物在工程外C:/Users/ynz/AppData/Local/Temp/s2rgap-detection-response-split-56utithd/，未生成工程测试目录或改写eIDE构建缓存。未烧录、未stage/commit/push；对照基于反馈/IO替身，不作为实机耗时下降或真实接触辨识已通过的证明。
+
+## 2026-10-19 · 接入触地判断、三态与实际选路，冻结原处理内部
+
+- 作者纠正“只拆调用无法验证判断”，明确批准接入公共高度触地及NORMAL/FALLEN/FLIGHT实际切换，再考虑后处理修改。新增control_condition.c/h，使用已锁定的公共height≤0.15 m连续50 ms；候选等待优先，原standup_param门槛与异常持续时间作为正常运行重新恢复依据。公共IMU fallen、height生产及RL恢复语义不变；robot_state.h仅同步height消费注释，字段和布局保持。
+- air_detection.c/h仅改变反馈入口、首次高/低力初判和失效重新确认：移除控制permit，armed改名initialized，初次低力独立计时。原Air_Estimate、air_param初值、初判之后整段AIR/压缩/支持力运行分支与快照文本一致；不将压缩落地改为支持力联合条件。失败清连续计时及initialized、保留已有flight和峰值；重新确认不绕过已有AIR的压缩退出。
+- task_actuation.c主拍独立推进一次公共检测与三态。检测模型一次准备，不依赖LQR运行或自起完成；lqr_idle和LQR私有故障不再清公共观察器。FALLEN只在进入时初始化原动作，恢复运行和失败重试不被其他判断重启；原动作到位后按检测交接NORMAL/FLIGHT，未知则保持DONE等待。FLIGHT不能直接转FALLEN，原落地后先生成有效NORMAL候选再允许后续倒地。关闭对应处理不隐式改选NORMAL。原AIR目标回置、基准复位、掩码、释放、补偿、限幅、控制公式和最终出口保留，仅接入状态/许可条件。
+- 初始化增加Control_Condition_Reset，Keil注册新源，eIDE原目录扫描保留；未迁移或新增后处理文件。standup.c/h、lqr_balance.c/h、leg_balance.c/h及相关动作/控制参数、补偿模型、K表、RL和驱动未改。实际source对照证明原估力与运行落地分支保持，原solve_lqr、RL分支及最终输出等任务函数保持。新增观察器会增加未投入/RL期间的模型准备，实机峰值耗时待测。
+- 软件验证：实际C执行函数＋反馈/IO替身大机84、小机83项通过，覆盖高度等值/中断、49/50 ms、触地优先、无支撑上电、独立高低初判、原压缩任一腿退出/非压缩/关闭落地、失效保留峰值、FLIGHT归属、先NORMAL后FALLEN、READY＋AIR、未知READY等待、处理关闭、模式退出、故障撤力/原重试、RL 200基础拍100次下发；正常/自起消费的模型值与旧准备函数在代表姿态逐字节一致。初次检查暴露短故障丢失FALLEN归属，已修正为只在退出投入后重新初判。默认大小机GCC完整编译/链接各104个C源，相关AC5各5对象通过，仅GCC原BMI088 packed告警；产物见工程外C:/Users/ynz/AppData/Local/Temp/s2rgap-three-condition-dz2c12yb/。未烧录、未stage/commit/push，软件结果不代替真实接触辨识、恢复动作或1 kHz时序验收。
+
+## 2026-10-19 · 仅提取离地检测输入组装与调用
+
+- 作者已用Git撤销此前重构，随后明确只做检测调用，不改自起、倒置自救、离地处理或相对压缩规则；经逐项展示并获准执行后，固件仅修改task_actuation.c：新增私有Control_Air_Detection_Update，将原输入组装和Air_Detection_Update调用原样搬入，返回原input.permit；原Control_Air_Update通过返回值permit继续判断落地。
+- 原检测调用位置及次数、许可表达式、落地目标回置、位置/偏航复位、AIR选择、轴向释放及限幅赋值保持；solve_lqr_standup原本就存在，本次未新增或修改。air_detection.c/h、standup.c/h、LQR/腿力控、参数、补偿、RL、VOFA、驱动、工程清单和最终输出函数均未改。未接入新三态或触地高度判断。
+- 验证：相同输入组装文本与原响应逐项比对通过，其余任务函数保持；另外86个固件C/H与修改前快照逐字节一致。task_actuation.c分别通过大小机ARM GCC与Keil AC5编译，共4个对象，无告警；git差异另作检查。工程外证据位于C:/Users/ynz/AppData/Local/Temp/s2rgap-air-call-split-9aa0gqb4/。未做完整链接、烧录或实机时序测量，未stage/commit/push；此次拆分不作为检测效果改善的实测证明。
+
 ## 2026-10-19 · 修改任务与实施计划须展示文件和拟改代码（仅文档）
 
 - 作者明确要求将“写对应任务时，展示需要修改的代码，并指出修改文件”记入记忆和AGENTS。AGENTS的“用户背景与解释”新增要求：按文件/函数/结构体列出拟新增、删除或替换的关键代码，使用片段或diff说明原因与影响，区分拟修改和已实施；不增加新的执行确认关卡。
