@@ -1326,11 +1326,16 @@
                 <FileType>1</FileType>
                 <FilePath>../imcalib/Algorithm/control_condition.c</FilePath>
               </File>
-            <File>
-              <FileName>standup.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/Algorithm/standup.c</FilePath>
-            </File>
+              <File>
+                <FileName>fallen_detection.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/Algorithm/fallen_detection.c</FilePath>
+              </File>
+              <File>
+                <FileName>ground_recovery.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/Algorithm/ground_recovery.c</FilePath>
+              </File>
           </Files>
         </Group>
         <Group>

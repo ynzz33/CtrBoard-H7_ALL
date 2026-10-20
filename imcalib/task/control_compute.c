@@ -6,7 +6,7 @@
 #include "control_compute.h"
 #include "robot_state.h"
 #include "machine_config.h"
-#include "standup.h"
+#include "ground_recovery.h"
 #include "slip.h"
 #include "air_detection.h"
 #include "control_condition.h"
@@ -61,13 +61,13 @@ static uint8_t LQR_Engage_Update(control_frame_t *frame)
     }
     else if (!lqr_running)
     {
-        if (standup_control.recovered)
+        if (ground_recovery_control.lifecycle.recovered)
         {
             saved_debug = lqr_debug;
             LQR_Init(&lqr_state);
             lqr_debug = saved_debug;
             Control_State_Update(frame, 1u);
-            standup_control.recovered = 0u;
+            ground_recovery_control.lifecycle.recovered = 0u;
         }
         lqr_running = LQR_Enable_Latch(&lqr_state, &frame->rc);
         if (lqr_running)
@@ -129,20 +129,22 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     }
 }
 
-static void Compute_LQR_Standup(control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
+static void Compute_LQR_Ground_Recovery(control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     uint8_t permit;
     uint8_t route;
     uint8_t was_done;
 
     permit = frame->recovery;
-    was_done = (uint8_t)(standup_control.phase == STANDUP_DONE);
+    was_done = (uint8_t)(ground_recovery_control.lifecycle.phase == GROUND_RECOVERY_DONE);
     if (was_done && permit && LQR_Engage_Update(frame))
     {
         Compute_LQR(frame, torque, debug);
     }
-    route = Standup_Update(&standup_control, &frame->imu, &frame->left, &frame->right, &frame->compensation, permit, 1u, MACHINE_LQR_DT, torque);
-    if (route == STANDUP_ROUTE_BALANCE)
+    route = Ground_Recovery_Update(&ground_recovery_control, &frame->imu, &frame->left,
+                                   &frame->right, &frame->compensation, permit,
+                                   MACHINE_LQR_DT, torque);
+    if (route == GROUND_RECOVERY_ROUTE_BALANCE)
     {
         Control_Condition_Recovery_Ready(&control_condition, &air_detection);
         if (!control_condition.valid)
@@ -159,12 +161,12 @@ static void Compute_LQR_Standup(control_frame_t *frame, torque_output_t *torque,
             }
             else
             {
-                Standup_Fail(&standup_control, STANDUP_GATED);
+                Ground_Recovery_Fail(&ground_recovery_control, GROUND_RECOVERY_GATED);
             }
         }
         if (!torque->valid)
         {
-            Standup_Fail(&standup_control, STANDUP_BAD_INPUT);
+            Ground_Recovery_Fail(&ground_recovery_control, GROUND_RECOVERY_BAD_INPUT);
             Torque_Output_Clear(torque);
             LQR_Idle();
             control_condition.condition = CONTROL_FALLEN;
@@ -174,9 +176,9 @@ static void Compute_LQR_Standup(control_frame_t *frame, torque_output_t *torque,
     else
     {
         LQR_Idle();
-        if (route == STANDUP_ROUTE_PREPARE && torque->valid)
+        if (route == GROUND_RECOVERY_ROUTE_PREPARE && torque->valid)
         {
-            *debug = standup_control.compensation;
+            *debug = ground_recovery_control.actuator.compensation;
         }
     }
 }
@@ -213,20 +215,20 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
 {
     if (entered_fallen)
     {
-        Standup_Reset(&standup_control);
+        Ground_Recovery_Reset(&ground_recovery_control);
     }
     /* 保持原顺序：进入FALLEN先清动作，再构建本拍LQR状态。 */
     Control_State_Update(frame, 0u);
     Torque_Output_Clear(torque);
     memset(debug, 0, sizeof(*debug));
     ctrl_strategy = strategy;
-    if (!standup_control.enabled || strategy == CTRL_STRATEGY_COMPENSATION || (frame->rc.online && !(frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage)))
+    if (!ground_recovery_control.lifecycle.enabled || strategy == CTRL_STRATEGY_COMPENSATION || (frame->rc.online && !(frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage)))
     {
-        Standup_Reset(&standup_control);
+        Ground_Recovery_Reset(&ground_recovery_control);
     }
-    else if (strategy != CTRL_STRATEGY_LQR && standup_control.phase != STANDUP_IDLE)
+    else if (strategy != CTRL_STRATEGY_LQR && ground_recovery_control.lifecycle.phase != GROUND_RECOVERY_IDLE)
     {
-        Standup_Fail(&standup_control, STANDUP_GATED);
+        Ground_Recovery_Fail(&ground_recovery_control, GROUND_RECOVERY_GATED);
     }
     rl_engaged = 0u;
     *dispatch = 1u;
@@ -245,9 +247,9 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
         case CTRL_STRATEGY_LQR:
             if (!frame->drive || !frame->rc.mode.engage)
             {
-                if (control_condition.condition == CONTROL_FALLEN && standup_control.enabled && standup_control.phase != STANDUP_IDLE && frame->rc.mode.engage)
+                if (control_condition.condition == CONTROL_FALLEN && ground_recovery_control.lifecycle.enabled && ground_recovery_control.lifecycle.phase != GROUND_RECOVERY_IDLE && frame->rc.mode.engage)
                 {
-                    Compute_LQR_Standup(frame, torque, debug);
+                    Compute_LQR_Ground_Recovery(frame, torque, debug);
                 }
                 else
                 {
@@ -260,9 +262,9 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
             }
             else if (control_condition.condition == CONTROL_FALLEN)
             {
-                if (standup_control.enabled)
+                if (ground_recovery_control.lifecycle.enabled)
                 {
-                    Compute_LQR_Standup(frame, torque, debug);
+                    Compute_LQR_Ground_Recovery(frame, torque, debug);
                 }
             }
             else if (control_condition.condition == CONTROL_FLIGHT && !air_param.control_enabled)

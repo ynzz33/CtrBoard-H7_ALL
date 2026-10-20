@@ -69,6 +69,16 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
 void Control_Output_Publish_Air_Debug(void)
 {
     taskENTER_CRITICAL();
-    air_debug = air_detection;
+    air_debug.mean_force = air_detection.mean_force;
+    air_debug.elapsed = air_detection.elapsed;
+    air_debug.initial_unload_elapsed = air_detection.initial_unload_elapsed;
+    air_debug.compression[0] = air_detection.landing[0].compression;
+    air_debug.compression[1] = air_detection.landing[1].compression;
+    air_debug.landing_elapsed[0] = air_detection.landing[0].elapsed;
+    air_debug.landing_elapsed[1] = air_detection.landing[1].elapsed;
+    air_debug.flight = air_detection.flight;
+    air_debug.initialized = air_detection.initialized;
+    air_debug.valid = air_detection.valid;
+    air_debug.fault = air_detection.fault;
     taskEXIT_CRITICAL();
 }

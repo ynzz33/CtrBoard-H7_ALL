@@ -13,7 +13,6 @@
 #include "dji.h"
 #include "can_bus.h"
 #include "machine_config.h"
-#include "mono_ns.h"
 
 #include <math.h>
 #include <string.h>
@@ -87,19 +86,15 @@ static void Remote_Control_Update(void)
 {
     dr16_t remote;
     rc_command_t rc_command_temp;
-    feedback_sample_t received;
-
     DR16_Process();
     remote = DR16_Snapshot();
-    received.received_ns = remote.received_ns;
-    received.seen = remote.online;
     rc_command_temp = rc_command;
     Rc_Command_Update(&rc_command_temp, &remote, MACHINE_TICK_DT);
     if (!(output_task_lqr_engaged() || output_task_rl_engaged()))
     {
         rc_command_temp.len = machine->rc.len_init;
     }
-    Robot_Feedback_Publish_Rc(&rc_command_temp, received);
+    Robot_Feedback_Publish_Rc(&rc_command_temp);
 }
 
 

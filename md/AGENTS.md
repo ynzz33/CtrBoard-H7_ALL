@@ -1,6 +1,6 @@
 # AI协作规范 — 轮腿控制工程
 
-2026-10-16：按作者要求留存训练仓Git规则，并合并少废话、敢纠正、克制改动、解释、按需澄清及渐进协作偏好。根目录AGENTS.md为自动阅读入口，规则正文只维护在本文件。现行代码/调用/参数/VOFA/构建见[file-guide.md](file-guide.md)，历史见[sysid-change-map.md](sysid-change-map.md)；作者明确要求的训练部署说明作为额外交付快照保留。
+2026-10-16：按作者要求留存训练仓Git规则，并合并少废话、敢纠正、克制改动、解释、按需澄清及渐进协作偏好。根目录AGENTS.md为自动阅读入口，规则正文只维护在本文件。现行代码/调用/参数/VOFA/构建见[file-guide.md](file-guide.md)，历史见[sysid-change-map.md](sysid-change-map.md)；作者明确要求的训练部署说明作为额外交付快照保留。2026-10-20作者明确授权新增[结构优化计划](struct-optimization-plan.md)，倒地恢复先完成后才进入全项目结构体优化。
 
 规则优先保留以下修改授权、物理量红线与任务分层约束。接手先读规则和总览；历史账本按日期/关键词检索，不将旧参数、旧开关、旧通道或已删除工具当作当前行为。
 
@@ -227,6 +227,15 @@
 - debug_rx作为后续VOFA接收预留，当前未接通；Lowpass_Reset、Ramp_Init按作者要求暂留，不能按零调用自动删除。未使用的DR16_Rx_Cb、UART_Rx_Take、Slip_Update等旧入口不恢复，当前实际消费者使用带时间的UART快照接口及显式接触状态的Slip入口。
 - 2026-10-19作者已确认并接入公共检测、触地判断与三态实际选路，并再次确认分文件：task/control_detection.c调度原观测/判断，返回进入FALLEN事件，由执行层复位原动作；task/control_air_response.c承接原AIR响应，保留调用位置和处理行为。模型每拍准备一次，检测不依赖lqr_running/自起完成，也不由lqr_idle清历史。原AIR压缩分支、三态规则、standup动作、LQR/腿力控、物理参数和RL保持；分文件授权不等于修改处理公式。当前接口、Watch和软件验收见file-guide，实机效果及耗时待验证。
 - 2026-10-19作者进一步确认执行拍按横向三层整理：control_strategy只推进恢复、模型准备和检测并确认策略；control_compute只运行已选的一条原控制路径；control_output只复查许可、发布诊断和发送。三层由同一actuationTask同步直接调用，不新增任务、队列、跨拍候选缓存或业务结构体；先验证控制行为一致，再单独审查结构体删改。Algorithm控制实现、检测规则、控制周期与处理公式冻结。
+- 2026-10-20地面恢复已完成迁移：fallen_detection只发布姿态有效性、upright、inverted和普通异常；control_condition只做高度/三态选路；ground_recovery完整持有普通自起、倒置自救、阶段、目标、PID、映射、补偿、超时和重试，standup.c/h及旧工程源登记已删除。恢复上下文显式分为lifecycle、normal、self_right、actuator四组，不使用字段宏别名。动作姿态复核仍在ground_recovery内，不能误删。阶段顺序、PID、F/Tp、补偿、轨迹、限幅、超时和重试未改。
+- 2026-10-20全局首批成员清理：`lqr_state.u_col/u_hip_col`和`robot_state.rc_enable`经全工程检索均无读取后删除。删除成员前必须同时核对直接读写、VOFA/Watch、条件编译与跨任务快照；不能以“当前不参与控制”代替无消费者证据。
+- 2026-10-20反馈元数据链已按后续全项目审查授权删除；`Robot_Feedback_Read`只复制控制实际读取的反馈。DM的`parsed_rx_ns`仍是离地相关真实接收时间，不能与已删除的IMU/遥控镜像元数据混淆。
+- 2026-10-20 `air_debug`只保留VOFA实际读取的紧凑诊断快照；完整离地检测跨拍状态仍在`air_detection`。删调试镜像字段前须核对VOFA布局与Watch用途，不改变检测器本体。
+- 2026-10-20恢复动作继续去冗余：删除只在单轮计算内使用的angle_speed_cmd、临时prepare、raw_dm和跨函数临时force/tp；`Ground_Recovery_Compute_Output`用局部候选完整映射后再发布。长度/角度目标、PID和斜坡必须独立保存，不能与正常LQR或遥控目标共用历史；`ground_recovery_param.length_rate`不能替换为machine.rc.len_rate，否则改变恢复动作速率。
+- 2026-10-20倒地触发判据归fallen_detection_param：trigger_angle、trigger_pitch、trigger_time和pitch_max不属于恢复动作参数。恢复可读同一检测阈值维持姿态保护和重新恢复确认，但检测模块不得反向包含ground_recovery头文件。
+- 2026-10-20普通恢复超时统一为length_timeout（EXTEND/RETRACT）和angle_timeout（REAR/SWING），当前均1.5s；length_tol同时用于伸腿和收腿，收腿转摆条件为retract_len+length_tol。作者要求删除翻身F和Tp预映射限幅，恢复输出只保留最终四髋限幅。
+- 2026-10-20翻身使用与后摆共用的angle_rate；TUCK改名PRELOAD且必须等待两腿达到recovery_len-length_tol才开始FLIP，不能恢复固定等待时间后未建力臂就扫腿的旧逻辑。PRELOAD仍由recovery_timeout兜底。
+- 2026-10-20已删除recovery_timeout：PRELOAD用length_timeout，FLIP用扫角上限或卡滞保护，SETTLE只按固定等待转段；不得恢复一个覆盖不同阶段语义的通用翻身超时。
 - 2026-10-19台架CSV显示AIR落地后全支撑前馈会使短腿快速回弹并再次离地；300 ms的支撑前馈/pitch列渐进恢复随后已按作者要求撤销，恢复原处理。当前先观察既有腿长PID D项是否能缓冲：VOFA 45/46为左右dout、47为fallen；不得在未看D项方向和限幅前盲调Kd。
 - FDCAN1/3数据段机器配置目前在main中套用，不能沿用旧“不生效”描述。
 - VOFA只使用选定UART DMA，固定48路：状态3、完整obs39、网络耗时1、恢复阶段/公共高度/高度有效/稳定ms/倒地ms共5路；不选帧、不新增页面或采样框架。旧LQR/腿部赋值保留注释，按源码手动切换；见[file-guide.md](file-guide.md#vofa)。

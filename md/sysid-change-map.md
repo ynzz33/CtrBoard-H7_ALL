@@ -2,6 +2,82 @@
 
 本文件只保存历史变更、依据、验证与删除前的文档副本。当前规则看AGENTS.md，当前代码结构看file-guide.md；历史内容不能作为现行参数、已验证状态或可直接执行的操作步骤。阅读时按日期、模块或关键词检索，不必整份加载。
 
+## 2026-10-20 · 完整迁移地面恢复动作与子结构分组
+
+- 删除 `standup.c/h`，将原普通起立、倒置翻身、阶段机、目标、PID、映射、补偿、超时和重试逐语句迁入 `ground_recovery.c/h`。旧薄包装变为唯一动作实现；全局状态、参数、枚举和公开接口统一为 `ground_recovery_*` / `GROUND_RECOVERY_*`，不保留旧符号、宏别名或兼容包装。
+- `ground_recovery_ctx_t` 显式分为 `lifecycle`（许可/阶段/重试/计时）、`normal`（后摆连续路径）、`self_right`（翻身扫描/卡滞）和 `actuator`（目标、PID、Ramp、补偿诊断）。访问全部使用真实嵌套成员；动作公式、阶段顺序和跨拍状态的存储位置语义保持。
+- 审查腿长相关复用：恢复仍直接读取机器的腿长PID、物理限位、电机限幅、支撑力和trim；`ground_recovery_param.length_rate`、阶段长度目标和两腿`length_cmd/ramp`保持独立，不能替换为`rc_command.len`或`machine->rc.len_rate`，否则会改变恢复的固定轨迹及机型恢复速率。
+- `control_compute/control_strategy/control_detection/task_actuation/robot_control/control_condition/fallen_detection`、Keil源登记和现行文档同步改名。eIDE实际全量110个C源编译链接通过，Flash 600800 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 触发判据从恢复参数拆入倒地检测
+
+- 将`trigger_angle`、`trigger_pitch`、`trigger_time`和`pitch_max`从`ground_recovery_param_t`移动到`fallen_detection_param_t`，初值保持50°、50°、0.2 s和1.0 rad。`fallen_detection`与`control_condition`不再包含或读取`ground_recovery.h`，检测→选路方向不再依赖动作参数。
+- `pitch_max`和`trigger_time`此前还分别参与恢复姿态保护与DONE后的重新恢复确认；两处现读取同一个`fallen_detection_param`字段，比较、计时、阶段和输出顺序不变。恢复轨迹、腿长速率、目标、PID、限幅、超时和重试参数仍留在`ground_recovery_param`。eIDE实际全量110个C源编译链接通过，Flash 600800 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 收敛普通恢复超时、腿长容差和翻身力限幅
+
+- 删除`extend_timeout`、`rear_timeout`和`timeout[2]`，替换为`length_timeout`与`angle_timeout`；EXTEND/RETRACT共用前者，REAR/SWING共用后者。当前源码的四个旧值为1.0、1.0、1.5、1.5 s，收敛后两项都取1.5 s，避免任何阶段整理后更早超时。
+- 删除`retract_ready_len`，将`extend_tol`改名为`length_tol`；伸腿到位仍为`extend_len - length_tol`，收腿切入摆正改为`retract_len + length_tol`。当前收腿门槛由0.19 m收紧为0.16 m，属于作者指定的行为调整。
+- 删除翻身轴向力预映射限幅`recovery_force_max`及其F裁剪，四髋继续由原`machine->dm_trq_clamp`在公共映射/补偿后最终限幅。虚拟摆矩`tp_max`仍保留，因其不是轴向力限幅。eIDE实际全量110个C源编译链接通过，Flash 600720 B、DTCMRAM 8696 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 删除恢复专用Tp预映射限幅
+
+- 作者明确要求恢复摆矩也只走最终四髋限幅。删除`tp_max`字段、初始化值、摆角速度PID的`min(tp_max, machine->dm_trq_clamp)`输出上限及PID结果的Tp裁剪；该PID现在直接以`machine->dm_trq_clamp`为输出上限，随后仍经过原腿端映射、补偿和最终四髋限幅。
+- 这会允许映射前虚拟腿Tp超过旧40 N·m；最终四髋保护保持，实际动作效果需台架确认。eIDE实际全量110个C源编译链接通过，Flash 600620 B、DTCMRAM 8696 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 翻身PRELOAD建立力臂后再扫腿
+
+- `rear_rate`与`recovery_angle_rate`合并为`angle_rate=6.7 rad/s`，后摆与FLIP扫腿共用同一目标推进速率；`TUCK`更名为`PRELOAD`，因为该阶段实际是给翻身腿长目标建立力臂。
+- 删除固定`recovery_preload_time`。新增私有`Ground_Recovery_Preloaded`，将`recovery_len`按机器腿长范围夹取后，要求两腿实际长度均不小于`recovery_len - length_tol`才转FLIP；PRELOAD仍受原`recovery_timeout`保护。原实现只等待50 ms，可能在目标腿长尚未到位时就开始扫腿。
+- `recovery_ready_pitch`更名为`recovery_pitch_tol`，当前数值0.6 rad不变；仍需正立并连续稳定才结束翻身。eIDE实际全量110个C源编译链接通过，Flash 600740 B、DTCMRAM 8688 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录，动作效果待台架确认。
+
+## 2026-10-20 · 删除无效的通用翻身超时
+
+- 参考Leg3自救阶段机后复核：当前`angle_rate=6.7 rad/s`时FLIP扫满`2π`约0.94 s，早于旧`recovery_timeout=1.5 s`；SETTLE固定0.05 s；PRELOAD此前也恰好使用1.5 s。删除`recovery_timeout`，不再让一项通用超时覆盖三个语义不同的阶段。
+- PRELOAD改用已有`length_timeout`重试；FLIP继续使用扫满一圈或卡滞`recovery_stall_time`重试；SETTLE按`recovery_settle_time`转段。三条保护路径均保留。eIDE实际全量110个C源编译链接通过，Flash 600736 B、DTCMRAM 8680 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · FALLEN检测与恢复动作分层
+
+- 作者要求按AIR检测/后处理的方式拆分倒地链。新增Algorithm/fallen_detection.c/h，逐字保留control_condition原有的四元数重力朝向、倒置、普通腿角/俯仰异常及输入有效性计算；control_condition删除重复upright/pose_valid/inverted/abnormal字段，直接消费fallen_detection，触地高度、三态时序和FLIGHT倒置抢占保持。
+- 新增Algorithm/ground_recovery.c/h作为FALLEN后处理动作入口，接收显式IMU、双腿、补偿、许可和dt，原样委托Standup_Update；control_compute不再直接调用Standup_Update。standup仍保留动作阶段、PID、轨迹、超时和重试，以及运行中姿态复核保护，不把安全复核误当成外层倒地检测。
+- 未改standup参数和阶段公式；现有length_rate值保持。eIDE实际全量111个C源编译链接通过，fallen_detection/ground_recovery在sourceList和compile_commands各一次，只有原BMI088 packed告警。结构体进一步拆分待动作逐拍台架回归后再做。
+
+## 2026-10-20 · 自起状态第一轮去冗余
+
+- 作者授权简化自起结构与函数但不改控制逻辑。standup_ctx删除仅写不读的need、仅内部瞬时使用的pose/upright/ready_block；ready_block改为Standup_Ready局部变量。删除无引用STANDUP_OK、无生产路径的STANDUP_POSE枚举和始终被忽略的allow_restart参数。
+- Standup_Need和Standup_Pose_Update的原腿角/俯仰/四元数计算改为读取同拍fallen_detection；ground_recovery是在control_condition更新检测之后调用，因而不增加检测拍延迟。翻身卡滞仍保存stall_upright，动作阶段、PID、目标、F/Tp、补偿、限幅、超时和重试均未改。
+- eIDE实际全量111个C源编译链接通过，Flash 601472 B，仅原BMI088 packed告警。未烧录；结构体子分组和普通/翻身动作函数移动待台架逐拍回归后再做。
+
+## 2026-10-20 · 自起状态第二轮临时缓存删除
+
+- 作者要求继续简化且不增加结构复杂度。standup_ctx删除只在同一PID计算循环内使用的angle_speed_cmd、仅作函数内临时力矩容器的prepare、以及只写无消费者的raw_dm。Standup_Torque_Output改为局部prepared候选，补偿映射完整成功后才写入调用方torque，失败仍不发布部分输出。
+- force/tp保留，因为恢复力限幅和映射跨函数共享；compensation保留，因为control_compute发布恢复诊断；length_cmd/angle_cmd和各PID/斜坡保留，因为它们是跨拍轨迹历史。未把状态强行嵌套成更多子结构，避免增加访问层级。
+- eIDE实际全量111个C源编译链接通过，Flash 601376 B、DTCMRAM减少32 B，仅原BMI088 packed告警。未烧录，普通起立/翻身动作待台架确认。
+
+## 2026-10-20 · 自起单拍输出计算合并
+
+- `standup_ctx_t` 删除 `force[2]` 与 `tp[2]`：两者仅在一次 `Standup_Update` 内由PID写入、翻身力限幅读取、映射读取，未跨拍消费。`Standup_PID_Calculate` 与 `Standup_Torque_Output` 合并为私有 `Standup_Compute_Output`，以函数局部 `force/tp/base/prepared` 完成原计算和候选发布。
+- 计算顺序保持：目标更新 → Ramp/PID/支撑前馈 → PID历史置就绪 → 翻身期F限幅 → 腿端映射 → 弹簧与重力补偿/电机限幅 → 完整候选写回。阶段、轨迹、PID、支撑公式、补偿、超时、重试和最终输出接口均未改。
+- 本条只删除同拍临时缓存与一个内部转交边界。eIDE实际全量111个C源编译链接通过，Flash 601280 B，仅原BMI088 packed告警；未烧录，台架仍需分别确认普通起立与倒置翻身动作。
+
+## 2026-10-20 · 全项目第一批无消费者结构体成员删除
+
+- 删除 `lqr_state_t.u_col/u_hip_col`：全工程检索确认它们只在 `LQR_Control_Update` 中清零和写入，未被VOFA、Watch发布、输出或控制读取；LQR矩阵逐项求和和最终 `u[]` 计算未改。该项同时去掉每拍四次10元素清零与两路20次赋值。
+- 删除 `robot_state_t.rc_enable` 及 `Robot_Feedback_Publish_Rc` 的镜像赋值：策略准备、检测和最终许可全部读取 `rc_command.mode.rc_enable`，没有任何消费者读取该镜像。遥控模式解释、互锁、输出和反馈临界区范围不变。
+- 本批不删除驱动原始反馈、跨任务快照、AIR遥测或补偿诊断；这些仍有消费者或待台架诊断用途。eIDE实际全量111个C源编译链接通过，Flash 601152 B、AXIRAM显示45 KB，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 删除无消费者的反馈元数据链
+
+- 后续全项目结构审查授权覆盖2026-10-11“暂留”决定后，删除 `feedback_metadata_t`、`feedback_meta_t`、`feedback_sample_t`、私有 `metadata`、`Feedback_Published`，以及 `robot_feedback_t` 中全程无人读取的发布/采样时间字段。`Robot_Feedback_Publish_Imu/Rc` 同步收窄为只接收真实状态，`task_imu.c/task_comm.c` 删除仅为该链构造的局部接收时间。
+- `Robot_Feedback_Read` 仍在同一临界区复制IMU、电机、双腿、遥控和公共高度；`motor_state.dm.parsed_rx_ns`、驱动的CAN接收时间、离地检测输入、控制周期和许可逻辑均未改。删除的是没有任何控制、策略、VOFA或Watch消费者的镜像元数据，非电机原始反馈。
+- 本项完成后全工程无 `feedback_metadata_t`、`feedback_meta_t`、`feedback_sample_t`、`metadata`、`Feedback_Published` 或旧快照时间字段引用。eIDE实际全量111个C源编译链接通过，Flash 600736 B、AXIRAM 45856 B，仅原BMI088 packed告警；未烧录。
+
+## 2026-10-20 · 收紧AIR调试镜像
+
+- `air_detection_t` 仍完整保存检测器运行所需的两腿估计、峰值、压缩和状态；`air_debug`从其同型整份副本改为 `air_debug_t`，仅含VOFA实际读取的均值支持力、两个压缩量、两个压缩计时、两类初判计时及flight/initialized/valid/fault。
+- `Control_Output_Publish_Air_Debug` 在原临界区逐字段发布该快照；VOFA 3～11和45同步读取新扁平字段，数值定义、发布时机、控制状态机和AIR处理均未改。需要查看未镜像的中间估计时直接Watch `air_detection`。
+- 此项删除的是调试镜像的冗余复制，不删除检测历史或改变VOFA通道。eIDE实际全量111个C源编译链接通过，Flash 600800 B、AXIRAM 45760 B，仅原BMI088 packed告警；未烧录。
+
 ## 2026-10-19 · 临时切换VOFA为AIR落地交接诊断
 
 - 作者报告长腿长离地检测和离地后落地 pitch 翻滚，要求将根因数据放入VOFA后录制CSV。vofa_debug.c的3～47由常规LQR观察布局替换为支持力估计、flight/valid/initialized/计时、双腿压缩与力分量、三态/AIR release、pitch/速度/位置积分、四路LQR请求及腿长PID交接量；0～2公共状态不变。

@@ -76,9 +76,22 @@ typedef struct {
     uint8_t applied; /* 执行层是否选中AIR控制，不证明实体执行 */
 } air_detection_t;
 
+/* VOFA所需的执行拍末尾诊断快照，不复制检测器的跨拍估计历史。 */
+typedef struct {
+    float mean_force;
+    float elapsed;
+    float initial_unload_elapsed;
+    float compression[2];
+    float landing_elapsed[2];
+    uint8_t flight;
+    uint8_t initialized;
+    uint8_t valid;
+    uint8_t fault;
+} air_debug_t;
+
 extern air_param_t air_param;
 extern air_detection_t air_detection;
-extern volatile air_detection_t air_debug;
+extern volatile air_debug_t air_debug;
 void Air_Detection_Reset(air_detection_t *state);
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input);
 

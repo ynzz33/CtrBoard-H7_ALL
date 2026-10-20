@@ -28,7 +28,7 @@ air_param_t air_param = {
     .derivative_tau = 0.01f, .force_tau = 0.01f,
 };
 air_detection_t air_detection;
-volatile air_detection_t air_debug;
+volatile air_debug_t air_debug;
 
 /* 重新等待样本 */
 /*

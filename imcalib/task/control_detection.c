@@ -6,7 +6,7 @@
 #include "control_detection.h"
 #include "air_detection.h"
 #include "control_condition.h"
-#include "standup.h"
+#include "ground_recovery.h"
 #include <string.h>
 
 uint8_t Control_Detection_Update(control_frame_t *frame)
@@ -40,6 +40,6 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     zero_effort = (uint8_t)(!request || !frame->drive || !control_condition.started);
     normal_running = (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready);
     Control_Condition_Observe(&control_condition, &frame->imu, &frame->left, &frame->right, frame->height, frame->height_valid, zero_effort, normal_running);
-    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive, frame->fallen, (uint8_t)(standup_control.phase == STANDUP_DONE));
+    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive, frame->fallen, (uint8_t)(ground_recovery_control.lifecycle.phase == GROUND_RECOVERY_DONE));
     return (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_FALLEN && previous != CONTROL_FALLEN);
 }

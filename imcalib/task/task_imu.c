@@ -30,7 +30,6 @@ void imu_task_body(void)
     hi229_data_t sample;
     imu_state_t next = imu_state;
     const imu_cfg_t *cfg;
-    feedback_sample_t received = {0u, 0u};
 
     HI229_Process();
     if (!HI229_Online())
@@ -38,7 +37,7 @@ void imu_task_body(void)
         next.online = 0u;
         next.pitch_world = 0.0f;
         next.pitch_world_valid = 0u;
-        Robot_Feedback_Publish_Imu(&next, received);
+        Robot_Feedback_Publish_Imu(&next);
         return;
     }
     sample = HI229_Snapshot();
@@ -71,7 +70,5 @@ void imu_task_body(void)
         next.pitch_world_valid = Pitch_World_Calc(next.euler_rad[IMU_PITCH_WORLD_IDX], next.quat, &next.pitch_world) ? 1u : 0u;
     }
     next.last_timestamp_ms = sample.ts;
-    received.received_ns = sample.received_ns;
-    received.seen = 1u;
-    Robot_Feedback_Publish_Imu(&next, received);
+    Robot_Feedback_Publish_Imu(&next);
 }

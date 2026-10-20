@@ -7,7 +7,7 @@
 #include "robot_state.h"
 #include "air_detection.h"
 #include "control_detection.h"
-#include "standup.h"
+#include "ground_recovery.h"
 #include <string.h>
 
 /* 恢复仅改变RL许可/观测，不动LQR离地检测。实际投入/退出清历史，模式切换只撤销旧动作就绪。 */
@@ -51,8 +51,8 @@ static void Control_Model_Prepare(control_frame_t *frame, uint8_t lqr_running)
     {
         if (strategy == CTRL_STRATEGY_LQR)
         {
-            enabled = (uint8_t)((frame->normal ? LEG_COMP_GRAVITY : 0u) | (standup_control.enabled ? LEG_COMP_GRAVITY_WORLD : 0u));
-            if (GAS_SPRING_COMP_ENABLE || (air_param.enabled && lqr_running && frame->normal && (!standup_control.enabled || standup_control.phase == STANDUP_DONE)))
+            enabled = (uint8_t)((frame->normal ? LEG_COMP_GRAVITY : 0u) | (ground_recovery_control.lifecycle.enabled ? LEG_COMP_GRAVITY_WORLD : 0u));
+            if (GAS_SPRING_COMP_ENABLE || (air_param.enabled && lqr_running && frame->normal && (!ground_recovery_control.lifecycle.enabled || ground_recovery_control.lifecycle.phase == GROUND_RECOVERY_DONE)))
             {
                 enabled |= LEG_COMP_SPRING;
             }

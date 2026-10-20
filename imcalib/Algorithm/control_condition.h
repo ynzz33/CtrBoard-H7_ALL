@@ -1,11 +1,12 @@
 /*
  * 公共触地候选与LQR三态选路；只发布判断，不生成目标或力矩。
- * 几何高度使用公共height，恢复触发沿用standup_param；状态与处理阶段分开维护。
+ * 几何高度使用公共height，姿态异常读取fallen_detection_param；状态与处理阶段分开维护。
  */
 #ifndef CONTROL_CONDITION_H
 #define CONTROL_CONDITION_H
 
 #include "air_detection.h"
+#include "fallen_detection.h"
 #include "imu_state.h"
 #include "leg_solver.h"
 
@@ -24,13 +25,9 @@ typedef struct {
     control_condition_type_t condition;
     float contact_elapsed; /* 连续触地候选时间，s */
     float trigger_elapsed; /* NORMAL原姿态异常连续时间，s */
-    float upright; /* 原自起四元数重力朝向指标 */
-    uint8_t pose_valid;
     uint8_t hint_available;
     uint8_t body_contact_candidate;
     uint8_t body_contact_confirmed;
-    uint8_t inverted;
-    uint8_t abnormal; /* 原腿角/俯仰门槛瞬时结果，用于初判 */
     uint8_t prepare_required; /* NORMAL原异常持续到时 */
     uint8_t started; /* 已完成本次投入的初判，与反馈valid不同 */
     uint8_t valid; /* 本拍判断可用于选路；0不代表NORMAL */

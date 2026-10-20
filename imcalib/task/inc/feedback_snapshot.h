@@ -1,9 +1,9 @@
 /*
- * 文件职责：跨任务反馈发布/读取与元数据（feedback_snapshot.h）。
+ * 文件职责：跨任务反馈发布/读取（feedback_snapshot.h）。
  * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
  * 输入/来源：imu/comm任务更新后的IMU、电机/腿和遥控结果。
- * 输出/去向：临界区发布，执行/策略任务一次读取结构与接收/发布时间戳。
- * 关键边界：发布时刻不等于传感器采样或CAN接收时刻；sequence表示软件发布，旧样本不能伪装成新反馈。
+ * 输出/去向：临界区发布，执行/策略任务一次读取同批结构。
+ * 关键边界：不同设备仍是异步采样；DM原始接收时刻仍随电机反馈发布。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -43,29 +43,6 @@ typedef struct {
     uint8_t valid; /* 在线且无故障 */
 } motor_state_t;
 
-/* TODO: 死代码 —— 以下三个类型所属元数据链无消费者，见 feedback_snapshot.c 内标记 */
-/* 软件发布元数据：不能代替原传感器/电机样本接收时间。 */
-typedef struct {
-    uint32_t sequence; /* 发布次数序号，可以回绕 */
-    uint64_t published_ns; /* 完成此次软件发布的单调时刻ns */
-    uint8_t seen; /* 是否曾发布过该类反馈 */
-} feedback_meta_t;
-
-/* 原始样本接收元数据：与解析出的物理反馈配套保存。 */
-typedef struct {
-    uint64_t received_ns; /* 原数据到达时刻ns，不是读取快照时刻 */
-    uint8_t seen; /* 是否有可追溯的样本接收记录 */
-} feedback_sample_t;
-
-/* 发布元数据集 */
-typedef struct {
-    feedback_meta_t imu;
-    feedback_meta_t motor;
-    feedback_meta_t rc;
-    feedback_sample_t imu_sample;
-    feedback_sample_t rc_sample;
-} feedback_metadata_t;
-
 typedef struct robot_feedback {
     imu_state_t imu;
     motor_state_t motor;
@@ -74,20 +51,12 @@ typedef struct robot_feedback {
     rc_command_t rc;
     float height; /* 与motor/left/right同批发布的公共几何估计。 */
     uint8_t height_valid;
-    /* TODO: 死代码 —— 以下 6 个字段全工程无消费者，见 feedback_snapshot.c 内标记 */
-    feedback_meta_t imu_meta;
-    feedback_meta_t motor_meta;
-    feedback_meta_t rc_meta;
-    feedback_sample_t imu_sample;
-    feedback_sample_t rc_sample;
-    uint64_t captured_ns;
 } robot_feedback_t;
 
 uint8_t Robot_Feedback_Read(robot_feedback_t *out);
-void Robot_Feedback_Publish_Imu(const imu_state_t *next, feedback_sample_t sample);
+void Robot_Feedback_Publish_Imu(const imu_state_t *next);
 void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     const leg_state_t *left, const leg_state_t *right);
-void Robot_Feedback_Publish_Rc(const rc_command_t *next,
-    feedback_sample_t sample);
+void Robot_Feedback_Publish_Rc(const rc_command_t *next);
 
 #endif

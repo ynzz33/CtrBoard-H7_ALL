@@ -9,9 +9,10 @@
 #include "robot_control.h"
 #include "robot_state.h"
 #include "machine_config.h"
-#include "standup.h"
+#include "ground_recovery.h"
 #include "air_detection.h"
 #include "control_condition.h"
+#include "fallen_detection.h"
 
 #include <string.h>
 
@@ -81,8 +82,9 @@ void Robot_Control_Init(void)
     torque_output_enabled = 1u;
     rc_command.len = machine->rc.len_init;
     rc_command.mode.strategy = CTRL_STRATEGY_DISABLE;
-    Standup_Init(&standup_control);
+    Ground_Recovery_Init(&ground_recovery_control);
     Air_Detection_Reset(&air_detection); /* 参数直接使用固定配置，初始化只清检测历史。 */
+    Fallen_Detection_Reset(&fallen_detection);
     Control_Condition_Reset(&control_condition);
 
     Leg_Init(&leg_l);

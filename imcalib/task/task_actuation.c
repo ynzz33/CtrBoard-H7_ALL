@@ -9,7 +9,7 @@
 #include "dm.h"
 #include "tim.h"
 #include "mono_ns.h"
-#include "standup.h"
+#include "ground_recovery.h"
 #include "control_strategy.h"
 #include "control_compute.h"
 #include "control_output.h"
@@ -23,7 +23,7 @@ uint8_t Robot_Control_Enable_Allowed(void)
     uint8_t recovery;
 
     if (rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_FAILED) { return 0u; }
-    recovery = (uint8_t)(standup_control.enabled && standup_control.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
+    recovery = (uint8_t)(ground_recovery_control.lifecycle.enabled && ground_recovery_control.lifecycle.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
     recovery |= (uint8_t)(machine->rl.configured && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
     return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (!robot_state.fallen || recovery));
 }
@@ -65,7 +65,7 @@ static void Control_Frame_Read(void)
         control_frame.drive &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
     }
     control_frame.normal = (uint8_t)(control_frame.drive && !control_frame.fallen);
-    control_frame.recovery = (uint8_t)(control_frame.drive && standup_control.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
+    control_frame.recovery = (uint8_t)(control_frame.drive && ground_recovery_control.lifecycle.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
     taskEXIT_CRITICAL();
 }
 

@@ -38,7 +38,6 @@ typedef struct {
 } leg_map_t;
 
 typedef struct {
-    uint8_t rc_enable;
     uint8_t motor_enabled;
     uint8_t fallen; /* 公共姿态倒地：IMU俯仰或横滚角任一超过40度，不包含高度。 */
     float height; /* 公共髋轮投影间距m；通信发布，RL与LQR触地判断共用。 */
