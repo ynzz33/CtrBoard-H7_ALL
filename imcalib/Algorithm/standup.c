@@ -23,7 +23,7 @@ standup_param_t standup_param = {
     .pitch_max               = 1.0f,                            /* 翻身 rad */
 
     /* 伸腿与后摆 */
-    .length_rate             = 0.75f,                            /* 腿长 m/s */
+    .length_rate             = 1.0f,                            /* 腿长 m/s */
     .extend_len              = 0.25f,                           /* 目标 m */
     .extend_tol              = 0.01f,                           /* 容差 m */
     .extend_timeout          = 4.0f,                            /* 超时 s */

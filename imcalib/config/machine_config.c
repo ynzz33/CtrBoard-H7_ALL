@@ -50,7 +50,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .vel_max = 3.0f,
             .yaw_max = 5.0f,
             .len_init = 0.15f,
-            .len_rate = 0.2f,
+            .len_rate = 1.0f,
         },
         /* 匹配表已接入，控制待台架。 */
         .lqr_configured = 1u,
@@ -98,8 +98,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             /* 角速度低通顺序: pitch / yaw */
             .lpf_alpha = {0.3f, 0.3f},
             /* PID 顺序: Kp / Ki / Kd / 输出限幅 / 积分限幅; 输出单位 N */
-            .leg_len = {{2300.0f, 0.0f, 25000.0f, 5000.0f, 0.0f},
-                        {2300.0f, 0.0f, 25000.0f, 5000.0f, 0.0f}}, /* 左右腿长 */
+            .leg_len = {{1900.0f, 0.0f, 150000.0f, 5000.0f, 0.0f},
+                        {1900.0f, 0.0f, 150000.0f, 5000.0f, 0.0f}}, /* 左右腿长 */
             .roll = {600.0f, 0.0f, 100.0f, 5000.0f, 0.0f}, /* 横滚补偿 */
             .support_force = {20.534f * 9.81f * 0.5f, 20.534f * 9.81f * 0.5f}, /* 支撑前馈 N */
             .yaw_hold = 1u,                          /* 偏航角环 */

@@ -9,6 +9,8 @@
 #include "vofa_debug.h"
 #include "robot_state.h"
 #include "dm.h"
+#include "air_detection.h"
+#include "control_condition.h"
 #include "Vofa_send.h"
 #include "dr16.h"
 #include "FreeRTOS.h"
@@ -19,7 +21,6 @@
 void Vofa_Debug_Send(void)
 {
     static float dbg[VOFA_MAX_CH];
-    static uint32_t observation_sequence;
     uint8_t online_mask;
     uint16_t state_bits;
 
@@ -67,59 +68,54 @@ void Vofa_Debug_Send(void)
     // dbg[17] = (float)leg_r.output.d_virtual_leg_angle;
     // dbg[18] = (float)leg_r.output.d_virtual_shank_angle;
 
-    /* 本轮只替换VOFA通道：后台读取已有最新值，不增加控制拍采集或发布接口。
-     * 这些值来自不同生产任务，不保证与LQR本拍输入同一物理采样时刻。
-     * 当前通道含义以本函数赋值为准；31~34为四元数，42~44为含重力比力g。
-     */
+    /* 离地—落地交接诊断布局：只读执行拍已发布状态，不增加控制采样或发布接口。 */
     taskENTER_CRITICAL();
-    dbg[3] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT] * machine->wheel_r;
-    dbg[4] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT] * machine->wheel_r;
-    dbg[5] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_LFT];
-    dbg[6] = motor_state.dji.angle_total_rad[DJI_MOTOR_WHEEL_RGT];
-    dbg[7] = 0.5f * (dbg[3] + dbg[4]); /* 原始轮线速度均值m/s */
-    dbg[8] = lqr_state.whl[0];        /* LQR已补偿的左轮角速度rad/s */
-    dbg[9] = lqr_state.whl[1];        /* LQR已补偿的右轮角速度rad/s */
-    dbg[10] = lqr_state.roll;         /* LQR横滚角rad */
-    dbg[11] = lqr_state.ds_raw;       /* 运动学速度m/s */
-    dbg[12] = lqr_state.a_fwd;        /* IMU前向加速度m/s^2 */
-    dbg[13] = lqr_state.ds_kf;        /* 融合速度m/s */
-    dbg[14] = imu_state.accel_vertical; /* 已有竖直加速度m/s^2 */
-    dbg[15] = imu_state.gyro_rad_s[0];
-    dbg[16] = imu_state.gyro_rad_s[2];
-    dbg[17] = lqr_state.x[LQR_X_THB];
-    dbg[18] = imu_state.gyro_rad_s[1]; /* 当前pitch原始角速度rad/s */
-    dbg[19] = lqr_state.x[LQR_X_DTHB]; /* pitch低通后角速度rad/s */
-    dbg[20] = leg_l.output.virtual_leg_angle;
-    dbg[21] = leg_l.output.d_virtual_leg_angle;
-    dbg[22] = leg_r.output.virtual_leg_angle;
-    dbg[23] = leg_r.output.d_virtual_leg_angle;
-    dbg[24] = leg_l.output.virtual_leg_length;
-    dbg[25] = leg_r.output.virtual_leg_length;
-    dbg[26] = leg_l.output.d_virtual_leg_length;
-    dbg[27] = leg_r.output.d_virtual_leg_length;
-    dbg[28] = lqr_state.x[LQR_X_S];
-    dbg[29] = lqr_state.target[LQR_X_DS];
-    dbg[30] = lqr_state.target[LQR_X_DPHI];
-    for (uint8_t i = 0u; i < 4u; i++)
-    {
-        dbg[31u + i] = imu_state.quat[i]; /* 已映射/归一化，w/x/y/z */
-    }
-    dbg[35] = (float)lqr_state.air_control;
-    dbg[36] = (float)lqr_state.valid;
-    dbg[37] = sqrtf(imu_state.acc_g[0] * imu_state.acc_g[0] +
-                   imu_state.acc_g[1] * imu_state.acc_g[1] +
-                   imu_state.acc_g[2] * imu_state.acc_g[2]);
-    dbg[38] = (float)imu_state.last_timestamp_ms; /* IMU模块时间戳ms */
-    dbg[39] = lqr_state.u[LQR_U_WL];
-    dbg[40] = lqr_state.u[LQR_U_WR];
-    dbg[41] = lqr_state.u[LQR_U_BL];
-    for (uint8_t i = 0u; i < 3u; i++)
-    {
-        dbg[42u + i] = imu_state.acc_g[i]; /* 已映射三轴比力g，含重力 */
-    }
-    dbg[45] = lqr_state.u[LQR_U_BR];
-    dbg[46] = (float)HAL_GetTick();    /* 本次后台读取时间ms */
-    dbg[47] = (float)++observation_sequence; /* VOFA调用序号，非控制拍序号 */
+    dbg[3] = air_debug.mean_force;
+    dbg[4] = (float)air_debug.flight;
+    dbg[5] = (float)air_debug.valid;
+    dbg[6] = (float)air_debug.initialized;
+    dbg[7] = (float)air_debug.fault;
+    dbg[8] = air_debug.elapsed;
+    dbg[9] = air_debug.initial_unload_elapsed;
+    dbg[10] = air_debug.landing[0].compression;
+    dbg[11] = air_debug.landing[1].compression;
+    /* 落地腿长闭环：速度、P/D、总PID与roll项用于区分给定过慢和出力受限。 */
+    dbg[12] = leg_l.output.d_virtual_leg_length;
+    dbg[13] = leg_r.output.d_virtual_leg_length;
+    dbg[14] = leg_balance.leg_len[0].pout;
+    dbg[15] = leg_balance.leg_len[1].pout;
+    dbg[16] = leg_balance.leg_len[0].dout;
+    dbg[17] = leg_balance.leg_len[1].dout;
+    dbg[18] = leg_balance.leg_len[0].pos_out;
+    dbg[19] = leg_balance.leg_len[1].pos_out;
+    dbg[20] = leg_balance.roll.pout;
+    dbg[21] = leg_balance.roll.pos_out;
+    dbg[22] = (float)control_condition.condition;
+    dbg[23] = (float)control_condition.valid;
+    dbg[24] = (float)control_condition.started;
+    dbg[25] = (float)lqr_state.air_control;
+    dbg[26] = (float)lqr_state.air_release;
+    dbg[27] = lqr_state.x[LQR_X_THB];
+    dbg[28] = lqr_state.x[LQR_X_DTHB];
+    dbg[29] = lqr_state.ds_kf;
+    dbg[30] = lqr_state.pos;
+    dbg[31] = rl_output_dm_cmd_nm[DM_MOTOR_LEG_F_LFT];
+    dbg[32] = rl_output_dm_cmd_nm[DM_MOTOR_LEG_B_LFT];
+    dbg[33] = rl_output_dm_cmd_nm[DM_MOTOR_LEG_F_RGT];
+    dbg[34] = rl_output_dm_cmd_nm[DM_MOTOR_LEG_B_RGT];
+    dbg[35] = leg_l.output.virtual_leg_length;
+    dbg[36] = leg_r.output.virtual_leg_length;
+    dbg[37] = leg_balance.length_ramp[0].out;
+    dbg[38] = leg_balance.length_ramp[1].out;
+    dbg[39] = leg_balance.F[0];
+    dbg[40] = leg_balance.F[1];
+    dbg[41] = leg_balance.Tp[0];
+    dbg[42] = leg_balance.Tp[1];
+    dbg[43] = lqr_state.leg_len_tgt[0];
+    dbg[44] = lqr_state.leg_len_tgt[1];
+    dbg[45] = (float)(air_debug.flight && air_param.compression_enabled && (air_debug.landing[0].elapsed > 0.0f || air_debug.landing[1].elapsed > 0.0f));
+    dbg[46] = (float)leg_balance.air_release;
+    dbg[47] = (float)robot_state.fallen;
     taskEXIT_CRITICAL();
     // dbg[23] = lqr_state.a_fwd;
 

@@ -15,10 +15,10 @@ air_param_t air_param = {
     .enabled = 1u, .control_enabled = 1u,
     .landing_enabled = 1u, .compression_enabled = 1u,
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
-    .wheel_mass = 0.65f, .force_off = 5.0f, .force_on = 50.0f,
+    .wheel_mass = 0.65f, .force_off = 5.0f, .force_on = 20.0f,
     .hip_max = 10.0f,
-    .time_off = 0.08f, .time_on = 0.05f,
-    .compression_on = 0.02f, .compression_time = 0.10f,
+    .time_off = 0.1f, .time_on = 0.05f,
+    .compression_on = 0.03f, .compression_time = 0.1f,
 #else
     .wheel_mass = 0.13463f, .force_off = 6.0f, .force_on = 18.0f,
     .hip_max = 8.0f,

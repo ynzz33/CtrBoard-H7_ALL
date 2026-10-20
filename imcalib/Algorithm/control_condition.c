@@ -151,6 +151,12 @@ void Control_Condition_Select(control_condition_t *state, const air_detection_t 
     }
     if (state->started && state->condition == CONTROL_FLIGHT)
     {
+        /* AIR压缩落地未确认时，真正倒置不能持续锁在只摆腿的AIR处理。 */
+        if (state->upright < 0.0f)
+        {
+            Condition_Enter(state, CONTROL_FALLEN);
+            return;
+        }
         if (!air_param.enabled || !air->flight)
         {
             Condition_Enter(state, CONTROL_NORMAL);

@@ -46,7 +46,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     cmd->yaw = -Rc_Axis(rc->ch2, RC_DEADBAND_YAW) * machine->rc.yaw_max;
     len_min = fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min);
     len_max = fminf(machine->leg_len_max, LQR_Gain_Info()->len_max);
-    cmd->len += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt;
+    cmd->len += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt*0.3;
     cmd->len = fminf(fmaxf(cmd->len, len_min), len_max);
     cmd->s1 = rc->s1;
     cmd->s2 = rc->s2;

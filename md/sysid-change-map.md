@@ -2,6 +2,47 @@
 
 本文件只保存历史变更、依据、验证与删除前的文档副本。当前规则看AGENTS.md，当前代码结构看file-guide.md；历史内容不能作为现行参数、已验证状态或可直接执行的操作步骤。阅读时按日期、模块或关键词检索，不必整份加载。
 
+## 2026-10-19 · 临时切换VOFA为AIR落地交接诊断
+
+- 作者报告长腿长离地检测和离地后落地 pitch 翻滚，要求将根因数据放入VOFA后录制CSV。vofa_debug.c的3～47由常规LQR观察布局替换为支持力估计、flight/valid/initialized/计时、双腿压缩与力分量、三态/AIR release、pitch/速度/位置积分、四路LQR请求及腿长PID交接量；0～2公共状态不变。
+- 所有通道仅读取已有air_debug、control_condition、lqr_state和leg_balance状态；未增加检测、控制、输出、任务、缓存或发送逻辑。当前布局是定位用临时观测，不能将后台VOFA时间视为同拍物理采样或控制结果；采集结论后再单独决定修复和恢复布局。
+
+## 2026-10-19 · 倒置从FLIGHT抢占进入FALLEN
+
+- CSV最后一次显示AIR支持力已恢复约55 N，但两腿相对压缩仅约3～5 mm，未达到既有20 mm/100 ms压缩落地条件，因此flight、condition=FLIGHT、air_control和air_release一直保持到结束；作者确认实体已倒置。原三态规则在FLIGHT内只等AIR退出，倒置也不会进入原翻身自救。
+- control_condition.c仅在已处于FLIGHT且四元数重力朝向确认`upright < 0`时直接进入FALLEN，调用原自起/翻身处理。普通FLIGHT、相对压缩落地、支持力阈值、低高度规则和仅前倾但未倒置的情况不变；不以pitch Q代替此保护，因为AIR控制本身屏蔽LQR的pitch反馈列。
+- VOFA 45～47改为inverted/upright/public fallen，用于台架确认抢占的实际触发。GCC全量109个C源编译链接通过，仅保留原BMI088 packed告警；未烧录，本改动对落地翻滚的实机效果待新CSV确认。
+
+## 2026-10-19 · AIR落地支撑前馈150 ms渐进恢复
+
+- 作者依据CSV确认落地瞬间AIR释放结束后，现有腿长PID虽从实测长度播种，但每腿约100 N的support_force立即恢复，导致腿长反弹、再次离地并放大pitch；要求先只验证支撑前馈渐进恢复。control_air_response新增私有落地比例：有效落地沿置0，之后按MACHINE_LQR_DT在线性150 ms内升至1；LQR退出清回1，普通地面投入保持原支撑力。
+- leg_balance的唯一调用新增support_scale参数，仅将support_force乘该比例；腿长PID、斜坡、roll、弹簧补偿、AIR相对压缩落地、轮组、限幅及其他路径不改。策略准备每拍一次更新比例，避免standup内两次AIR响应重复推进。VOFA 45改为该比例，46/47保留upright/fallen。
+- eIDE实际unify_builder全量编译109个C源并链接成功，Flash 602116 B，仅原BMI088 packed告警。未烧录或实机确认；下一次CSV需确认45从0连续升至1，以及腿长/轴向力和pitch是否仍出现反弹。
+
+## 2026-10-19 · AIR落地LQR pitch列150 ms渐进恢复
+
+- 作者基于新CSV确认支撑前馈渐进恢复已明显抑制反弹，但要求继续降低落地瞬间pitch列冲击。lqr_balance的LQR_Control_Update新增pitch_scale参数，仅对`LQR_X_THB`和`LQR_X_DTHB`两列贡献相乘；AIR内这两列原本已屏蔽，普通地面调用比例为1，AIR有效落地后复用既有150 ms比例。
+- 未修改K表、Q/R、AIR中四列保留规则、轮组零力矩、其它八个LQR状态列、限幅、PID或检测。u_col/u_hip_col记录缩放后的实际分项，供后续区分比例恢复和饱和。eIDE全量109个C源编译链接通过，Flash 602180 B，仅原BMI088 packed告警；台架需确认落地时45比例、31～34请求及27～28 pitch响应。
+
+## 2026-10-19 · 落地恢复比例简化并改为300 ms
+
+- 作者要求简化落地比例更新并将0→1时间由150 ms改为300 ms。control_air_response删除额外active状态：有效落地沿直接置零，其他执行拍以`clampf(scale + dt / 0.30, 0, 1)`恢复；LQR退出仍清回1。支撑前馈和pitch两列继续共用该比例，其他处理不变。
+
+## 2026-10-19 · 撤销落地渐进，观测腿长PID阻尼
+
+- 作者要求撤销支撑前馈和pitch列渐进恢复，改为先确认现有腿长PID D项能否承担冲击缓冲。撤销control_air_response落地比例、control_strategy调用、leg_balance支撑比例参数和lqr_balance pitch比例参数，恢复原处理与接口。
+- VOFA 45/46改为左右腿长PID的dout，47保留fallen；只增加观察，不修改Kp/Kd、腿长PID、支撑前馈、AIR判据或输出。eIDE全量109个C源编译链接成功，Flash恢复601792 B，仅原BMI088 packed告警。
+
+## 2026-10-20 · VOFA改为腿长闭环落地诊断
+
+- 作者反馈腿会压到底再弹起，要求确认目标斜坡、P/D与实际髋命令哪一环不足。保留AIR状态、压缩、三态、pitch、腿长、斜坡、轴向力、Tp和最终目标；12～21替换为左右腿长速度、P/D、PID总输出及roll项，31～34替换为最终门控后的四髋力矩，45/46为腿长历史预置/AIR释放。
+- 该布局只读已有控制状态，不修改腿长目标、len_rate、PID、补偿或AIR处理；用于区分“斜坡尚未追上”“PID已顶力”“最终髋力矩受限”“AIR交接反复复位”。
+
+## 2026-10-20 · 压缩候选期间提前接入腿长环
+
+- 作者确认当前AIR需保持压缩持续时间才允许完整LQR投入，但要求检测到压缩后立即打开腿长环，避免腿先压到底。control_air_response在任一腿现有压缩判据已开始累计时保持`air_control=1`、轮组零及AIR pitch掩码，同时清`air_release`以接入原腿长P+D、支撑前馈和补偿；压缩计时满足原条件后仍由air_detection退出FLIGHT，再恢复完整LQR。
+- 为保证预接触已先清air_release时仍可写回落地腿长目标，落地沿不再依赖was_release，只继续受AIR处理开关和有效判断保护。未改变compression_on、compression_time、flight状态机、轮组或LQR列掩码。VOFA 45为压缩候选，46为AIR释放，验证时45=1/46=0应先于flight清零。
+
 ## 2026-10-19 · 执行拍按策略准备、控制运算和最终输出横向拆分
 
 - 作者确认离地/触地检测完成后，要求整体控制结构按横向三层整理，并锁定“不改算法控制代码、控制方式、控制周期或控制效果；先验证结构迁移，再另行优化结构体”。新增task/control_strategy.c/h、control_compute.c/h、control_output.c/h：前者按原序推进RL恢复、模型准备和公共检测；中者按原策略运行LQR、自起、AIR、RL或补偿并产生候选；后者保留唯一最终门控、诊断和DM/DJI发送。

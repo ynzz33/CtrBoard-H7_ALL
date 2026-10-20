@@ -227,6 +227,7 @@
 - debug_rx作为后续VOFA接收预留，当前未接通；Lowpass_Reset、Ramp_Init按作者要求暂留，不能按零调用自动删除。未使用的DR16_Rx_Cb、UART_Rx_Take、Slip_Update等旧入口不恢复，当前实际消费者使用带时间的UART快照接口及显式接触状态的Slip入口。
 - 2026-10-19作者已确认并接入公共检测、触地判断与三态实际选路，并再次确认分文件：task/control_detection.c调度原观测/判断，返回进入FALLEN事件，由执行层复位原动作；task/control_air_response.c承接原AIR响应，保留调用位置和处理行为。模型每拍准备一次，检测不依赖lqr_running/自起完成，也不由lqr_idle清历史。原AIR压缩分支、三态规则、standup动作、LQR/腿力控、物理参数和RL保持；分文件授权不等于修改处理公式。当前接口、Watch和软件验收见file-guide，实机效果及耗时待验证。
 - 2026-10-19作者进一步确认执行拍按横向三层整理：control_strategy只推进恢复、模型准备和检测并确认策略；control_compute只运行已选的一条原控制路径；control_output只复查许可、发布诊断和发送。三层由同一actuationTask同步直接调用，不新增任务、队列、跨拍候选缓存或业务结构体；先验证控制行为一致，再单独审查结构体删改。Algorithm控制实现、检测规则、控制周期与处理公式冻结。
+- 2026-10-19台架CSV显示AIR落地后全支撑前馈会使短腿快速回弹并再次离地；300 ms的支撑前馈/pitch列渐进恢复随后已按作者要求撤销，恢复原处理。当前先观察既有腿长PID D项是否能缓冲：VOFA 45/46为左右dout、47为fallen；不得在未看D项方向和限幅前盲调Kd。
 - FDCAN1/3数据段机器配置目前在main中套用，不能沿用旧“不生效”描述。
 - VOFA只使用选定UART DMA，固定48路：状态3、完整obs39、网络耗时1、恢复阶段/公共高度/高度有效/稳定ms/倒地ms共5路；不选帧、不新增页面或采样框架。旧LQR/腿部赋值保留注释，按源码手动切换；见[file-guide.md](file-guide.md#vofa)。
 - 通用控制周期兼容别名、旧弹簧字段、Python测试/工具、Sysid控制和USB关节协议已清理；历史正文中的相关标识不是恢复功能的授权。
