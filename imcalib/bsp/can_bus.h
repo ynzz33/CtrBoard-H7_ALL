@@ -28,6 +28,7 @@ typedef void (*can_parse_fn_t)(void *ctx, uint32_t can_id,
 typedef enum {
     CAN_BUS_STATE_ACTIVE = 0,
     CAN_BUS_STATE_DEAD,
+    CAN_BUS_STATE_RECOVERING, /* 本轮启动成功，等待新反馈 */
 } can_bus_state_t;
 
 /* 电机固定参 (DM / DJI 共用): 报文 ID (总线按机器选) */
@@ -53,6 +54,9 @@ typedef struct {
     uint32_t              alive_prev;
     uint32_t              dead_since;
     uint32_t              reinit_tick;
+    uint32_t              recover_attempts;
+    uint32_t              last_error; /* 最近一次HAL失败的错误，成功后保留 */
+    uint8_t               failed_step; /* 0通过/1停止/2初始化/3滤波/4启动/5通知 */
 } can_bus_t;
 
 void    Can_Bus_Init(void);
@@ -60,6 +64,7 @@ bool    Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                          can_parse_fn_t fn, void *ctx);
 HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                                    const uint8_t *data, uint8_t len);
+/* 通信任务推进恢复；本轮启动后收到新帧才判在线，RECOVERING仍返回false。 */
 bool    Can_Bus_Online(bool expect_traffic);
 /* 按总线号取句柄 (1=FDCAN1 2=FDCAN2 3=FDCAN3) */
 FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus);

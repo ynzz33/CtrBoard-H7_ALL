@@ -3,7 +3,7 @@
  * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
  * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
  * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
- * 关键边界：腿长PID由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
+ * 关键边界：腿长/横滚显式PD由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -52,7 +52,7 @@ typedef struct {
     float   pos_arm_vel;       /* 首次积分速度门槛m/s；0不检查速度 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
-    uint8_t len_pid_enable;    /* 腿长PID */
+    uint8_t len_pid_enable;    /* 腿长/横滚PD输出，关闭后只保留支撑前馈 */
     uint8_t air_release_enable; /* 空中释放 */
     float   trq_max_wheel;     /* 轮限幅 */
     float   trq_max_hip;       /* 髋限幅 */
@@ -60,7 +60,7 @@ typedef struct {
 
 typedef lqr_runtime_config_t lqr_debug_t;
 
-/* LQR运行状态：最终长度目标、PID实际给定、实测长度是三个不同概念。 */
+/* LQR运行状态：最终长度目标、PD斜坡给定、实测长度是三个不同概念。 */
 typedef struct {
     float x[LQR_X_NUM]; /* 10维状态，顺序由LQR_X枚举固定 */
     float target[LQR_X_NUM]; /* 与x同序的目标，长度目标不在这个数组内 */
@@ -80,6 +80,7 @@ typedef struct {
     float yaw_tgt;                  /* 偏航角目标 */
     float vel_tgt;                  /* 速度目标 */
     float roll;                     /* 机体横滚角 */
+    float roll_rate;                /* 现有IMU机体X轴角速度rad/s，供横滚显式PD使用 */
     uint8_t air_control; /* 执行层选择的AIR四列反馈/轮零模式 */
     uint8_t air_release; /* 执行层选择的轴向释放，暂停长度/roll和弹簧抵消 */
     float air_hip_max; /* 空中虚拟腿摆矩限幅N·m */

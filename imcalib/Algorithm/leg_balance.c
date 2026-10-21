@@ -1,5 +1,5 @@
 /*
- * 文件职责：LQR腿长/横滚PID及腿部输出组合（leg_balance.c）。
+ * 文件职责：LQR腿长/横滚显式PD及腿部输出组合（leg_balance.c）。
  * 输入/来源：LQR状态/最终腿长目标、双腿实测几何、显式运行配置和dt。
  * 输出/去向：生成左右轴向力/摆矩，经公共补偿与限幅后填torque_output_t。
  * 关键边界：AIR释放时轴向主动出力为零；非释放时用原轨迹斜坡；只求解，不发送CAN。
@@ -12,23 +12,22 @@
 #include <math.h>
 #include <string.h>
 
-/* 初始化 — PID 初始化不覆盖 max_err/deadband/angle_wrap, 必须先清零 */
+/* 复用PID容器保存P/D分项；正常PD的D增益由原差分增益换算为速度阻尼。 */
 void Leg_Balance_Init(leg_balance_t *lb)
 {
     memset(lb, 0, sizeof(*lb));
-    lb->len_prime_enable = 1u;
 
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output, machine->lqr.leg_len[i].integral_limit, machine->lqr.leg_len[i].kp, machine->lqr.leg_len[i].ki, machine->lqr.leg_len[i].kd, 0.0f, 0.0f);
+        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output, 0.0f, machine->lqr.leg_len[i].kp, 0.0f, machine->lqr.leg_len[i].kd * MACHINE_LQR_DT, 0.0f, 0.0f);
     }
-    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output, machine->lqr.roll.integral_limit, machine->lqr.roll.kp, machine->lqr.roll.ki, machine->lqr.roll.kd, 0.0f, 0.0f);
+    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output, 0.0f, machine->lqr.roll.kp, 0.0f, machine->lqr.roll.kd * MACHINE_LQR_DT, 0.0f, 0.0f);
 }
 
 /* 清控制器历史与调试观测值 */
 /*
- * 清PID历史/输出、力/摆矩、补偿和轨迹斜坡，保留已配置增益。
- * 进入/退出轴向释放都会调用；退出时下一拍从实测重新播种给定与误差历史。
+ * 清PD观测/输出、力/摆矩、补偿和轨迹斜坡，保留已配置增益。
+ * 进入/退出轴向释放都会调用；退出时下一拍从实测重新播种给定。
  */
 void Leg_Balance_Reset(leg_balance_t *lb)
 {
@@ -47,14 +46,28 @@ void Leg_Balance_Reset(leg_balance_t *lb)
         pid[i]->dout = 0.0f;
         pid[i]->pos_out = 0.0f;
         pid[i]->last_pos_out = 0.0f;
+        pid[i]->vel_err = 0.0f;
     }
     memset(lb->F, 0, sizeof(lb->F));
     memset(lb->Tp, 0, sizeof(lb->Tp));
     memset(&lb->cmd, 0, sizeof(lb->cmd));
     memset(&lb->compensation, 0, sizeof(lb->compensation));
     memset(lb->length_ramp, 0, sizeof(lb->length_ramp));
-    lb->len_history_ready = 0u;
     lb->air_release = 0u;
+}
+
+/* P响应位置误差，D直接使用实际速度；不积分、不差分给定或误差。 */
+static void Leg_PD_Update(pid_t *pd, float measured, float target, float velocity)
+{
+    pd->get[NOW] = measured;
+    pd->set[NOW] = target;
+    pd->err[NOW] = target - measured;
+    pd->vel_err = -velocity;
+    pd->pout = pd->p * pd->err[NOW];
+    pd->dout = pd->d * pd->vel_err;
+    pd->pos_out = pd->pout + pd->dout;
+    abs_limit(&pd->pos_out, pd->MaxOutput);
+    pd->last_pos_out = pd->pos_out;
 }
 
 /* 力域映射 + 限幅: (足端力, 髋扭矩) → 前后髋电机力矩 (虚功原理), 轮扭矩直接限幅 */
@@ -94,10 +107,10 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
     return 1u;
 }
 
-/* 腿长/横滚 PID + 力向量 + 雅可比映射 → 电机力矩 */
+/* 腿长/横滚显式PD + 力向量 + 雅可比映射 → 电机力矩 */
 /*
- * 非释放：最终目标 → 原轨迹斜坡 → 首拍历史预置 → 长度/roll PID → 支撑前馈。
- * 释放：轴向F=0且不推进长度/roll PID与斜坡；摆角LQR和完整重力仍保留。
+ * 非释放：最终目标 → 原轨迹斜坡 → 位置误差P与实际速度D → 支撑前馈。
+ * 释放：轴向F=0且不推进长度/roll PD与斜坡；摆角LQR和完整重力仍保留。
  * 轴向/摆矩映射和补偿在输出辅助函数中完成，本函数返回成功与否，发送由执行任务负责。
  */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
@@ -121,10 +134,6 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     {
         Leg_Balance_Reset(lb);
         lb->air_release = st->air_release;
-        if (!st->air_release)
-        {
-            PID_History_Set(&lb->roll, st->roll, 0.0f, -st->roll);
-        }
     }
     F[0] = 0.0f;
     F[1] = 0.0f;
@@ -137,18 +146,9 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
             return 0u;
         }
 
-        /* 首拍消除突变 */
-        if (lb->len_prime_enable && !lb->len_history_ready)
-        {
-            PID_History_Set(&lb->leg_len[0], length[0], target[0], target[0] - length[0]);
-            PID_History_Set(&lb->leg_len[1], length[1], target[1], target[1] - length[1]);
-            lb->len_history_ready = 1u;
-        }
-
-        /* 1. 辅助 PID */
-        (void)pid_calc(&lb->leg_len[0], length[0], target[0], dt);
-        (void)pid_calc(&lb->leg_len[1], length[1], target[1], dt);
-        (void)pid_calc(&lb->roll, st->roll, 0.0f, dt);
+        Leg_PD_Update(&lb->leg_len[0], length[0], target[0], leg_l->output.d_virtual_leg_length);
+        Leg_PD_Update(&lb->leg_len[1], length[1], target[1], leg_r->output.d_virtual_leg_length);
+        Leg_PD_Update(&lb->roll, st->roll, 0.0f, st->roll_rate);
 
         /* 模型力矩转力域 */
         F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + machine->lqr.support_force[0];

@@ -34,6 +34,7 @@
 #define MACHINE_POLICY_DIV        20u     /* actor推理50Hz；一个action保持10个2ms控制子步 */
 #define MACHINE_DM_OFFLINE_MS     50u
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
+#define MACHINE_JETSON_PORT       10u     /* UART10：Jetson只读镜像/探测，独立于VOFA。 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u
 #define MACHINE_FDCAN13_DATA_SEG2       1u
@@ -44,6 +45,7 @@
 #define MACHINE_DM_OFFLINE_MS     10u
 #define MACHINE_POLICY_DIV        10u     /* 策略节拍 1000/10 = 100 Hz */
 #define MACHINE_VOFA_PORT         1u      /* UART1 */
+#define MACHINE_JETSON_PORT       0u      /* 小机未接Jetson。 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  3u
 #define MACHINE_FDCAN13_DATA_SEG1       5u
 #define MACHINE_FDCAN13_DATA_SEG2       2u
@@ -128,8 +130,8 @@ typedef struct {
     float pos_target;
     float pos_arm_vel;
     float lpf_alpha[2];             /* pitch/yaw角速 */
-    machine_pid_cfg_t leg_len[2];
-    machine_pid_cfg_t roll;
+    machine_pid_cfg_t leg_len[2]; /* 保留差分Kd口径；正常PD初始化乘LQR周期，恢复PID直接使用 */
+    machine_pid_cfg_t roll; /* 正常横滚PD初始化将差分Kd乘LQR周期换算为速度阻尼 */
     float support_force[2];
     uint8_t yaw_hold;
     uint8_t yaw_rate_hold;

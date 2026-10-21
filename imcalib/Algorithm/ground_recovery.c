@@ -51,8 +51,8 @@ ground_recovery_param_t ground_recovery_param = {
     .support_time            = 0.4f,                            /* 支撑渐入 s */
 
     /* 失败重试 */
-    .retry_wait              = 0.05f,                            /* 撤力等待 s */
-    .recovery_retry_max      = 3u,                              /* 重试次数 */
+    .retry_wait              = 0.2f,                            /* 撤力等待 s */
+    .recovery_retry_max      = 5u,                              /* 重试次数 */
 };
 
 static float Ground_Recovery_Wrap(float angle)

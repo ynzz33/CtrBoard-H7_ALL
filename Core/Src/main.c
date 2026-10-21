@@ -46,6 +46,7 @@
 #include "dm.h"
 #include "robot_control.h"
 #include "machine_config.h"
+#include "jetson_uart.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -196,9 +197,11 @@ int main(void)
   MX_UART9_Init();
   MX_TIM6_Init();
   MX_UART8_Init();
+  MX_USART10_UART_Init();
   /* USER CODE BEGIN 2 */
   FDCAN_Config();
   Mono_Ns_Init();   /* 单调 ns 时钟 */
+  Jetson_Uart_Init();
   DR16_Init();
   HI229_Init();
   Can_Bus_Init();

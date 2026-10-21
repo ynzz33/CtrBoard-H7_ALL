@@ -144,7 +144,7 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 | 配置 | 内容与生效位置 |
 | --- | --- |
 | machine.rc | 公共前进/偏航量程、腿长初值/速率；RC统一解算，LQR直接使用，RL读取同一命令后按训练包线限幅，不回写RC |
-| machine.lqr | trim/位移目标、停车条件、角速度低通、腿长/横滚PID、支撑前馈和运行开关默认值 |
+| machine.lqr | trim/位移目标、停车条件、角速度低通、腿长/横滚增益、支撑前馈和运行开关默认值；正常显式PD在初始化换算D单位，恢复仍使用原差分PID |
 | lqr_debug | LQR运行时工作配置与对照入口；初始化取机器默认值，部分物理符号对照保持原源码，不能擅改 |
 | machine.rl | 实体motor_sign/motor_zero、原生nominal_pos/reference_pos、RL39缩放/裁剪、训练四腿PD/轮速度比例及独立限矩；两条动作看门狗，无人为延迟或NORMAL启动保持 |
 | ground_recovery_param / air_param / slip_param | 地面恢复、接触估计/空中接入、速度融合模块参数，读取对应源文件顶部 |
@@ -165,7 +165,11 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 
 大小机固定使用各自当前生成表；小机历史表、对照开关/状态/分支和同系数旧候选文件已删除。腿长变化超过原阈值时重新求K，这是同一张表随实测腿长求值，不是切换表。
 
-[leg_balance.c](../imcalib/Algorithm/leg_balance.c)计算左右长度PID、横滚差动力及支撑前馈，加入LQR摆矩后经公共雅可比映射/补偿/限幅。最终腿长目标、斜坡输出/PID给定、实测腿长是三个量。原Ramp_Target_Update首次从实测播种，之后沿上一给定推进；它限制给定速率，不保证实际运动速率。
+[leg_balance.c](../imcalib/Algorithm/leg_balance.c)使用显式PD计算左右长度力和横滚差动力，再叠加原支撑前馈，与LQR摆矩一同经公共雅可比映射/补偿/限幅。长度为`Kp*(斜坡给定-实测长度)-Kd*实测伸缩速度`，roll为`-Kp*roll-Kd*roll_rate`；实际伸缩速度读取双腿`d_virtual_leg_length`，roll_rate由LQR_State_Update读取现有映射后的IMU机体X轴`gyro_rad_s[0]`，不改取轴/符号表，也不增加滤波。角度和角速度物理同轴及方向仍待台架验证。
+
+最终腿长目标、斜坡给定、实测腿长仍是三个量。原Ramp_Target_Update首次从实测播种，之后沿上一给定推进；它限制给定速率，不保证实际运动速率。显式PD不积分、不对目标或误差差分，首次/释放恢复立即反馈实际速度；原`len_prime_enable/len_history_ready`预置历史开关随正常差分D移除。AIR释放继续清输出并暂停PD/斜坡，恢复从实测重播斜坡；原支撑前馈、F正负roll叠加、Tp符号及补偿/最终限幅保持。
+
+正常PD继续复用`pid_t`保存P/D/总输出和给定诊断。机器表`machine.lqr.leg_len/roll.kd`保留原差分增益口径，Leg_Balance_Init将其乘`MACHINE_LQR_DT`换算后存入正常实例`.d`：长度单位N·s/m，roll单位N·s/rad。`.p`仍为N/m或N/rad；VOFA的pout/dout/pos_out字段与通道不变，iout固定为零。地面恢复独立PID仍直接使用机器表原Kd；修改表值仍会影响两个消费者，调正常实例`.d`则按速度阻尼单位。纯目标变化不再带来D出力，伸缩跟随和落地效果需实测。
 
 通用[pid.c](../imcalib/common/pid.c)位置式D使用每拍误差差分，未除周期；RL腿D则直接乘实际关节速度，两者不能按同一Kd口径解释。PID_History_Set只预置历史，不能每拍调用来抹掉真实阻尼。
 
@@ -320,6 +324,12 @@ debug_rx按作者要求保留用于后续VOFA接收；当前只是预留实例�
 
 [dm.c](../imcalib/drivers/dm.c)负责MIT量化、反馈换算、极性/零点、在线/使能看门狗及报文；[dji.c](../imcalib/drivers/dji.c)负责编码器/RPM/电流反馈、减速比、轮矩到raw电流及按反馈ID选择电流槽。所有控制者输出逻辑机体量，物理输出极性在驱动边界处理一次。
 
+CAN恢复由通信任务原有的`Can_Bus_Online(true)`推进，业务代码只改[can_bus.c/h](../imcalib/bsp/can_bus.c)。bus-off回调核对`PSR.BO`，只记录真正进入故障，不在中断内Stop；退出bus-off通知不触发重启。DEAD=1或RECOVERING=2每100ms尝试恢复对应一路：取消旧发送请求，按HAL状态Stop，再按该句柄原Init重新初始化、配置原滤波器、Start并恢复原通知；每步检查结果，软件设备路由和其他CAN控制器保留。
+
+本轮启动成功只进入RECOVERING；必须HAL处于BUSY、`CCCR.INIT=0`、`PSR.BO=0`且接收计数相对本次启动基准变化，才回ACTIVE=0。失败或尚未确认新接收帧时继续返回离线，沿用原FAULT_CAN和使能/零输出链。CAN接收计数不是每台电机的有效反馈，设备在线和motor.valid仍由原驱动/通信链判断。本项未增加TX完成中断、改DM或最终输出逻辑。
+
+Watch查看`can_bus[总线号-1]`的`state/recover_attempts/failed_step/last_error/alive_cnt`。failed_step为0表示本轮启动步骤通过（仍需看state确认在线），1停止、2初始化、3滤波、4启动、5通知；last_error保留最近一次HAL失败值，后续成功不自动清除。大机四髋对应下标0，双轮对应下标2。软件恢复流程和两机编译已验证；跨固件烧录、带电重启及CAN真实恢复效果待台架。
+
 <a id="vofa"></a>
 ## 当前VOFA与调试入口
 
@@ -344,6 +354,36 @@ AIR状态、三态、LQR状态和腿长交接量在同一短临界区复制，�
 
 策略输入按50Hz读取最新500Hz样本，与每个PD子步的反馈时刻仍不同，不能将obs关节速度反缩放后当作同拍PD反馈。执行验证从torque_state读取同次计算的目标、位置、速度和力矩；需要CSV时调整本固定打包字段，不新增通用采样框架。所有实测结果仍待台架。
 
+
+<a id="jetson"></a>
+## Jetson只读镜像与串口探测（UART10）
+
+2026-10-20按训练仓`26_wheelleg`的`h7-jetson-kinematic-mirror-v1`接口在本地工程实现。与训练仓部署副本的差别：VOFA仍留在UART8发原LQR 48路布局，Jetson镜像改走独立UART10，两者不复用发送函数、缓冲或端口。
+
+[Jetson_Mirror_Send](../imcalib/drivers/jetson_uart.c)由`background_task_body`每拍调用，按`HAL_GetTick`经过至少10ms尝试一次，使用静态`Robot_Feedback_Read`快照；DMA忙时跳过，只有提交成功才增加发送序号。帧为48个小端float32加`00 00 80 7F`尾，共196字节；第47槽是前47个float（188字节）的CRC16/CCITT-FALSE数值，参数poly=0x1021、init=0xFFFF、不反射、xorout=0。
+
+| 通道 | 镜像v1定义 |
+| --- | --- |
+| 0～2 | 在线掩码（IMU/DR16/四髋/两轮原0～7位）、状态位（0使能、1跌倒、2左腿有效、3右腿有效、4～7四髋使能、8 LQR投入、9 RL投入）、`ctrl_fault` |
+| 3～5 | 标识7101、版本1、编译机型（0大机／1小机，Jetson首期只接受0） |
+| 6～7 | uint32发送序号的低／高16位；仅DMA提交成功增加，按uint32回绕 |
+| 8～9 | `captured_ns/1000000`的低32位毫秒，拆低／高16位 |
+| 10～13 | 四髋`pos_continuous_rad`，左前／左后／右前／右后 |
+| 14～17 | 同顺序`vel_rad_s` |
+| 18～21 | 左右轮`angle_total_rad`两路、`vel_rad_s`两路 |
+| 22～28 | 公共IMU四元数wxyz、角速度xyz |
+| 29 | 数据有效位：0=IMU，1～4=四髋，5～6=两轮；无效来源填0 |
+| 30～31 | IMU／电机的软件发布年龄ms；-1未发布，超过60000饱和 |
+| 32 | 串口探测扩展版本1；旧固件为0 |
+| 33～38 | 最近合法探测序号、主机随机数、合法包数的低／高16位 |
+| 39～46 | 保留为0 |
+| 47 | CRC16/CCITT-FALSE数值 |
+
+下行探测由`comm_task_body`每拍调用`Jetson_Uart_Process`轮询256字节环形RX DMA：只接受`J7P1`＋小端uint32序号＋uint32随机数＋uint16 CRC的14字节包，CRC校验前12字节；噪声和坏CRC逐字节重新找包头，跨环尾与分包保留解析状态。RX只关闭HT半满中断、保留TC完成中断，使HAL接收错误后的异步DMA终止能完成并解锁；`RxState`离开BUSY_RX时由comm重启DMA并清半包，计入`rx_restarts`。
+
+大机`MACHINE_JETSON_PORT=10`：USART10，PE3/TX、PE2/RX，1152000/8N1，RX用DMA1 Stream0环形、TX用DMA2 Stream0 NORMAL，ioc与生成代码都包含该外设；小机为0，三个入口为空实现。镜像只读，不接收动作、不改变RL/LQR许可、模式或物理标定，可与VOFA同时观察。
+
+发布年龄是软件快照时刻减发布时刻，不是传感器采样年龄；序号缺口只表示未观测到已提交帧，不等同CAN丢帧。接线、电平、实际频率、往返耗时与板端时序待台架。
 
 <a id="matlab-gain"></a>
 ## MATLAB增益表与模型

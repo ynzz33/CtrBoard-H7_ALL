@@ -43,6 +43,12 @@ typedef struct {
     uint8_t valid; /* 在线且无故障 */
 } motor_state_t;
 
+/* 镜像使用发布完成时刻判断软件数据是否过期；不是传感器采样或CAN接收时刻。 */
+typedef struct {
+    uint64_t published_ns;
+    uint8_t seen;
+} feedback_meta_t;
+
 typedef struct robot_feedback {
     imu_state_t imu;
     motor_state_t motor;
@@ -51,6 +57,9 @@ typedef struct robot_feedback {
     rc_command_t rc;
     float height; /* 与motor/left/right同批发布的公共几何估计。 */
     uint8_t height_valid;
+    feedback_meta_t imu_meta;
+    feedback_meta_t motor_meta;
+    uint64_t captured_ns; /* 本次软件快照时刻，与来源采样时刻分开。 */
 } robot_feedback_t;
 
 uint8_t Robot_Feedback_Read(robot_feedback_t *out);

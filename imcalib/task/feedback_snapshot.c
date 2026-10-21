@@ -8,6 +8,10 @@
 
 #include "feedback_snapshot.h"
 #include "robot_state.h"
+#include "mono_ns.h"
+
+static feedback_meta_t imu_meta;
+static feedback_meta_t motor_meta;
 /*
  * 在同一临界区复制IMU、电机、双腿和遥控。
  * 避免读到半更新结构；不同设备仍是异步采样。
@@ -22,6 +26,9 @@ uint8_t Robot_Feedback_Read(robot_feedback_t *out)
     out->rc = rc_command;
     out->height = robot_state.height;
     out->height_valid = robot_state.height_valid;
+    out->imu_meta = imu_meta;
+    out->motor_meta = motor_meta;
+    out->captured_ns = Mono_Ns_Get();
     taskEXIT_CRITICAL();
     return 1u;
 }
@@ -30,6 +37,8 @@ void Robot_Feedback_Publish_Imu(const imu_state_t *next)
 {
     taskENTER_CRITICAL();
     imu_state = *next;
+    imu_meta.published_ns = Mono_Ns_Get();
+    imu_meta.seen = 1u;
     taskEXIT_CRITICAL();
 }
 
@@ -50,6 +59,8 @@ void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     leg_r = *right;
     robot_state.height = height;
     robot_state.height_valid = height_valid;
+    motor_meta.published_ns = Mono_Ns_Get();
+    motor_meta.seen = 1u;
     taskEXIT_CRITICAL();
 }
 

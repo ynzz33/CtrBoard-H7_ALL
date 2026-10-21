@@ -13,6 +13,7 @@
 #include "dji.h"
 #include "can_bus.h"
 #include "machine_config.h"
+#include "jetson_uart.h"
 
 #include <math.h>
 #include <string.h>
@@ -208,6 +209,7 @@ void comm_task_body(void)
     motor_state_t motor_state_temp;
     leg_state_t leg_l_temp,leg_r_temp;
 
+    Jetson_Uart_Process(); /* 独立探测接收，不改变控制链顺序。 */
     motor_state_temp = motor_state;
     leg_l_temp = leg_l;
     leg_r_temp = leg_r;

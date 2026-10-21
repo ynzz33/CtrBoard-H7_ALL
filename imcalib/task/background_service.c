@@ -8,10 +8,12 @@
 
 #include "robot_control.h"
 #include "vofa_debug.h"
+#include "jetson_uart.h"
 #include "ws2812.h"
 
 void background_task_body(void)
 {
     Vofa_Debug_Send();
+    Jetson_Mirror_Send();
     WS2812_RainbowBlink();
 }

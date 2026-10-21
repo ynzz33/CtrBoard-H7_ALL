@@ -2,6 +2,31 @@
 
 本文件只保存历史变更、依据、验证与删除前的文档副本。当前规则看AGENTS.md，当前代码结构看file-guide.md；历史内容不能作为现行参数、已验证状态或可直接执行的操作步骤。阅读时按日期、模块或关键词检索，不必整份加载。
 
+## 2026-10-21 · 正常腿长与roll直接替换为显式PD
+
+- 作者明确要求只替换显式PD，力分配与轨迹优化留待后续。`leg_balance.c/h`将正常左右长度环改为`Kp*(斜坡给定-实测长度)-Kd*d_virtual_leg_length`，roll改为`-Kp*roll-Kd*roll_rate`；复用原pid_t字段保存P/D/总输出与给定，不运行积分或误差差分。新增私有Leg_PD_Update，删除已经无作用的正常首拍历史预置及len_prime_enable/len_history_ready；恢复控制自身的同名历史状态不变。
+- `lqr_balance.c/h`增加roll_rate，读取现有映射后的IMU机体X轴gyro_rad_s[0]，保留原roll角来源。未改IMU配置、极性、零点或任一物理标定；同轴、方向与真实阻尼仍待台架验证。没有新滤波、MPC、力分配、轨迹优化或目标速度前馈。
+- 机器表参数值不变。正常初始化将原差分Kd乘MACHINE_LQR_DT后作为实际速度增益；本轮大机初始化对应腿长150 N·s/m、roll 0.1 N·s/rad，小机为10和0.05。地面恢复继续使用原机器表差分PID，通用pid.c不变。machine_config.h标注两种消费者的单位口径，VOFA仅更新注释，原分项字段和48路映射不变。
+- 保留现有目标斜坡、支撑前馈、左右正负叠加、LQR输出/Tp符号、雅可比、弹簧/重力补偿、最终限幅与开关语义；AIR释放暂停PD/斜坡并清输出，恢复从实测重播给定，实际速度D在恢复首拍即生效。目标变化不再进入D，跟随和落地效果未实测。
+- 构建：按当前compile_commands的111个C源和1个启动汇编，两机分别工程外重编/链接通过，仅原BMI088 packed告警。旧lnp遗漏当前已列入compile_commands及builder sourceList的jetson_uart对象，工程外链接按当前编译对象补齐；未改持久工程配置或覆盖工作区构建产物。Flash大机605928 B、小机602208 B。产物位于系统临时explicit-pd-c0600f1dbf5d45f8ad79898f0e6bb1bc目录。
+- 桌面行为测试尝试未完成：本机LCC不支持工程所用C99指定初始化，Clang可编译探针，但配套LCC运行库/链接器不兼容；不称行为用例通过。没有在工程内新增测试文件；未烧录、提交或推送。
+
+## 2026-10-20 · 收敛修复CAN故障后的重启处理
+
+- 作者要求撤销上一轮扩展方案后，批准只修改`can_bus.c/h`并测试。bus-off回调现在核对真实`PSR.BO`，只记录DEAD及确认基准/时间；退出通知不再Stop，HAL恢复只由原通信任务执行。
+- 新增私有`Can_Bus_Recover`：保留软件路由，取消挂起发送，按HAL状态Stop，再使用当前句柄原Init恢复对应控制器、滤波器、启动与原通知。Stop失败可继续尝试Init；任一步最终失败保持DEAD，每100ms再试。启动成功进入RECOVERING，硬件正常且本轮新接收计数变化才回ACTIVE。
+- 仅新增RECOVERING枚举和recover_attempts、last_error、failed_step三项诊断。last_error保留最近HAL失败，failed_step=0表示启动步骤通过。沿用原FAULT_CAN与使能/零输出；未改DM、最终输出、物理量、自起、离地、控制周期或任务。C/H净增加67行，当前总览同步说明。
+- 验证：修改前工程外生产源码复现7项检查中3项失败（退出通知误Stop、HAL ERROR未重新初始化/启动）；修改后140项通过，覆盖进出bus-off、HAL Init/Filter/Start/通知失败再试、Stop失败后Init恢复、新帧确认、旧计数不放行、静默及未使用总线、单路恢复、持续重试和32位时钟回绕。HAL/时钟/收帧用替身，不证明真实CAN行为。未在工程内增加测试文件。
+- 构建：eIDE实际unify_builder在工程外按大小机各111个C源及1个启动汇编全量编译链接通过，仅原BMI088 packed告警；Flash分别605928/602208 B。can_bus.c另经Keil AC5两机对象编译通过。未烧录，跨固件烧录后的全电机离线现象及真实带电恢复效果仍待台架验收，不宣称已确认现场根因。
+
+## 2026-10-20 · 接入Jetson UART10只读镜像与双向探测
+
+- 训练仓`26_wheelleg`已合并PR#3（`codex/h7-uart10-probe`，`8329052`）。作者要求把该接口落到本地工程：新增`imcalib/drivers/jetson_uart.c/h`、`machine_config.h`的`MACHINE_JETSON_PORT`、`feedback_snapshot`的`imu_meta/motor_meta/captured_ns`；main初始化UART10，commTask每拍轮询探测，backgroundTask发送镜像。
+- 与训练仓权威实现`Vofa_Debug_Send`的差异（作者本地适配）：镜像不再占用VOFA端口，改由UART10独立发送，VOFA保留UART8原LQR 48路布局；DMA由训练仓的DMA2 Stream0/1（USER CODE手写、ioc不含USART10）改为CubeMX生成的DMA1 Stream0收、DMA2 Stream0发，ioc已含USART10。帧格式、槽位、CRC参数和14字节探测包解析逐字段一致。
+- 验证：按eIDE `compile_commands.json`的111个C源加启动汇编，在工程外用同一套GCC参数全量编译并链接通过，FLASH 605416 B（57.74%）、DTCMRAM 8680 B、AXIRAM 48224 B、USBRAM 6720 B；`jetson_uart.c`另用Keil AC5 `--c99`单文件编译通过。未在工作区跑eIDE增量构建。
+- 未验证：未烧录、未接线；实际波特率与电平、镜像频率、探测往返耗时、板端时序和长时间稳定性均待台架。物理量未改动。
+- 文档：file-guide新增Jetson节；训练仓`deployment/H7_RL`部署副本同步本工程。
+
 ## 2026-10-20 · 完整迁移地面恢复动作与子结构分组
 
 - 删除 `standup.c/h`，将原普通起立、倒置翻身、阶段机、目标、PID、映射、补偿、超时和重试逐语句迁入 `ground_recovery.c/h`。旧薄包装变为唯一动作实现；全局状态、参数、枚举和公开接口统一为 `ground_recovery_*` / `GROUND_RECOVERY_*`，不保留旧符号、宏别名或兼容包装。

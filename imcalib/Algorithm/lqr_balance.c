@@ -2,7 +2,7 @@
  * 文件职责：LQR状态构建、遥控目标和状态反馈（lqr_balance.c）。
  * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
  * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
- * 关键边界：腿长PID由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
+ * 关键边界：腿长/横滚显式PD由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -27,6 +27,7 @@
 #define LQR_IMU_ROLL_IDX     ATTITUDE_PITCH
 #define LQR_IMU_YAW_IDX      ATTITUDE_YAW
 #define LQR_IMU_GYRO_PITCH   1u
+#define LQR_IMU_GYRO_ROLL    0u
 #define LQR_IMU_GYRO_YAW     2u
 
 lqr_debug_t lqr_debug;
@@ -223,6 +224,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,const leg_state
     pitch = imu->euler_rad[LQR_IMU_PITCH_IDX];
     omg_pitch = Lowpass_Update(&st->lpf_omg_pitch, imu->gyro_rad_s[LQR_IMU_GYRO_PITCH]);
     st->roll = imu->euler_rad[LQR_IMU_ROLL_IDX];
+    st->roll_rate = imu->gyro_rad_s[LQR_IMU_GYRO_ROLL];
 
     /* 前摆正，转世界系 */
     st->x[LQR_X_THL]  = leg_l->output.virtual_leg_angle - pitch;

@@ -54,18 +54,11 @@ static int32_t Can_Bus_Hw_Index(const FDCAN_HandleTypeDef *hfdcan)
     return -1;
 }
 
-/* 取消TX + 停止 */
-static void Can_Bus_Stop(uint32_t idx)
-{
-    FDCAN_HandleTypeDef *hfdcan = handles[idx];
-    SET_BIT(hfdcan->Instance->TXBCR, hfdcan->Instance->TXBRP);
-    HAL_FDCAN_Stop(hfdcan);
-}
-
 /* 配置滤波器 + 启动 + 开中断 */
 static bool Can_Bus_Start(uint32_t idx)
 {
     FDCAN_HandleTypeDef *hfdcan = handles[idx];
+    can_bus_t *bus = &can_bus[idx];
 
     FDCAN_FilterTypeDef filter = {0};
     filter.IdType       = FDCAN_STANDARD_ID;
@@ -74,16 +67,56 @@ static bool Can_Bus_Start(uint32_t idx)
     filter.FilterID1    = 0x000;
     filter.FilterID2    = 0x000;
     filter.FilterIndex = 0;
-    if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK || HAL_FDCAN_Start(hfdcan) != HAL_OK)
+    bus->failed_step = 3u;
+    if (HAL_FDCAN_ConfigFilter(hfdcan, &filter) != HAL_OK)
     {
         return false;
     }
+    bus->failed_step = 4u;
+    if (HAL_FDCAN_Start(hfdcan) != HAL_OK)
+    {
+        return false;
+    }
+    bus->failed_step = 5u;
     if (HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_MESSAGE_LOST, 0) != HAL_OK || HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_BUS_OFF, 0) != HAL_OK)
     {
         (void)HAL_FDCAN_Stop(hfdcan);
         return false;
     }
+    bus->failed_step = 0u;
     return true;
+}
+
+/* 仅通信任务调用：保留路由，按原Init恢复对应控制器；HAL出错仍可下一轮重试。 */
+static void Can_Bus_Recover(uint32_t idx, uint32_t now)
+{
+    can_bus_t *bus = &can_bus[idx];
+    FDCAN_HandleTypeDef *hfdcan = handles[idx];
+
+    bus->state = CAN_BUS_STATE_DEAD;
+    bus->reinit_tick = now;
+    bus->recover_attempts++;
+    SET_BIT(hfdcan->Instance->TXBCR, hfdcan->Instance->TXBRP);
+    bus->failed_step = 1u;
+    if (hfdcan->State == HAL_FDCAN_STATE_BUSY && HAL_FDCAN_Stop(hfdcan) != HAL_OK)
+    {
+        bus->last_error = HAL_FDCAN_GetError(hfdcan); /* Stop失败后仍尝试重新初始化。 */
+    }
+    bus->failed_step = 2u;
+    if (HAL_FDCAN_Init(hfdcan) != HAL_OK)
+    {
+        goto failed;
+    }
+    bus->alive_prev = bus->alive_cnt; /* 旧接收计数不能证明本轮恢复。 */
+    if (!Can_Bus_Start(idx))
+    {
+        goto failed;
+    }
+    bus->dead_since = now;
+    bus->state = CAN_BUS_STATE_RECOVERING;
+    return;
+failed:
+    bus->last_error = HAL_FDCAN_GetError(hfdcan);
 }
 
 /* 初始化 */
@@ -110,9 +143,14 @@ void Can_Bus_Init(void)
         bus->last_tx_tick = HAL_GetTick();
         bus->dead_since   = HAL_GetTick();
         bus->reinit_tick  = HAL_GetTick();
-
+        bus->recover_attempts = 0u;
+        bus->last_error = 0u;
 
         bus->state = Can_Bus_Start(i) ? CAN_BUS_STATE_ACTIVE : CAN_BUS_STATE_DEAD;
+        if (bus->state == CAN_BUS_STATE_DEAD)
+        {
+            bus->last_error = HAL_FDCAN_GetError(handles[i]);
+        }
     }
 }
 
@@ -210,15 +248,19 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     }
 }
 
-/* ISR 错误: bus-off → 停止 + 标记DEAD */
+/* bus-off中断只记录真正进入故障，退出通知不停止控制器；重启交给通信任务。 */
 void HAL_FDCAN_ErrorStatusCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t ErrorStatusITs)
 {
-    if (!(ErrorStatusITs & FDCAN_IT_BUS_OFF)) return;
+    if (!(ErrorStatusITs & FDCAN_IT_BUS_OFF) || !(hfdcan->Instance->PSR & FDCAN_PSR_BO))
+    {
+        return;
+    }
 
     int32_t idx = Can_Bus_Hw_Index(hfdcan);
     if (idx < 0) return;
 
-    Can_Bus_Stop(idx);
+    can_bus[idx].alive_prev = can_bus[idx].alive_cnt;
+    can_bus[idx].reinit_tick = HAL_GetTick();
     can_bus[idx].state = CAN_BUS_STATE_DEAD;
 }
 
@@ -242,30 +284,44 @@ bool Can_Bus_Online(bool expect_traffic)
         }
 
         bool alive_changed = (bus->alive_cnt != bus->alive_prev);
+        bool running = handles[i]->State == HAL_FDCAN_STATE_BUSY && !(handles[i]->Instance->CCCR & FDCAN_CCCR_INIT) && !(handles[i]->Instance->PSR & FDCAN_PSR_BO);
 
-        /* DEAD + 收到新帧 → 恢复 */
-        if (bus->state == CAN_BUS_STATE_DEAD && alive_changed)
-            bus->state = CAN_BUS_STATE_ACTIVE;
-
-        /* DEAD → 每100ms重新启动 */
-        if (bus->state == CAN_BUS_STATE_DEAD && now - bus->reinit_tick >= CAN_BUS_REINIT_MS)
+        if (bus->state == CAN_BUS_STATE_ACTIVE && !running)
         {
-            Can_Bus_Stop(i);
-            (void)Can_Bus_Start(i);
+            bus->state = CAN_BUS_STATE_DEAD;
+            bus->alive_prev = bus->alive_cnt;
             bus->reinit_tick = now;
+        }
+        /* 只有本轮启动通过、硬件运行且收到新帧，才解除CAN故障。 */
+        if (bus->state == CAN_BUS_STATE_RECOVERING && running && alive_changed)
+        {
+            bus->state = CAN_BUS_STATE_ACTIVE;
+        }
+
+        /* 失败或启动后无反馈，均保持100ms间隔继续尝试。 */
+        if (bus->state != CAN_BUS_STATE_ACTIVE && now - bus->reinit_tick >= CAN_BUS_REINIT_MS)
+        {
+            Can_Bus_Recover(i, now);
+            all_ok = false;
+            continue;
         }
 
         if (!expect_traffic)
         {
-            bus->alive_prev = bus->alive_cnt;
+            if (bus->state == CAN_BUS_STATE_ACTIVE)
+            {
+                bus->alive_prev = bus->alive_cnt;
+            }
             bus->dead_since = now;
-            if (bus->state == CAN_BUS_STATE_DEAD)
+            if (bus->state != CAN_BUS_STATE_ACTIVE)
+            {
                 all_ok = false;
+            }
             continue;
         }
 
         /* RX 看门狗 */
-        if (alive_changed)
+        if (alive_changed && bus->state == CAN_BUS_STATE_ACTIVE)
         {
             bus->alive_prev = bus->alive_cnt;
             bus->dead_since = now;
@@ -273,11 +329,17 @@ bool Can_Bus_Online(bool expect_traffic)
         else if (now - bus->dead_since > CAN_BUS_DEAD_MS)
         {
             if (bus->state == CAN_BUS_STATE_ACTIVE)
+            {
                 bus->state = CAN_BUS_STATE_DEAD;
+                bus->alive_prev = bus->alive_cnt;
+                bus->reinit_tick = now;
+            }
         }
 
-        if (bus->state == CAN_BUS_STATE_DEAD)
+        if (bus->state != CAN_BUS_STATE_ACTIVE)
+        {
             all_ok = false;
+        }
     }
     return all_ok;
 }

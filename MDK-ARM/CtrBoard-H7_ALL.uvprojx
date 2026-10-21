@@ -1162,6 +1162,11 @@
               <FilePath>../imcalib/drivers/hi229.c</FilePath>
             </File>
             <File>
+              <FileName>jetson_uart.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/drivers/jetson_uart.c</FilePath>
+            </File>
+            <File>
               <FileName>ws2812.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/drivers/ws2812.c</FilePath>
@@ -1321,21 +1326,21 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/air_detection.c</FilePath>
             </File>
-              <File>
-                <FileName>control_condition.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/Algorithm/control_condition.c</FilePath>
-              </File>
-              <File>
-                <FileName>fallen_detection.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/Algorithm/fallen_detection.c</FilePath>
-              </File>
-              <File>
-                <FileName>ground_recovery.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/Algorithm/ground_recovery.c</FilePath>
-              </File>
+            <File>
+              <FileName>control_condition.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/control_condition.c</FilePath>
+            </File>
+            <File>
+              <FileName>fallen_detection.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/fallen_detection.c</FilePath>
+            </File>
+            <File>
+              <FileName>ground_recovery.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/ground_recovery.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1366,31 +1371,31 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/task/task_actuation.c</FilePath>
             </File>
-              <File>
-                <FileName>control_detection.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/task/control_detection.c</FilePath>
-              </File>
-              <File>
-                <FileName>control_air_response.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/task/control_air_response.c</FilePath>
-              </File>
-              <File>
-                <FileName>control_strategy.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/task/control_strategy.c</FilePath>
-              </File>
-              <File>
-                <FileName>control_compute.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/task/control_compute.c</FilePath>
-              </File>
-              <File>
-                <FileName>control_output.c</FileName>
-                <FileType>1</FileType>
-                <FilePath>../imcalib/task/control_output.c</FilePath>
-              </File>
+            <File>
+              <FileName>control_detection.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/control_detection.c</FilePath>
+            </File>
+            <File>
+              <FileName>control_air_response.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/control_air_response.c</FilePath>
+            </File>
+            <File>
+              <FileName>control_strategy.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/control_strategy.c</FilePath>
+            </File>
+            <File>
+              <FileName>control_compute.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/control_compute.c</FilePath>
+            </File>
+            <File>
+              <FileName>control_output.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/task/control_output.c</FilePath>
+            </File>
             <File>
               <FileName>task_comm.c</FileName>
               <FileType>1</FileType>

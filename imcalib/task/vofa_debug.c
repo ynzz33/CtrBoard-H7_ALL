@@ -79,7 +79,7 @@ void Vofa_Debug_Send(void)
     dbg[9] = air_debug.initial_unload_elapsed;
     dbg[10] = air_debug.compression[0];
     dbg[11] = air_debug.compression[1];
-    /* 落地腿长闭环：速度、P/D、总PID与roll项用于区分给定过慢和出力受限。 */
+    /* 落地腿长闭环：实际速度、显式P/D、总PD与roll项用于区分给定和出力。 */
     dbg[12] = leg_l.output.d_virtual_leg_length;
     dbg[13] = leg_r.output.d_virtual_leg_length;
     dbg[14] = leg_balance.leg_len[0].pout;
