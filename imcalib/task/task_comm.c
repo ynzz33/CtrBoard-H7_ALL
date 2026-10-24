@@ -28,7 +28,6 @@ static void Motor_State_Update(motor_state_t *next)
 
         next->dm.pos_rad[i] = feedback->pos_rad;
         next->dm.pos_zero_rad[i] = feedback->pos_zero_rad;
-        next->dm.pos_continuous_rad[i] = feedback->pos_continuous_rad; /* RL连续角随同一电机快照发布。 */
         next->dm.vel_rad_s[i] = feedback->vel_rad_s;
         next->dm.trq_nm[i] = feedback->trq_nm;
         next->dm.last_rx_tick[i] = feedback->last_rx_tick;

@@ -27,7 +27,7 @@ typedef enum {
 typedef struct {
     float gyro[3];                  /* 机体XYZ角速度，rad/s */
     float gravity[3];               /* 机体系单位重力 */
-    float pos[RL_LEG_MOTOR_NUM];     /* 四电机连续角，rad */
+    float pos[RL_LEG_MOTOR_NUM];     /* 四电机单圈角，rad */
     float vel[RL_ACTION_SIZE];      /* 四电机与左右轮速度，rad/s */
 } rl_observation_sample_t;
 typedef struct {

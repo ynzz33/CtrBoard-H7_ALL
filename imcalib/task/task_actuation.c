@@ -49,7 +49,7 @@ static void Control_Frame_Read(void)
     control_frame.joint_ready = 1u;
     for (uint8_t i = 0u; i < 4u; i++)
     {
-        control_frame.motor_pos[i] = feedback.motor.dm.pos_continuous_rad[i];
+        control_frame.motor_pos[i] = feedback.motor.dm.pos_zero_rad[i];
         control_frame.motor_vel[i] = feedback.motor.dm.vel_rad_s[i];
         control_frame.joint_torque[i] = feedback.motor.dm.trq_nm[i];
         control_frame.joint_ready &= (uint8_t)(feedback.motor.dm.online[i] && Dm_Is_Enabled(i));

@@ -18,7 +18,6 @@
 typedef struct {
     float pos_rad[DM_MOTOR_NUM];        /* 解码角 */
     float pos_zero_rad[DM_MOTOR_NUM];   /* 加零点 */
-    float pos_continuous_rad[DM_MOTOR_NUM]; /* RL连续标定角，rad；随整份电机快照发布 */
     float vel_rad_s[DM_MOTOR_NUM];
     float trq_nm[DM_MOTOR_NUM];
     uint32_t last_rx_tick[DM_MOTOR_NUM];

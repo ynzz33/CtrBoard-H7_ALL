@@ -11,6 +11,18 @@
 - 软件验证：工程外stdin编译并运行实际检测、恢复、AIR响应、LQR/腿控和控制计算源码，大小机各1607条断言通过（包含逐拍零输出检查，不是1607个独立场景）；覆盖4999/5000 ms、299/300 ms边界，计时回绕、重复请求、三态重判与自起/自救选路、反馈失效、模式退出、重试预算和上限、各普通动作超时、预压/卡滞/扫角退出及正常伸腿完成。HAL时钟及执行拍输入由桌面构造，不代表实体动作或CAN发送验证；无新增仓库测试源文件。
 - 工程外GCC大小机全量编译链接通过（各111个C源、1个启动汇编、2个库），仅原BMI088 packed告警；Flash分别606184/602496 B，AXIRAM分别47488/46240 B。三个修改C源在大小机配置下均通过Keil AC5对象编译。产物在系统临时`h7-postprocess-1811fc989b94438688735c33514300c7`目录；未覆盖工作区构建产物，未烧录、提交或推送，上机动作效果待验证。
 
+## 2026-10-22 · RL统一使用DM单圈零点角
+
+- 作者明确要求删除DM连续角相关实现。`dm.c/h`删除整数圈状态、跨圈更新和`pos_continuous_rad`；`pos_zero_rad = pos_rad + dm_zero`保留，原始协议反向解码仍使用`DM_ANGLE_CPR`常量。DJI轮子的`angle_total_rad`不变。
+- `feedback_snapshot`、`task_comm`和`task_actuation`删除连续角快照链；RL的`control_frame.motor_pos`改为同一份`pos_zero_rad`。Jetson镜像四髋10～13槽也改为`pos_zero_rad`，因此其含义与RL输入一致。
+- 未修改`dm_zero`、dm/dji极性、MIT量程或任何控制增益。DM单圈角跨协议角界时会出现约一圈跳变，RL位置PD不会自动作最短角差处理；该工作范围和台架影响待实测。
+- 验证：工程外GCC全量编译链接通过，大小机各111个C源、1个启动汇编和2个库；大机Flash 605608 B、AXIRAM 47456 B，小机Flash 601888 B、AXIRAM 46208 B，仅保留原BMI088 packed告警。未烧录、未进行跨角界实机测试。
+
+## 2026-10-22 · 倒地检测复用公共角度环绕
+
+- 按作者要求，`fallen_detection.c`删除局部`Fallen_Wrap`，显式引入`math_utils.h`，左右腿角误差和pitch误差三处统一调用`Angle_Wrap_180`；检测阈值、输入来源和异常判断表达式不变。
+- 环绕改用公共逐圈加减实现，范围仍为[-π,π]；不将它与原fmodf实现宣称为所有浮点输入逐位等价。本轮仅修改对应源码及本记录，未运行测试或构建。
+
 ## 2026-10-21 · 正常腿长与roll直接替换为显式PD
 
 - 作者明确要求只替换显式PD，力分配与轨迹优化留待后续。`leg_balance.c/h`将正常左右长度环改为`Kp*(斜坡给定-实测长度)-Kd*d_virtual_leg_length`，roll改为`-Kp*roll-Kd*roll_rate`；复用原pid_t字段保存P/D/总输出与给定，不运行积分或误差差分。新增私有Leg_PD_Update，删除已经无作用的正常首拍历史预置及len_prime_enable/len_history_ready；恢复控制自身的同名历史状态不变。

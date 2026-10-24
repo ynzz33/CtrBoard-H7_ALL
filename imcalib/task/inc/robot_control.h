@@ -28,7 +28,7 @@ typedef struct {
     uint8_t height_valid;
     uint8_t fallen;             /* 本拍公共姿态倒地；RL还单独判断低高度。 */
     float wheel_vel[2];
-    float motor_pos[4];         /* 本拍固件连续标定角，rad */
+    float motor_pos[4];         /* 本拍DM零点后单圈角，rad */
     float motor_vel[4];         /* 本拍固件电机速度，rad/s */
     rl_motor_state_t rl_motor;  /* 当前RL控制子步的模型坐标反馈，供采样与PD共用 */
     uint8_t motor_valid;        /* 源电机组在线且无故障，与虚拟腿几何valid分开 */

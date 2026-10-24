@@ -152,9 +152,9 @@ void Jetson_Mirror_Send(void)
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         online_mask |= feedback.motor.dm.online[i] ? (uint8_t)(1u << (i + 2u)) : 0u;
-        if (feedback.motor.dm.online[i] && isfinite(feedback.motor.dm.pos_continuous_rad[i]) && isfinite(feedback.motor.dm.vel_rad_s[i]))
+        if (feedback.motor.dm.online[i] && isfinite(feedback.motor.dm.pos_zero_rad[i]) && isfinite(feedback.motor.dm.vel_rad_s[i]))
         {
-            frame[10u + i] = feedback.motor.dm.pos_continuous_rad[i];
+            frame[10u + i] = feedback.motor.dm.pos_zero_rad[i];
             frame[14u + i] = feedback.motor.dm.vel_rad_s[i];
             valid_mask |= (uint8_t)(1u << (i + 1u));
         }

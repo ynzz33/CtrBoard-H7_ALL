@@ -110,11 +110,11 @@ typedef struct {
     float wheel_torque_limit; /* RL轮力矩限幅，Nm；与公共满电流限幅分开 */
 } machine_rl_torque_cfg_t;
 /* 实体顺序LF前/后、RF前/后、左轮/右轮。
- * 电机反馈已包含驱动机械标定；motor_zero基于pos_continuous_rad，不再叠加旧虚拟关节零位。
+ * 电机反馈已包含驱动机械标定；motor_zero基于pos_zero_rad，不再叠加旧虚拟关节零位。
  * 配对映射将公共驱动坐标转换至RL坐标，不能照网络action顺序填写。 */
 typedef struct {
     int8_t motor_sign[6];      /* 固件↔模型配对方向，输入角/速与输出力矩共用 */
-    float motor_zero[4];       /* 固件标定连续角至模型零位的额外偏移，rad */
+    float motor_zero[4];       /* 固件标定单圈角至模型零位的额外偏移，rad */
     float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
     float reference_pos[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
     uint8_t configured;        /* 本机是否启用RL接口；小机当前未接入 */

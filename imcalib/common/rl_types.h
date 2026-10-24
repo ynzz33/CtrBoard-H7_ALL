@@ -18,7 +18,7 @@ static inline uint8_t RL_Action_Index(uint8_t motor_index)
     return order[motor_index];
 }
 typedef struct {
-    float pos[RL_LEG_MOTOR_NUM];     /* 模型坐标四电机连续角，rad；轮位置观测固定0 */
+    float pos[RL_LEG_MOTOR_NUM];     /* 模型坐标四电机单圈角，rad；轮位置观测固定0 */
     float vel[RL_ACTION_SIZE];      /* 同顺序四电机与两轮速度，rad/s */
     uint8_t valid;                  /* 源反馈可用且本次模型映射结果有限 */
 } rl_motor_state_t;

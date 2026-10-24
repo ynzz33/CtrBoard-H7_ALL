@@ -125,10 +125,10 @@ void Vofa_Debug_Send(void)
     // {
     //     dbg[3u + i] = rl_control.observation.obs[i];
     // }
-    // // dbg[35] = (float)motor_state.dm.pos_continuous_rad[0];
-    // // dbg[36] = (float)motor_state.dm.pos_continuous_rad[1];
-    // // dbg[37] = (float)motor_state.dm.pos_continuous_rad[2];
-    // // dbg[38] = (float)motor_state.dm.pos_continuous_rad[3];
+    // // dbg[35] = (float)motor_state.dm.pos_zero_rad[0];
+    // // dbg[36] = (float)motor_state.dm.pos_zero_rad[1];
+    // // dbg[37] = (float)motor_state.dm.pos_zero_rad[2];
+    // // dbg[38] = (float)motor_state.dm.pos_zero_rad[3];
     // dbg[42] = (float)rl_control.policy.run_us;
     // dbg[43] = (float)rl_control.recovery.phase; /* 0未投入/1启动保持/2恢复/3正常/4失败。 */
     // dbg[44] = robot_state.height;
