@@ -125,6 +125,13 @@ typedef struct {
 } machine_rl_cfg_t;
 
 typedef struct {
+    float mass; /* 向心补偿采用的机身质量kg；0不补偿 */
+    float track; /* 左右轮接地点全轮距m */
+    float height_offset; /* 轮半径与机身质心相对髋轴高度之和m */
+    float gain; /* 向心补偿比例 */
+} machine_turn_comp_cfg_t;
+
+typedef struct {
     float leg_trim[2];
     float pitch_trim;
     float pos_target;
@@ -133,6 +140,7 @@ typedef struct {
     machine_pid_cfg_t leg_len[2]; /* 保留差分Kd口径；正常PD初始化乘LQR周期，恢复PID直接使用 */
     machine_pid_cfg_t roll; /* 正常横滚PD初始化将差分Kd乘LQR周期换算为速度阻尼 */
     float support_force[2];
+    machine_turn_comp_cfg_t turn_comp;
     uint8_t yaw_hold;
     uint8_t yaw_rate_hold;
     uint8_t pos_hold;

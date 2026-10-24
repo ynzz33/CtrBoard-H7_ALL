@@ -19,6 +19,7 @@ typedef enum {
 typedef struct {
     float body_contact_height; /* 公共投影高度门槛，m */
     float confirm_time; /* 零出力触地候选连续时间，s */
+    float air_rearm_time; /* FALLEN恢复后连续正常运行多久才重新检测离地，s */
 } control_condition_param_t;
 
 typedef struct {
@@ -32,12 +33,15 @@ typedef struct {
     uint8_t started; /* 已完成本次投入的初判，与反馈valid不同 */
     uint8_t valid; /* 本拍判断可用于选路；0不代表NORMAL */
     uint8_t normal_ready; /* 上拍已生成有效NORMAL候选，不表示电机已执行 */
+    uint8_t air_inhibit; /* FALLEN及恢复后的离地屏蔽，重新完成AIR初判后解除 */
+    uint16_t air_normal_ticks; /* 恢复后连续有效NORMAL运行拍数 */
 } control_condition_t;
 
 extern control_condition_param_t control_condition_param;
 extern control_condition_t control_condition;
 
 void Control_Condition_Reset(control_condition_t *state);
+uint8_t Control_Condition_Air_Allowed(control_condition_t *state, uint8_t normal_running);
 void Control_Condition_Observe(control_condition_t *state, const imu_state_t *imu,
                                const leg_state_t *left, const leg_state_t *right,
                                float height, uint8_t height_valid,
@@ -45,7 +49,7 @@ void Control_Condition_Observe(control_condition_t *state, const imu_state_t *im
 void Control_Condition_Select(control_condition_t *state, const air_detection_t *air,
                               uint8_t request, uint8_t drive,
                               uint8_t fallen, uint8_t recovery_done);
-/* 原恢复动作返回BALANCE后调用；检测尚未确认则等待，不重启动作。 */
-void Control_Condition_Recovery_Ready(control_condition_t *state, const air_detection_t *air);
+/* 恢复完成先进入NORMAL，保持离地屏蔽至正常运行满air_rearm_time。 */
+void Control_Condition_Recovery_Ready(control_condition_t *state);
 
 #endif

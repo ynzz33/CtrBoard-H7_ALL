@@ -123,7 +123,7 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     {
         return;
     }
-    torque->valid = Leg_Balance_Compute(&leg_balance, &lqr_state, &frame->left, &frame->right, &frame->compensation, &lqr_debug, MACHINE_LQR_DT, torque);
+    torque->valid = Leg_Balance_Compute(&leg_balance, &lqr_state, &frame->left, &frame->right, &frame->compensation, &lqr_debug, (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL), MACHINE_LQR_DT, torque);
     if (torque->valid)
     {
         *debug = leg_balance.compensation;
@@ -155,7 +155,7 @@ static void Compute_LQR_Ground_Recovery(control_frame_t *frame, torque_output_t 
     }
     if (route == GROUND_RECOVERY_ROUTE_BALANCE)
     {
-        Control_Condition_Recovery_Ready(&control_condition, &air_detection);
+        Control_Condition_Recovery_Ready(&control_condition);
         if (!control_condition.valid)
         {
             Torque_Output_Clear(torque);
@@ -179,6 +179,8 @@ static void Compute_LQR_Ground_Recovery(control_frame_t *frame, torque_output_t 
             Torque_Output_Clear(torque);
             LQR_Idle();
             control_condition.condition = CONTROL_FALLEN;
+            control_condition.air_inhibit = 1u;
+            control_condition.air_normal_ticks = 0u;
             control_condition.normal_ready = 0u;
         }
     }
@@ -222,6 +224,7 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
                          uint8_t entered_fallen, torque_output_t *torque,
                          uint8_t *dispatch, compensation_debug_t *debug)
 {
+    leg_balance.turn_ff = 0.0f;
     if (entered_fallen)
     {
         Ground_Recovery_Reset(&ground_recovery_control);

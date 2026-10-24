@@ -55,7 +55,7 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 
 ## 启动与任务主链
 
-`main`完成外设初始化后调用`FDCAN_Config`、单调时钟及遥控/IMU/电机初始化，再启动RTOS。`FDCAN_Config`会把机器宏的数据段时序套到FDCAN1/3，当前确实生效；FDCAN2仍取其初始化配置。BMI088源文件保留，主初始化未启用它，运行姿态来源为HI229。
+`main`在系统时钟配置后、三路MX_FDCAN初始化前，先于USER CODE SysInit调用Can_Bus_Reset_Hardware清共享FDCAN硬件和CAN待处理中断；完成外设初始化后调用FDCAN_Config更新FDCAN1/3的机器数据段时序，再由Can_Bus_Init统一执行HAL初始化/滤波/启动，最后启动RTOS。FDCAN2仍取其初始化配置。统一CAN初始化失败保留DEAD供任务重试，FDCAN_Config不再重复HAL初始化并直接Error_Handler。BMI088源文件保留，主初始化未启用它，运行姿态来源为HI229。
 
 | 任务入口 | 单周期职责 | 节拍来源 |
 | --- | --- | --- |
@@ -144,7 +144,7 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 | 配置 | 内容与生效位置 |
 | --- | --- |
 | machine.rc | 公共前进/偏航量程、腿长初值/速率；RC统一解算，LQR直接使用，RL读取同一命令后按训练包线限幅，不回写RC |
-| machine.lqr | trim/位移目标、停车条件、角速度低通、腿长/横滚增益、支撑前馈和运行开关默认值；正常显式PD在初始化换算D单位，恢复仍使用原差分PID |
+| machine.lqr | trim/位移目标、停车条件、角速度低通、腿长/横滚增益、支撑前馈、turn_comp向心参数和运行开关默认值；正常显式PD在初始化换算D单位，恢复仍使用原差分PID |
 | lqr_debug | LQR运行时工作配置与对照入口；初始化取机器默认值，部分物理符号对照保持原源码，不能擅改 |
 | machine.rl | 实体motor_sign/motor_zero、原生nominal_pos/reference_pos、RL39缩放/裁剪、训练四腿PD/轮速度比例及独立限矩；两条动作看门狗，无人为延迟或NORMAL启动保持 |
 | ground_recovery_param / air_param / slip_param | 地面恢复、接触估计/空中接入、速度融合模块参数，读取对应源文件顶部 |
@@ -166,6 +166,10 @@ LQR_State_Update已删除无计算用途的dt参数，只检查imu.online/左右
 大小机固定使用各自当前生成表；小机历史表、对照开关/状态/分支和同系数旧候选文件已删除。腿长变化超过原阈值时重新求K，这是同一张表随实测腿长求值，不是切换表。
 
 [leg_balance.c](../imcalib/Algorithm/leg_balance.c)使用显式PD计算左右长度力和横滚差动力，再叠加原支撑前馈，与LQR摆矩一同经公共雅可比映射/补偿/限幅。长度为`Kp*(斜坡给定-实测长度)-Kd*实测伸缩速度`，roll为`-Kp*roll-Kd*roll_rate`；实际伸缩速度读取双腿`d_virtual_leg_length`，roll_rate由LQR_State_Update读取现有映射后的IMU机体X轴`gyro_rad_s[0]`，不改取轴/符号表，也不增加滤波。角度和角速度物理同轴及方向仍待台架验证。
+
+2026-10-24按作者确认接入正常行进转弯向心补偿：`turn_ff = gain * mass * (0.5*(L_left+L_right)+height_offset) * ds_kf * x[LQR_X_DPHI] / track`。任务层将现有`control_condition.valid && condition==CONTROL_NORMAL`传入Leg_Balance_Compute；正常时计算，在左右腿力合成式直接左减右加。大机`machine.lqr.turn_comp`为质量20.534 kg、全轮距0.42551 m、高度偏置0.07113 m（轮半径0.0525+机身质心相对髋轴0.01863），来源为当前machine_table大机模型；作者实机反馈系数1效果不如原先后，曾按要求将gain降为0.5；当前工作区gain为0.2，左右方向仍为+1。不将整腿质量并到机身质心高度，不复制CKP参数；属于近直立机身近似，当前系数下的效果以对应实测为准。
+
+不新增速度门槛、滤波、状态开关或独立向心限幅。含向心项的F与原摆矩一同经雅可比映射，叠加原弹簧/腿自重补偿后统一执行已有电机力矩限幅；不能用该电机限幅保证内侧轮持续接地。现有腿长/roll关闭分支仍只保留支撑前馈，AIR释放仍为零轴向请求。小机turn_comp质量为0，轮距0.6918 m和高度偏置0.0901 m来自原小机模型，本轮保持无向心补偿。`leg_balance.turn_ff`供Watch观察，每拍控制入口、腿控入口及复位清零，跳过腿控时不遗留旧值；原VOFA通道布局不变。
 
 最终腿长目标、斜坡给定、实测腿长仍是三个量。原Ramp_Target_Update首次从实测播种，之后沿上一给定推进；它限制给定速率，不保证实际运动速率。显式PD不积分、不对目标或误差差分，首次/释放恢复立即反馈实际速度；原`len_prime_enable/len_history_ready`预置历史开关随正常差分D移除。AIR释放继续清输出并暂停PD/斜坡，恢复从实测重播斜坡；原支撑前馈、F正负roll叠加、Tp符号及补偿/最终限幅保持。
 
@@ -269,7 +273,9 @@ RL恢复状态复用rl_observation.c/h内的模式生成逻辑，不新建公共
 
 初始已支撑且无需恢复可直接进入NORMAL；NORMAL中的腿姿/俯仰异常沿用`ground_recovery_param`原门槛与持续时间，原倒置姿态条件也保留。只有已生成有效NORMAL候选后才累计新的异常触发；FLIGHT/FALLEN中的异常历史不带入正常运行。normal_ready仅表示求解候选有效，不证明HAL已发送或实体已执行。公共fallen和RL恢复不改用本模块。
 
-FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启。正常完成返回BALANCE时，检测已确认则选NORMAL或FLIGHT；检测尚未确认时保持DONE等待，不重启动作。FLIGHT正常退出仍用原落地规则，保留真正倒置时转FALLEN的分支，不因低投影高度直接转FALLEN。未完成判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
+FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启。2026-10-24按作者要求，FALLEN期间暂停AIR观察并清空旧flight/峰值，不将自起/翻身运动积累成下一次离地状态。恢复完成返回BALANCE时统一先进入NORMAL，不再根据AIR旧标志交接为FLIGHT，也不等待已暂停的AIR初始化。NORMAL控制连续有效运行满`control_condition_param.air_rearm_time=1.0 s`后才重新启动AIR检测；以`air_normal_ticks*MACHINE_LQR_DT`计时，反馈/投入中断或再次倒地清零计时。重新采样后仍按原支持力持续条件完成初判，在此之前保持正常LQR输出，不因AIR未初始化清掉NORMAL许可；新初判有效后解除`air_inhibit`，恢复原离地选路。未经历FALLEN的首次投入保持原AIR初判流程。
+
+FLIGHT正常退出仍用原落地规则，保留真正倒置时转FALLEN的分支，不因低投影高度直接转FALLEN。FALLEN类超时撤力重判保留离地屏蔽，避免动作历史复位后绕过1 s正常确认。未完成首次判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
 
 2026-10-22后处理超时统一为“撤力→等待→重新初判”：`control_postprocess.phase`为RUN=0、WITHDRAW_WAIT=1、RECHECK=2，与三态独立。实际持续生成有效AIR控制候选满5000 ms请求撤力；普通自起任一动作超时、翻身PRELOAD超时或FLIP卡滞/扫角耗尽统一报告`GROUND_RECOVERY_TIMEOUT`并返回STOP，不再超时跳后摆或直接重做预压。计算层在超时当拍清候选与补偿，等待/重判期间禁止所有LQR、自起、自救出力，最终输出口发送四髋/双轮零力矩；不主动失能电机。
 
@@ -283,7 +289,7 @@ FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启。正
 
 2026-10-19进一步按作者确认分层：Algorithm/air_detection.c/h只负责支持力及离地算法，Algorithm/control_condition.c/h只负责触地与三态判断；task/control_detection.c组装快照并依次调用这两部分，返回进入FALLEN事件，不调用Standup_Reset或控制处理。task/control_air_response.c通过Control_Air_Response_Update消费三态/落地沿，原样保留目标写回临界区、位移/偏航复位、释放和限幅赋值；task_actuation.c保留原两个响应调用位置、动作交接和唯一输出。原Air_Detection_Active仅有的控制选择表达式移入响应文件，不再作为检测模块接口。公共状态与参数实例复用，无新增副本、任务、开关或时序条件；两个新头文件复用control_frame_t，只属于执行层，算法层不引入任务头。
 
-公共检测不由lqr_idle或LQR私有重建复位；初始化、关闭检测及本次新增的超时撤力等待到期才清全部历史。普通观测失败仍清valid、initialized和连续计时并保留flight及峰值；反馈恢复需重新确认，已有AIR不会因初次高力确认被直接清除。原AIR运行分支完整保留：峰值更新、任一腿独立连续压缩退出、landing_enabled关闭的计时清零、非压缩模式的高力退出和新AIR峰值播种均未替换，不增加支持力与压缩联合条件。
+公共检测不由lqr_idle或LQR私有重建复位；初始化、关闭检测、超时撤力等待到期，以及FALLEN/恢复后屏蔽期间清AIR历史。普通观测失败仍清valid、initialized和连续计时并保留flight及峰值；反馈恢复需重新确认，已有AIR不会因初次高力确认被直接清除。原AIR运行分支完整保留：峰值更新、任一腿独立连续压缩退出、landing_enabled关闭的计时清零、非压缩模式的高力退出和新AIR峰值播种均未替换，不增加支持力与压缩联合条件。Watch新增观察`control_condition.air_inhibit/air_normal_ticks`，当前基础拍1 ms时1000拍对应1 s；1 s只是允许重新检测，真正进入FLIGHT仍需原低支持力持续确认。
 
 当前VOFA布局未改。Watch建议观察control_condition.condition/valid/started、body_contact_candidate/body_contact_confirmed/contact_elapsed、trigger_elapsed/normal_ready、air_debug.initialized/valid/flight/mean_force、ground_recovery_control.lifecycle.phase/fault/retry及control_postprocess.phase/flight_timing/recovery_retry/exhausted。新判断已实际选路，软件检查通过不表示真实触地辨识或飞坡/掉落动作通过验收。
 
@@ -328,11 +334,13 @@ debug_rx按作者要求保留用于后续VOFA接收；当前只是预留实例�
 
 [dm.c](../imcalib/drivers/dm.c)负责MIT量化、反馈换算、极性/零点、在线/使能看门狗及报文；[dji.c](../imcalib/drivers/dji.c)负责编码器/RPM/电流反馈、减速比、轮矩到raw电流及按反馈ID选择电流槽。所有控制者输出逻辑机体量，物理输出极性在驱动边界处理一次。
 
-CAN恢复由通信任务原有的`Can_Bus_Online(true)`推进，业务代码只改[can_bus.c/h](../imcalib/bsp/can_bus.c)。bus-off回调核对`PSR.BO`，只记录真正进入故障，不在中断内Stop；退出bus-off通知不触发重启。DEAD=1或RECOVERING=2每100ms尝试恢复对应一路：取消旧发送请求，按HAL状态Stop，再按该句柄原Init重新初始化、配置原滤波器、Start并恢复原通知；每步检查结果，软件设备路由和其他CAN控制器保留。
+CAN恢复由通信任务原有的Can_Bus_Online(true)推进，实现位于[can_bus.c/h](../imcalib/bsp/can_bus.c)，[main.c](../Core/Src/main.c)仅在USER CODE中接入启动复位和统一时序应用。bus-off回调核对PSR.BO，只记录真正进入故障，不在中断内Stop；退出bus-off通知不触发重启。DEAD=1或RECOVERING=2每100ms恢复对应一路：屏蔽该控制器中断、取消旧发送请求，按HAL状态Stop，再按当前Init初始化、配置滤波器、Start并恢复通知。DEAD期间发送返回HAL_BUSY，避免高优先级执行任务打断重建后继续写消息RAM；RECOVERING允许发送，便于零力矩帧和现有协议恢复反馈。
+
+单路软重试不刷新最后正常接收时间。如果所有已登记设备的总线均非ACTIVE、没有待确认的新接收计数，且各自至少1000 ms没有正常反馈，升级为共享硬件复位；任一已登记总线正常或出现新帧时不执行。先使三路DEAD并屏蔽外设中断，再逐路HAL_DeInit平衡MSP时钟/引脚/IRQ引用，然后RCC强制复位共享FDCAN模块，逐路按原Init恢复。软件路由/设备上下文保留，硬件复位最小间隔1000 ms。RCC复位位为三路共享，因此不能用它直接修复单路离线；未登记总线不计作阻止复位的健康设备。HAL带超时等待的调用均在临界区外执行。
 
 本轮启动成功只进入RECOVERING；必须HAL处于BUSY、`CCCR.INIT=0`、`PSR.BO=0`且接收计数相对本次启动基准变化，才回ACTIVE=0。失败或尚未确认新接收帧时继续返回离线，沿用原FAULT_CAN和使能/零输出链。CAN接收计数不是每台电机的有效反馈，设备在线和motor.valid仍由原驱动/通信链判断。本项未增加TX完成中断、改DM或最终输出逻辑。
 
-Watch查看`can_bus[总线号-1]`的`state/recover_attempts/failed_step/last_error/alive_cnt`。failed_step为0表示本轮启动步骤通过（仍需看state确认在线），1停止、2初始化、3滤波、4启动、5通知；last_error保留最近一次HAL失败值，后续成功不自动清除。大机四髋对应下标0，双轮对应下标2。软件恢复流程和两机编译已验证；跨固件烧录、带电重启及CAN真实恢复效果待台架。
+Watch查看can_bus[总线号-1]的state/recover_attempts/hardware_resets/failed_step/last_error/alive_cnt。recover_attempts包含启动统一初始化的一次尝试；hardware_resets只计运行期共享硬件复位。failed_step为0表示启动步骤通过，1停止、2初始化、3滤波、4启动、5通知；last_error保留最近一次HAL失败值。大机四髋对应下标0，双轮对应下标2。复位后仍须本轮新反馈才回ACTIVE，不清除电机故障来强行使能。软件替身与两机编译已验证；2026-10-24作者在原跨固件故障条件下复测未再离线，尚不代表全部故障情形均已验证；若主控卡在此前电源/时钟等待、CubeMX首次MX初始化的Error_Handler或CPU异常，通信任务恢复仍无法运行，本次没有绕过这些全局错误。
 
 <a id="vofa"></a>
 ## 当前VOFA与调试入口

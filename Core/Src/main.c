@@ -3,7 +3,7 @@
  * 文件职责：上电初始化与主入口（main.c）。
  * 输入/来源：HAL复位、时钟/外设配置、机器选择。
  * 输出/去向：初始化通信/单调时钟/控制模块，创建RTOS并启动调度。
- * 关键边界：USB DMA存储和MPU适配在用户区；FDCAN附加时序套用目前未调用，实际参数看fdcan.c。
+ * 关键边界：USB DMA存储和MPU适配在用户区；FDCAN启动先复位共享硬件，再统一应用机器时序。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 /**
@@ -128,10 +128,7 @@ static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
     handle->Init.DataPrescaler = MACHINE_FDCAN13_DATA_PRESCALER;
     handle->Init.DataTimeSeg1 = MACHINE_FDCAN13_DATA_SEG1;
     handle->Init.DataTimeSeg2 = MACHINE_FDCAN13_DATA_SEG2;
-    if (HAL_FDCAN_Init(handle) != HAL_OK)
-    {
-      Error_Handler();
-    }
+    /* 这里只更新参数，Can_Bus_Init统一初始化并处理失败重试。 */
   }
 }
 
@@ -176,7 +173,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  Can_Bus_Reset_Hardware(); /* 清除跨固件下载后的FDCAN残留，必须先于三路MX初始化。 */
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */

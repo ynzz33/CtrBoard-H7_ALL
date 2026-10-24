@@ -53,6 +53,7 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     memset(&lb->cmd, 0, sizeof(lb->cmd));
     memset(&lb->compensation, 0, sizeof(lb->compensation));
     memset(lb->length_ramp, 0, sizeof(lb->length_ramp));
+    lb->turn_ff = 0.0f;
     lb->air_release = 0u;
 }
 
@@ -117,6 +118,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             const leg_compensation_values_t *values,
                             const lqr_runtime_config_t *config,
+                            uint8_t normal_mode,
                             float dt, torque_output_t *torque)
 {
     float Tp[2];
@@ -124,7 +126,9 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     float wheel[2];
     float length[2];
     float target[2];
+    float height;
 
+    lb->turn_ff = 0.0f;
     length[0] = leg_l->output.virtual_leg_length;
     length[1] = leg_r->output.virtual_leg_length;
     target[0] = st->leg_len_tgt[0];
@@ -150,9 +154,15 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
         Leg_PD_Update(&lb->leg_len[1], length[1], target[1], leg_r->output.d_virtual_leg_length);
         Leg_PD_Update(&lb->roll, st->roll, 0.0f, st->roll_rate);
 
+        if (normal_mode)
+        {
+            /* 机身近似向心前馈：实际v与yaw角速，直接参与腿力合成。 */
+            height = 0.5f * (length[0] + length[1]) + machine->lqr.turn_comp.height_offset;
+            lb->turn_ff = machine->lqr.turn_comp.gain * machine->lqr.turn_comp.mass * height * st->ds_kf * st->x[LQR_X_DPHI] / machine->lqr.turn_comp.track;
+        }
         /* 模型力矩转力域 */
-        F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + machine->lqr.support_force[0];
-        F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + machine->lqr.support_force[1];
+        F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + machine->lqr.support_force[0] - lb->turn_ff;
+        F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + machine->lqr.support_force[1] + lb->turn_ff;
     }
     Tp[0] = -st->u[LQR_U_BL];
     Tp[1] = -st->u[LQR_U_BR];
@@ -163,6 +173,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     }
     if (!st->air_release && !config->len_pid_enable)
     {
+        lb->turn_ff = 0.0f;
         F[0] = machine->lqr.support_force[0];
         F[1] = machine->lqr.support_force[1];
     }

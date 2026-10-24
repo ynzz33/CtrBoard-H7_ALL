@@ -13,6 +13,30 @@
 static can_bus_t can_bus[CAN_BUS_NUM];
 
 static FDCAN_HandleTypeDef *handles[CAN_BUS_NUM] = { &hfdcan1, &hfdcan2, &hfdcan3 };
+static uint32_t last_hard_reset_tick;
+
+/* FDCAN1/2/3共用RCC复位，不能在单路掉线时直接复位整个模块。 */
+void Can_Bus_Reset_Hardware(void)
+{
+    const IRQn_Type irq[CAN_BUS_NUM][2] = {
+        {FDCAN1_IT0_IRQn, FDCAN1_IT1_IRQn},
+        {FDCAN2_IT0_IRQn, FDCAN2_IT1_IRQn},
+        {FDCAN3_IT0_IRQn, FDCAN3_IT1_IRQn}
+    };
+
+    for (uint32_t i = 0u; i < CAN_BUS_NUM; i++)
+    {
+        HAL_NVIC_DisableIRQ(irq[i][0]);
+        HAL_NVIC_DisableIRQ(irq[i][1]);
+        HAL_NVIC_ClearPendingIRQ(irq[i][0]);
+        HAL_NVIC_ClearPendingIRQ(irq[i][1]);
+    }
+    __HAL_RCC_FDCAN_CLK_ENABLE();
+    __HAL_RCC_FDCAN_FORCE_RESET();
+    __DSB();
+    __HAL_RCC_FDCAN_RELEASE_RESET();
+    __DSB();
+}
 
 
 /* 按总线号取句柄 */
@@ -96,6 +120,9 @@ static void Can_Bus_Recover(uint32_t idx, uint32_t now)
     bus->state = CAN_BUS_STATE_DEAD;
     bus->reinit_tick = now;
     bus->recover_attempts++;
+    /* 先屏蔽本控制器中断；高优先级执行任务也不能在重建期间继续写队列。 */
+    WRITE_REG(hfdcan->Instance->IE, 0u);
+    WRITE_REG(hfdcan->Instance->ILE, 0u);
     SET_BIT(hfdcan->Instance->TXBCR, hfdcan->Instance->TXBRP);
     bus->failed_step = 1u;
     if (hfdcan->State == HAL_FDCAN_STATE_BUSY && HAL_FDCAN_Stop(hfdcan) != HAL_OK)
@@ -112,16 +139,49 @@ static void Can_Bus_Recover(uint32_t idx, uint32_t now)
     {
         goto failed;
     }
-    bus->dead_since = now;
     bus->state = CAN_BUS_STATE_RECOVERING;
     return;
 failed:
     bus->last_error = HAL_FDCAN_GetError(hfdcan);
 }
 
+/* 所有已登记总线均无新反馈才升级复位，保留路由和当前Init参数。 */
+static void Can_Bus_Hard_Recover(uint32_t now)
+{
+    taskENTER_CRITICAL();
+    for (uint32_t i = 0u; i < CAN_BUS_NUM; i++)
+    {
+        if (can_bus[i].route_cnt != 0u && (can_bus[i].state == CAN_BUS_STATE_ACTIVE || can_bus[i].alive_cnt != can_bus[i].alive_prev || now - can_bus[i].dead_since < CAN_BUS_HARD_RESET_MS))
+        {
+            taskEXIT_CRITICAL();
+            return;
+        }
+    }
+    for (uint32_t i = 0u; i < CAN_BUS_NUM; i++)
+    {
+        can_bus[i].state = CAN_BUS_STATE_DEAD;
+        WRITE_REG(handles[i]->Instance->IE, 0u);
+        WRITE_REG(handles[i]->Instance->ILE, 0u);
+    }
+    taskEXIT_CRITICAL();
+
+    last_hard_reset_tick = now;
+    for (uint32_t i = 0u; i < CAN_BUS_NUM; i++)
+    {
+        (void)HAL_FDCAN_DeInit(handles[i]);
+    }
+    Can_Bus_Reset_Hardware();
+    for (uint32_t i = 0u; i < CAN_BUS_NUM; i++)
+    {
+        can_bus[i].hardware_resets++;
+        Can_Bus_Recover(i, HAL_GetTick());
+    }
+}
+
 /* 初始化 */
 void Can_Bus_Init(void)
 {
+    last_hard_reset_tick = HAL_GetTick();
     for (uint32_t i = 0; i < CAN_BUS_NUM; i++)
     {
         can_bus_t *bus = &can_bus[i];
@@ -144,13 +204,11 @@ void Can_Bus_Init(void)
         bus->dead_since   = HAL_GetTick();
         bus->reinit_tick  = HAL_GetTick();
         bus->recover_attempts = 0u;
+        bus->hardware_resets = 0u;
         bus->last_error = 0u;
 
-        bus->state = Can_Bus_Start(i) ? CAN_BUS_STATE_ACTIVE : CAN_BUS_STATE_DEAD;
-        if (bus->state == CAN_BUS_STATE_DEAD)
-        {
-            bus->last_error = HAL_FDCAN_GetError(handles[i]);
-        }
+        /* 统一应用机器Init参数；初始化失败交给任务重试，不在这里永久停机。 */
+        Can_Bus_Recover(i, HAL_GetTick());
     }
 }
 
@@ -192,6 +250,11 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     }
     /* 发送临界 */
     taskENTER_CRITICAL();
+    if (can_bus[idx].state == CAN_BUS_STATE_DEAD)
+    {
+        taskEXIT_CRITICAL();
+        return HAL_BUSY;
+    }
     if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) == 0u)
     {
         taskEXIT_CRITICAL();
@@ -340,6 +403,10 @@ bool Can_Bus_Online(bool expect_traffic)
         {
             all_ok = false;
         }
+    }
+    if (!all_ok && now - last_hard_reset_tick >= CAN_BUS_HARD_RESET_MS)
+    {
+        Can_Bus_Hard_Recover(now);
     }
     return all_ok;
 }

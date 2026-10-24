@@ -19,6 +19,7 @@
 #define CAN_BUS_ROUTE_MAX   8
 #define CAN_BUS_DEAD_MS     100
 #define CAN_BUS_REINIT_MS   100
+#define CAN_BUS_HARD_RESET_MS 1000u /* 全部已登记总线离线时，共享硬件复位的最小间隔 */
 
 /* 回调类型 */
 typedef void (*can_parse_fn_t)(void *ctx, uint32_t can_id,
@@ -55,11 +56,14 @@ typedef struct {
     uint32_t              dead_since;
     uint32_t              reinit_tick;
     uint32_t              recover_attempts;
+    uint32_t              hardware_resets; /* 运行期共享FDCAN硬件复位次数 */
     uint32_t              last_error; /* 最近一次HAL失败的错误，成功后保留 */
     uint8_t               failed_step; /* 0通过/1停止/2初始化/3滤波/4启动/5通知 */
 } can_bus_t;
 
 void    Can_Bus_Init(void);
+/* 共享外设复位：启动时须在任何MX_FDCANx_Init之前调用；运行期由CAN层统一协调。 */
+void    Can_Bus_Reset_Hardware(void);
 bool    Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                          can_parse_fn_t fn, void *ctx);
 HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,

@@ -24,7 +24,8 @@ typedef struct {
     pid_t leg_len[2]; /* 长度PD；p为N/m，d为N·s/m，pout/dout/pos_out为N */
     ramp_t length_ramp[2]; /* 原给定轨迹历史，首次实测播种，随后沿上拍输出 */
     pid_t roll; /* 横滚PD；p为N/rad，d为N·s/rad，输出左右反向叠加 */
-    float F[2]; /* 补偿/逐电机限幅前左右轴向请求N */
+    float turn_ff; /* NORMAL向心补偿N，正值左减右加；最终限矩前请求 */
+    float F[2]; /* 含向心项，弹簧/自重补偿及逐电机限幅前的左右轴向请求N */
     float Tp[2]; /* 补偿前左右虚拟腿摆矩N·m */
     torque_output_t cmd; /* 已映射/补偿/限幅的统一力矩结果 */
     compensation_debug_t compensation; /* 弹簧、自重和饱和诊断快照 */
@@ -37,6 +38,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             const leg_compensation_values_t *values,
                             const lqr_runtime_config_t *config,
+                            uint8_t normal_mode,
                             float dt, torque_output_t *torque);
 
 #endif
