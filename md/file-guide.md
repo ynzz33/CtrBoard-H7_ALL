@@ -35,7 +35,7 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | [Core/Src/freertos.c](../Core/Src/freertos.c) | 五个任务的创建、初始化调用、等待与循环节拍 |
 | [imcalib/config/machine_config.c](../imcalib/config/machine_config.c) / [头文件](../imcalib/config/machine_config.h) | 两机只读配置、编译选机和节拍宏；驱动/几何/IMU/LQR/RL共用 |
 | imcalib/task | 反馈准备、策略仲裁、求解调用、最终输出及后台服务 |
-| [control_detection.c](../imcalib/task/control_detection.c) / [头文件](../imcalib/task/inc/control_detection.h) | 同拍检测输入组装、公共观测与三态调度；只返回进入FALLEN事件，不执行动作复位 |
+| [control_detection.c](../imcalib/task/control_detection.c) / [头文件](../imcalib/task/inc/control_detection.h) | 同拍检测输入组装、公共观测与三态调度；管理后处理超时撤力、等待及旧历史复位后重判，返回进入FALLEN事件 |
 | [fallen_detection.c](../imcalib/Algorithm/fallen_detection.c) / [头文件](../imcalib/Algorithm/fallen_detection.h) | 公共倒地姿态检测：反馈有效性、重力朝向、倒置及原普通异常；不选路、不生成力矩 |
 | [ground_recovery.c](../imcalib/Algorithm/ground_recovery.c) / [头文件](../imcalib/Algorithm/ground_recovery.h) | FALLEN后的完整动作算法：普通自起和倒置自救阶段、目标、PID、映射与补偿，生成候选力矩 |
 | [control_air_response.c](../imcalib/task/control_air_response.c) / [头文件](../imcalib/task/inc/control_air_response.h) | 消费已发布三态和落地沿，执行原AIR目标回置、基准复位及控制选择；不推进检测 |
@@ -269,9 +269,13 @@ RL恢复状态复用rl_observation.c/h内的模式生成逻辑，不新建公共
 
 初始已支撑且无需恢复可直接进入NORMAL；NORMAL中的腿姿/俯仰异常沿用`ground_recovery_param`原门槛与持续时间，原倒置姿态条件也保留。只有已生成有效NORMAL候选后才累计新的异常触发；FLIGHT/FALLEN中的异常历史不带入正常运行。normal_ready仅表示求解候选有效，不证明HAL已发送或实体已执行。公共fallen和RL恢复不改用本模块。
 
-FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启；失败撤力和原延迟重试保持。原动作返回BALANCE时，检测已确认则选NORMAL或FLIGHT；检测尚未确认时保持DONE等待，不重启动作。FLIGHT只由原AIR落地退出规则转回NORMAL，不因低投影高度转FALLEN，回NORMAL先生成一拍正常候选后再判断后续倒地。未完成判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
+FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启。正常完成返回BALANCE时，检测已确认则选NORMAL或FLIGHT；检测尚未确认时保持DONE等待，不重启动作。FLIGHT正常退出仍用原落地规则，保留真正倒置时转FALLEN的分支，不因低投影高度直接转FALLEN。未完成判断/反馈失效使用默认无效零候选；对应处理开关关闭时不隐式改选NORMAL。
 
-实际主链为反馈快照→`Control_Strategy_Prepare`（RL恢复、一次模型准备、`Control_Detection_Update`）→进入FALLEN时由`Control_Compute_Run`调用`Ground_Recovery_Reset`→原LQR状态/速度融合和唯一处理求解→`Control_Output_Apply`诊断与唯一输出口。NORMAL/FLIGHT分别在原正常/AIR选择下调用原LQR路径；FALLEN调用`ground_recovery`路径。三段在同一actuationTask同步调用，不新增队列、任务或跨拍候选缓存；原动作、LQR/腿力控公式、轨迹、PID、超时及重试参数保持。
+2026-10-22后处理超时统一为“撤力→等待→重新初判”：`control_postprocess.phase`为RUN=0、WITHDRAW_WAIT=1、RECHECK=2，与三态独立。实际持续生成有效AIR控制候选满5000 ms请求撤力；普通自起任一动作超时、翻身PRELOAD超时或FLIP卡滞/扫角耗尽统一报告`GROUND_RECOVERY_TIMEOUT`并返回STOP，不再超时跳后摆或直接重做预压。计算层在超时当拍清候选与补偿，等待/重判期间禁止所有LQR、自起、自救出力，最终输出口发送四髋/双轮零力矩；不主动失能电机。
+
+等待共用`ground_recovery_param.retry_wait`（当前0.3 s），使用HAL毫秒时钟差独立计时，正常AIR响应多次调用不累计时间。等待到期清AIR锁存/峰值、三态初判历史和地面恢复动作历史，本拍仍为零，下一拍才重新确认；未确认或反馈无效继续零输出，不把复位生成落地沿或写回落地腿长。新判断按原规则进入NORMAL、FLIGHT或FALLEN，再由当前姿态选择自起/自救；重新进入AIR重新计5 s。`control_postprocess.recovery_retry`保留已消耗的恢复重试预算，地面超时增加一次重试，AIR超时不增加；现有5次重试用完后再次失败置`exhausted=1`，持续零输出，退出LQR投入/切换策略才取消等待并清预算。非超时故障仍按原保护处理。
+
+实际主链为反馈快照→`Control_Strategy_Prepare`（RL恢复、一次模型准备、`Control_Detection_Update`）→进入FALLEN时由`Control_Compute_Run`复位动作并恢复本次重试预算→原LQR状态/速度融合和唯一处理求解→`Control_Output_Apply`诊断与唯一输出口。NORMAL/FLIGHT分别在原正常/AIR选择下调用原LQR路径；FALLEN调用`ground_recovery`路径。后处理撤力等待/重判优先于LQR控制分支；三段在同一actuationTask同步调用，不新增队列、任务或跨拍候选缓存。动作公式、轨迹、PID、检测阈值不变；超时出口与重判按上述规则执行。
 
 `Ground_Recovery_Update`内的目标、PID与候选输出仍按同拍顺序执行，但`force/tp`已是`Ground_Recovery_Compute_Output`局部量：PID计算后立即执行原翻身期F限幅、腿端映射与补偿，映射成功才发布候选。`ground_recovery_ctx_t`将跨拍状态分为生命周期、普通起立路径、翻身路径和执行器历史四组，不保存单拍F/Tp。
 
@@ -279,9 +283,9 @@ FALLEN锁存`ground_recovery`动作，不被自身扫腿或AIR结果重启；失
 
 2026-10-19进一步按作者确认分层：Algorithm/air_detection.c/h只负责支持力及离地算法，Algorithm/control_condition.c/h只负责触地与三态判断；task/control_detection.c组装快照并依次调用这两部分，返回进入FALLEN事件，不调用Standup_Reset或控制处理。task/control_air_response.c通过Control_Air_Response_Update消费三态/落地沿，原样保留目标写回临界区、位移/偏航复位、释放和限幅赋值；task_actuation.c保留原两个响应调用位置、动作交接和唯一输出。原Air_Detection_Active仅有的控制选择表达式移入响应文件，不再作为检测模块接口。公共状态与参数实例复用，无新增副本、任务、开关或时序条件；两个新头文件复用control_frame_t，只属于执行层，算法层不引入任务头。
 
-公共检测不再由lqr_idle或LQR私有重建复位；初始化和关闭检测才清全部历史。观测失败清valid、initialized和连续计时，保留flight及本次峰值；反馈恢复需重新初判，已有AIR不会因初次高力确认被直接清除，也不重新播种峰值。原AIR运行分支完整保留：峰值更新、任一腿独立连续压缩退出、landing_enabled关闭的计时清零、非压缩模式的高力退出和新AIR峰值播种均未替换，不增加支持力与压缩联合条件。
+公共检测不由lqr_idle或LQR私有重建复位；初始化、关闭检测及本次新增的超时撤力等待到期才清全部历史。普通观测失败仍清valid、initialized和连续计时并保留flight及峰值；反馈恢复需重新确认，已有AIR不会因初次高力确认被直接清除。原AIR运行分支完整保留：峰值更新、任一腿独立连续压缩退出、landing_enabled关闭的计时清零、非压缩模式的高力退出和新AIR峰值播种均未替换，不增加支持力与压缩联合条件。
 
-当前VOFA布局未改。Watch建议观察control_condition.condition/valid/started、body_contact_candidate/body_contact_confirmed/contact_elapsed、trigger_elapsed/normal_ready、air_debug.initialized/valid/flight/mean_force及ground_recovery_control.lifecycle.phase/fault/retry。新判断已实际选路，软件检查通过不表示真实触地辨识或飞坡/掉落动作通过验收。
+当前VOFA布局未改。Watch建议观察control_condition.condition/valid/started、body_contact_candidate/body_contact_confirmed/contact_elapsed、trigger_elapsed/normal_ready、air_debug.initialized/valid/flight/mean_force、ground_recovery_control.lifecycle.phase/fault/retry及control_postprocess.phase/flight_timing/recovery_retry/exhausted。新判断已实际选路，软件检查通过不表示真实触地辨识或飞坡/掉落动作通过验收。
 
 `air_detection`保留完整的每腿力估计、峰值和压缩跨拍历史；`air_debug`只在执行拍末尾复制当前VOFA需要的均值力、两腿压缩/计时和四个状态位。VOFA 3～11、45的含义不变，`air_debug`不再是完整检测器副本，Watch中需查看完整估计时读`air_detection`。
 

@@ -51,7 +51,7 @@ ground_recovery_param_t ground_recovery_param = {
     .support_time            = 0.4f,                            /* 支撑渐入 s */
 
     /* 失败重试 */
-    .retry_wait              = 0.2f,                            /* 撤力等待 s */
+    .retry_wait              = 0.3f,                            /* 撤力等待 s */
     .recovery_retry_max      = 5u,                              /* 重试次数 */
 };
 
@@ -329,17 +329,11 @@ static uint8_t Ground_Recovery_Recovery_Ready(const ground_recovery_ctx_t *st,
     return (uint8_t)(fallen_detection.upright > 0.0f && fabsf(imu->pitch_world) <= pitch_limit);
 }
 
-static uint8_t Ground_Recovery_Recovery_Retry(ground_recovery_ctx_t *st,
-                                     const leg_state_t *const leg[2])
+static uint8_t Ground_Recovery_Timeout(ground_recovery_ctx_t *st)
 {
-    if (st->lifecycle.retry >= ground_recovery_param.recovery_retry_max)
-    {
-        Ground_Recovery_Fail(st, GROUND_RECOVERY_TIMEOUT);
-        return GROUND_RECOVERY_ROUTE_STOP;
-    }
-    st->lifecycle.retry++;
-    Ground_Recovery_Recovery_Enter(st, GROUND_RECOVERY_PRELOAD, leg);
-    return GROUND_RECOVERY_ROUTE_PREPARE;
+    /* 本轮耗尽只报告超时；任务层撤力等待并重新判断，不直接重做预压。 */
+    Ground_Recovery_Fail(st, GROUND_RECOVERY_TIMEOUT);
+    return GROUND_RECOVERY_ROUTE_STOP;
 }
 
 /* 翻倒恢复阶段机 */
@@ -368,7 +362,7 @@ static uint8_t Ground_Recovery_Recovery_Stage(ground_recovery_ctx_t *st, const i
     case GROUND_RECOVERY_PRELOAD:
         if (st->lifecycle.elapsed > ground_recovery_param.length_timeout)
         {
-            return Ground_Recovery_Recovery_Retry(st, leg);
+            return Ground_Recovery_Timeout(st);
         }
         if (Ground_Recovery_Preloaded(leg))
         {
@@ -433,7 +427,7 @@ static uint8_t Ground_Recovery_Recovery_Stage(ground_recovery_ctx_t *st, const i
         }
         if (st->self_right.stall_elapsed >= ground_recovery_param.recovery_stall_time || st->self_right.sweep >= LEG_2PI)
         {
-            return Ground_Recovery_Recovery_Retry(st, leg);
+            return Ground_Recovery_Timeout(st);
         }
         break;
     default:
@@ -497,7 +491,7 @@ static uint8_t Ground_Recovery_Stage_Update(ground_recovery_ctx_t *st,
             st->lifecycle.retry_elapsed = 0.0f;
             return GROUND_RECOVERY_ROUTE_STOP;
         }
-        if (st->lifecycle.fault == GROUND_RECOVERY_BAD_CONFIG || st->lifecycle.retry >= ground_recovery_param.recovery_retry_max)
+        if (st->lifecycle.fault == GROUND_RECOVERY_TIMEOUT || st->lifecycle.fault == GROUND_RECOVERY_BAD_CONFIG || st->lifecycle.retry >= ground_recovery_param.recovery_retry_max)
         {
             return GROUND_RECOVERY_ROUTE_STOP;
         }
@@ -593,15 +587,6 @@ static uint8_t Ground_Recovery_Stage_Update(ground_recovery_ctx_t *st,
     timeout = (st->lifecycle.phase == GROUND_RECOVERY_EXTEND || st->lifecycle.phase == GROUND_RECOVERY_RETRACT) ? ground_recovery_param.length_timeout : ground_recovery_param.angle_timeout;
     if (st->lifecycle.elapsed > timeout)
     {
-        if (st->lifecycle.phase == GROUND_RECOVERY_EXTEND)
-        {
-            st->actuator.len_history_ready = 0u;
-            st->actuator.angle_history_ready = 0u;
-            st->normal.rear_path_ready = 0u;
-            st->actuator.support = 0.0f;
-            Ground_Recovery_Enter(st, GROUND_RECOVERY_REAR);
-            return GROUND_RECOVERY_ROUTE_PREPARE;
-        }
         Ground_Recovery_Fail(st, GROUND_RECOVERY_TIMEOUT);
         return GROUND_RECOVERY_ROUTE_STOP;
     }

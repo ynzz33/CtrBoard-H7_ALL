@@ -1,7 +1,7 @@
 /*
  * 文件职责：按已确认策略运行原LQR、自起、AIR、RL或补偿计算。
  * 策略/检测、模型准备和最终输出分别由相邻执行层负责。
- * 原控制公式、状态推进、限幅、重试和调用顺序保持不变。
+ * 原控制公式和限幅保持；后处理超时统一撤力等待、重新初判。
  */
 #include "control_compute.h"
 #include "robot_state.h"
@@ -11,6 +11,7 @@
 #include "air_detection.h"
 #include "control_condition.h"
 #include "control_air_response.h"
+#include "control_detection.h"
 #include <string.h>
 
 static slip_state_t slip_control;
@@ -141,9 +142,17 @@ static void Compute_LQR_Ground_Recovery(control_frame_t *frame, torque_output_t 
     {
         Compute_LQR(frame, torque, debug);
     }
+    if (ground_recovery_control.lifecycle.retry < control_postprocess.recovery_retry)
+    {
+        ground_recovery_control.lifecycle.retry = control_postprocess.recovery_retry;
+    }
     route = Ground_Recovery_Update(&ground_recovery_control, &frame->imu, &frame->left,
                                    &frame->right, &frame->compensation, permit,
                                    MACHINE_LQR_DT, torque);
+    if (ground_recovery_control.lifecycle.phase == GROUND_RECOVERY_FAILED && ground_recovery_control.lifecycle.fault == GROUND_RECOVERY_TIMEOUT)
+    {
+        Control_Postprocess_Request(1u);
+    }
     if (route == GROUND_RECOVERY_ROUTE_BALANCE)
     {
         Control_Condition_Recovery_Ready(&control_condition, &air_detection);
@@ -216,6 +225,7 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     if (entered_fallen)
     {
         Ground_Recovery_Reset(&ground_recovery_control);
+        ground_recovery_control.lifecycle.retry = control_postprocess.recovery_retry;
     }
     /* 保持原顺序：进入FALLEN先清动作，再构建本拍LQR状态。 */
     Control_State_Update(frame, 0u);
@@ -245,7 +255,15 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
             break;
 
         case CTRL_STRATEGY_LQR:
-            if (!frame->drive || !frame->rc.mode.engage)
+            if (Control_Postprocess_Inhibited())
+            {
+                LQR_Idle();
+                Slip_Reset(&slip_control);
+                lqr_state.pos = 0.0f;
+                lqr_state.pos_armed = 0u;
+                lqr_state.yaw_tgt = lqr_state.x[LQR_X_PHI];
+            }
+            else if (!frame->drive || !frame->rc.mode.engage)
             {
                 if (control_condition.condition == CONTROL_FALLEN && ground_recovery_control.lifecycle.enabled && ground_recovery_control.lifecycle.phase != GROUND_RECOVERY_IDLE && frame->rc.mode.engage)
                 {
@@ -277,6 +295,13 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
             }
             else
             {
+                LQR_Idle();
+            }
+            Control_Postprocess_Flight_Update((uint8_t)(frame->drive && frame->rc.mode.engage && control_condition.valid && control_condition.condition == CONTROL_FLIGHT && air_detection.applied && torque->valid));
+            if (Control_Postprocess_Inhibited())
+            {
+                Torque_Output_Clear(torque);
+                memset(debug, 0, sizeof(*debug));
                 LQR_Idle();
             }
             control_condition.normal_ready = (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL && torque->valid);
