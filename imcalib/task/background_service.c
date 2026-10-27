@@ -10,10 +10,16 @@
 #include "vofa_debug.h"
 #include "jetson_uart.h"
 #include "ws2812.h"
+#include "dm.h"
 
 void background_task_body(void)
 {
     Vofa_Debug_Send();
     Jetson_Mirror_Send();
-    WS2812_RainbowBlink();
+    WS2812_RainbowBlink();    
+    // for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    // {
+    //     Dm_Send_Command(i, DM_CMD_SET_ZERO);
+    // }
 }
+ 
