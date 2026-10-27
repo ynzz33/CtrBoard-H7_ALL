@@ -47,13 +47,11 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
     [MACHINE_ID_BIG_WHEELLEG] = {
         .name           = "big_wheelleg",             /* 大轮腿 */
         .rc = {
-            .vel_max = 3.0f,
-            .yaw_max = 5.0f,
+            .vel_max = 4.0f,
+            .yaw_max = 7.0f,
             .len_init = 0.15f,
-            .len_rate = 1.0f,
+            .len_rate = 1.3f,
         },
-        /* 匹配表已接入，控制待台架。 */
-        .lqr_configured = 1u,
         .spring = &machine_spring_leg3,               /* 气弹簧表 */
         .gravity = &gravity_big,
         .dji_type       = 1u,                          /* M3508 + C620 */
@@ -95,20 +93,21 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .pitch_trim = 0.0f,                      /* 俯仰目标 rad */
             .pos_target = 0.1f,                      /* 位移目标 m */
             .pos_arm_vel = 0.1f,                     /* 松杆低速门槛 */
-            /* 角速度低通顺序: pitch / yaw */
-            .lpf_alpha = {0.3f, 0.3f},
+            /* 1kHz低通顺序：pitch角速度 / yaw角速度 / roll角速度 / 高度变化速度；越小越平滑、延迟越大 */
+            .lpf_alpha = {0.6f, 0.6f, 0.01f, 0.15f},
+            .roll_height_bias_common_max = 100.0f,
+            .roll_height_bias_diff_max = 20.0f,
+            .turn_comp = {20.534f, 0.42551f, 0.07113f, 0.3f}, /* 当前大机模型；当前系数0.2、方向+1 */
             /* PID 顺序: Kp / Ki / Kd / 输出限幅 / 积分限幅; 输出单位 N */
             .leg_len = {{1900.0f, 0.0f, 150000.0f, 5000.0f, 0.0f},
                         {1900.0f, 0.0f, 150000.0f, 5000.0f, 0.0f}}, /* 左右腿长 */
             .roll = {600.0f, 0.0f, 100.0f, 5000.0f, 0.0f}, /* 横滚补偿 */
             .support_force = {20.534f * 9.81f * 0.5f, 20.534f * 9.81f * 0.5f}, /* 支撑前馈 N */
-            .turn_comp = {20.534f, 0.42551f, 0.07113f, 0.2f}, /* 当前大机模型；当前系数0.2、方向+1 */
             .yaw_hold = 1u,                          /* 偏航角环 */
             .yaw_rate_hold = 1u,                     /* 偏航角速环 */
             .pos_hold = 1u,                          /* 位移环 */
             .wheel_enable = 1u,                      /* 轮矩输出 */
             .hip_enable = 1u,                        /* 摆腿矩输出 */
-            .len_pid_enable = 1u,                    /* 腿长PID */
         },
         /* 公共驱动保留LQR标定；RL配对转换复现作者提供的可用RL方向与零点。 */
         .rl = {
@@ -117,7 +116,6 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             /* 版本化XML与训练model.py微蹲闭链姿态：四腿顺序LF前/后、RF前/后。 */
             .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
             .reference_pos = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
-            .configured = 1u,
             .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* gyro/height/velocity缩放及两种裁剪 */
             .torque = {
                 .pos_scale = 0.5f,
@@ -143,13 +141,12 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .len_rate = 0.3f,
         },
         /* 小轮腿目前只使用 LQR。TODO: 训练小轮腿 RL 模型后再配置关节映射并启用。 */
-        .lqr_configured = 1u,
         .spring = 0,
         .lqr = {
             .leg_trim = {-0.04f, -0.04f},
             .pitch_trim = 0.0f, .pos_target = 0.10f,
             .pos_arm_vel = 0.0f,
-            .lpf_alpha = {0.3f, 0.3f},
+            .lpf_alpha = {0.3f, 0.3f, 0.0f, 0.0f}, /* pitch/yaw/roll角速度/高度速度；小机未接入四态，后两项保持0 */
             .leg_len = {{2500.0f, 0.0f, 10000.0f, 5000.0f, 0.0f},
                         {2500.0f, 0.0f, 10000.0f, 5000.0f, 0.0f}},
             .roll = {200.0f, 0.0f, 50.0f, 5000.0f, 0.0f},
@@ -157,7 +154,6 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .turn_comp = {0.0f, 0.6918f, 0.0901f, 0.0f}, /* 小机本轮不补偿；轮距/高度偏置沿用小机模型 */
             .yaw_hold = 1u, .yaw_rate_hold = 1u,
             .pos_hold = 1u, .wheel_enable = 1u, .hip_enable = 1u,
-            .len_pid_enable = 1u,
         },
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,
@@ -192,7 +188,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .quat_sign = {-1, 1, -1},
         },
         /* RL 关节映射: 模型对应大机器, 小机器未配置 */
-        .rl = { .configured = 0u },
+        .rl = {0},
     },
 };
 

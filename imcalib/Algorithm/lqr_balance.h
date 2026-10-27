@@ -52,7 +52,6 @@ typedef struct {
     float   pos_arm_vel;       /* 首次积分速度门槛m/s；0不检查速度 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t hip_enable;        /* 髋通道 */
-    uint8_t len_pid_enable;    /* 腿长/横滚PD输出，关闭后只保留支撑前馈 */
     uint8_t air_release_enable; /* 空中释放 */
     float   trq_max_wheel;     /* 轮限幅 */
     float   trq_max_hip;       /* 髋限幅 */

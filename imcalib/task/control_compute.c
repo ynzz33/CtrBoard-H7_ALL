@@ -224,6 +224,8 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
                          uint8_t entered_fallen, torque_output_t *torque,
                          uint8_t *dispatch, compensation_debug_t *debug)
 {
+    uint8_t observer_permit;
+
     leg_balance.turn_ff = 0.0f;
     if (entered_fallen)
     {
@@ -232,6 +234,16 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     }
     /* 保持原顺序：进入FALLEN先清动作，再构建本拍LQR状态。 */
     Control_State_Update(frame, 0u);
+    /* 校验上一拍F确实通过最终许可并成功提交；HAL_OK不等于电机实际力已实现。 */
+    observer_permit = (uint8_t)(leg_balance.roll_height.valid && leg_balance.cmd.valid && output_debug_dm_sent && output_debug_dji_sent && !leg_balance.compensation.saturated && air_detection.valid && air_detection.initialized && !air_detection.flight && air_detection.leg[0].force > air_param.force_on && air_detection.leg[1].force > air_param.force_on);
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        if (leg_balance.cmd.dm[i] != rl_output_dm_cmd_nm[i])
+        {
+            observer_permit = 0u;
+        }
+    }
+    Roll_Height_Begin_Tick(&leg_balance.roll_height, (uint8_t)(strategy == CTRL_STRATEGY_LQR && frame->drive && frame->rc.mode.engage && lqr_state.valid && control_condition.valid && control_condition.condition == CONTROL_NORMAL && !Control_Postprocess_Inhibited()), observer_permit);
     Torque_Output_Clear(torque);
     memset(debug, 0, sizeof(*debug));
     ctrl_strategy = strategy;
@@ -318,6 +330,10 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
         default:
             LQR_Idle();
             break;
+    }
+    if (strategy != CTRL_STRATEGY_LQR || !torque->valid || control_condition.condition != CONTROL_NORMAL || Control_Postprocess_Inhibited())
+    {
+        Roll_Height_Reset(&leg_balance.roll_height);
     }
 }
 

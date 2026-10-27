@@ -2,7 +2,7 @@
  * 文件职责：LQR状态构建、遥控目标和状态反馈（lqr_balance.c）。
  * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
  * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
- * 关键边界：腿长/横滚显式PD由leg_balance负责；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
+ * 关键边界：轴向力由leg_balance选择NORMAL四态/非NORMAL PD；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
  * 阅读入口：md/file-guide.md；参数当前值以源码为准。
  */
 
@@ -44,7 +44,6 @@ void LQR_Init(lqr_state_t *st)
     lqr_debug.pos_arm_vel = machine->lqr.pos_arm_vel;
     lqr_debug.wheel_enable = machine->lqr.wheel_enable;
     lqr_debug.hip_enable = machine->lqr.hip_enable;
-    lqr_debug.len_pid_enable = machine->lqr.len_pid_enable;
     lqr_debug.air_release_enable = 1u;
     lqr_debug.trq_max_wheel = machine->dji_trq_clamp;
     lqr_debug.trq_max_hip = machine->dm_trq_clamp;

@@ -51,7 +51,7 @@ void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t fee
 uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_state_t *out)
 {
     out->valid = 0u;
-    if (!source_valid || !config->configured) { return 0u; }
+    if (!source_valid) { return 0u; }
     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
     {
         out->pos[i] = (float)config->motor_sign[i] * (position[i] - config->motor_zero[i]);

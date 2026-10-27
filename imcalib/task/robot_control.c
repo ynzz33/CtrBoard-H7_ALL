@@ -101,14 +101,11 @@ void Robot_Control_Init(void)
     leg_map_r.dm_front = DM_MOTOR_LEG_F_RGT;
     leg_map_r.dm_rear = DM_MOTOR_LEG_B_RGT;
 
-    if (machine->rl.configured)
-    {
-        /* 单模型RL39直接读取机器配置；初始化只清观测、推理计数及PD诊断。 */
-        RL_Observation_Reset(&rl_control.observation);
-        RL_Policy_Reset(&rl_control.policy);
-        RL_Torque_Reset(&rl_control.torque_state);
-        RL_Recovery_Reset(&rl_control.recovery);
-    }
+    /* 单模型RL39直接读取机器配置；这里只清状态，不按机型另设启用开关。 */
+    RL_Observation_Reset(&rl_control.observation);
+    RL_Policy_Reset(&rl_control.policy);
+    RL_Torque_Reset(&rl_control.torque_state);
+    RL_Recovery_Reset(&rl_control.recovery);
     Action_State_Clear();
 
     LQR_Init(&lqr_state);

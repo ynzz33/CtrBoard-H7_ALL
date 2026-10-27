@@ -117,7 +117,6 @@ typedef struct {
     float motor_zero[4];       /* 固件标定单圈角至模型零位的额外偏移，rad */
     float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
     float reference_pos[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
-    uint8_t configured;        /* 本机是否启用RL接口；小机当前未接入 */
     machine_rl_observation_cfg_t observation;
     machine_rl_torque_cfg_t torque;
     uint32_t action_timeout_ms; /* 已发布动作停止更新的故障期限 */
@@ -136,9 +135,11 @@ typedef struct {
     float pitch_trim;
     float pos_target;
     float pos_arm_vel;
-    float lpf_alpha[2];             /* pitch/yaw角速 */
-    machine_pid_cfg_t leg_len[2]; /* 保留差分Kd口径；正常PD初始化乘LQR周期，恢复PID直接使用 */
-    machine_pid_cfg_t roll; /* 正常横滚PD初始化将差分Kd乘LQR周期换算为速度阻尼 */
+    float lpf_alpha[4]; /* [0]pitch角速度 [1]yaw角速度 [2]roll角速度 [3]高度变化速度；系数越小越平滑、延迟越大 */
+    float roll_height_bias_common_max; /* 观测器平均偏置上限N/腿，不是腿力输出限幅 */
+    float roll_height_bias_diff_max; /* 左右偏置之差上限N，不是单腿力输出限幅 */
+    machine_pid_cfg_t leg_len[2]; /* 非NORMAL PD初始化乘LQR周期；恢复动作PID直接用原Kd */
+    machine_pid_cfg_t roll; /* 非NORMAL横滚PD初始化将差分Kd乘LQR周期换算为速度阻尼 */
     float support_force[2];
     machine_turn_comp_cfg_t turn_comp;
     uint8_t yaw_hold;
@@ -146,7 +147,6 @@ typedef struct {
     uint8_t pos_hold;
     uint8_t wheel_enable;
     uint8_t hip_enable;
-    uint8_t len_pid_enable;
 } machine_lqr_cfg_t;
 
 typedef struct {
@@ -181,7 +181,6 @@ typedef struct {
 typedef struct {
     const char *name;
     machine_rc_cfg_t rc;        /* 公共量程 */
-    uint8_t     lqr_configured;     /* 此机器有匹配的 LQR 增益表 */
     machine_lqr_cfg_t lqr;
     const machine_spring_cfg_t *spring;
     const machine_gravity_cfg_t *gravity;

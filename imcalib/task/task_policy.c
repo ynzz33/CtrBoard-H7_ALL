@@ -8,10 +8,10 @@
 #include "rl_observation.h"
 #include "rl_policy.h"
 #include <string.h>
-/* 策略任务启动时创建本机网络；configured是机型启用开关，不扫描固定配置。 */
+/* 策略任务启动时初始化已编译网络；加载/接口检查由RL_Policy_Init完成。 */
 void ctrl_task_init(void)
 {
-    if (machine->rl.configured) { (void)RL_Policy_Init(&rl_control.policy); }
+    (void)RL_Policy_Init(&rl_control.policy);
 }
 /* 本地构造后完整发布；清零期间仍在途的推理不能覆盖新控制段的动作。 */
 void ctrl_task_body(void)
@@ -25,7 +25,6 @@ void ctrl_task_body(void)
     uint8_t selected;
     uint8_t sampled;
     uint8_t built;
-    if (!machine->rl.configured) { return; }
     /* 样本缓存由高优先级执行任务推进，先在临界区复制，避免读取半更新帧。 */
     taskENTER_CRITICAL();
     selected = (uint8_t)(rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL);

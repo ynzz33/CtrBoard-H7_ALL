@@ -1,5 +1,5 @@
 /*
- * 文件职责：LQR腿长/横滚显式PD及腿部输出组合（leg_balance.c）。
+ * 文件职责：NORMAL固定四态LQR、非NORMAL原PD及腿部输出组合（leg_balance.c）。
  * 输入/来源：LQR状态/最终腿长目标、双腿实测几何、显式运行配置和dt。
  * 输出/去向：生成左右轴向力/摆矩，经公共补偿与限幅后填torque_output_t。
  * 关键边界：AIR释放时轴向主动出力为零；非释放时用原轨迹斜坡；只求解，不发送CAN。
@@ -12,7 +12,7 @@
 #include <math.h>
 #include <string.h>
 
-/* 复用PID容器保存P/D分项；正常PD的D增益由原差分增益换算为速度阻尼。 */
+/* PD实例仅供非NORMAL调用；正常模式不使用。 */
 void Leg_Balance_Init(leg_balance_t *lb)
 {
     memset(lb, 0, sizeof(*lb));
@@ -22,11 +22,12 @@ void Leg_Balance_Init(leg_balance_t *lb)
         PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output, 0.0f, machine->lqr.leg_len[i].kp, 0.0f, machine->lqr.leg_len[i].kd * MACHINE_LQR_DT, 0.0f, 0.0f);
     }
     PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output, 0.0f, machine->lqr.roll.kp, 0.0f, machine->lqr.roll.kd * MACHINE_LQR_DT, 0.0f, 0.0f);
+    Roll_Height_Reset(&lb->roll_height);
 }
 
 /* 清控制器历史与调试观测值 */
 /*
- * 清PD观测/输出、力/摆矩、补偿和轨迹斜坡，保留已配置增益。
+ * 清非NORMAL PD历史、四态观测/输出、力/摆矩、补偿和轨迹斜坡，保留配置。
  * 进入/退出轴向释放都会调用；退出时下一拍从实测重新播种给定。
  */
 void Leg_Balance_Reset(leg_balance_t *lb)
@@ -55,6 +56,7 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     memset(lb->length_ramp, 0, sizeof(lb->length_ramp));
     lb->turn_ff = 0.0f;
     lb->air_release = 0u;
+    Roll_Height_Reset(&lb->roll_height);
 }
 
 /* P响应位置误差，D直接使用实际速度；不积分、不差分给定或误差。 */
@@ -108,9 +110,9 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
     return 1u;
 }
 
-/* 腿长/横滚显式PD + 力向量 + 雅可比映射 → 电机力矩 */
+/* NORMAL仅四状态反馈，非NORMAL保留原PD；统一映射为电机力矩。 */
 /*
- * 非释放：最终目标 → 原轨迹斜坡 → 位置误差P与实际速度D → 支撑前馈。
+ * 非释放：最终目标 → 原轨迹斜坡 → 四状态反馈（非NORMAL仍PD）+原支撑前馈。
  * 释放：轴向F=0且不推进长度/roll PD与斜坡；摆角LQR和完整重力仍保留。
  * 轴向/摆矩映射和补偿在输出辅助函数中完成，本函数返回成功与否，发送由执行任务负责。
  */
@@ -150,19 +152,35 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
             return 0u;
         }
 
-        Leg_PD_Update(&lb->leg_len[0], length[0], target[0], leg_l->output.d_virtual_leg_length);
-        Leg_PD_Update(&lb->leg_len[1], length[1], target[1], leg_r->output.d_virtual_leg_length);
-        Leg_PD_Update(&lb->roll, st->roll, 0.0f, st->roll_rate);
-
         if (normal_mode)
         {
-            /* 机身近似向心前馈：实际v与yaw角速，直接参与腿力合成。 */
+            if (!Roll_Height_Available())
+            {
+                return 0u; /* 不匹配的机型不允许用大机模型，也不再后备PD。 */
+            }
             height = 0.5f * (length[0] + length[1]) + machine->lqr.turn_comp.height_offset;
             lb->turn_ff = machine->lqr.turn_comp.gain * machine->lqr.turn_comp.mass * height * st->ds_kf * st->x[LQR_X_DPHI] / machine->lqr.turn_comp.track;
+            lb->roll_height.permit = 1u;
+            if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->turn_ff))
+            {
+                return 0u;
+            }
+            F[0] = lb->roll_height.force[0];
+            F[1] = lb->roll_height.force[1];
         }
-        /* 模型力矩转力域 */
-        F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + machine->lqr.support_force[0] - lb->turn_ff;
-        F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + machine->lqr.support_force[1] + lb->turn_ff;
+        else
+        {
+            Roll_Height_Reset(&lb->roll_height);
+            Leg_PD_Update(&lb->leg_len[0], length[0], target[0], leg_l->output.d_virtual_leg_length);
+            Leg_PD_Update(&lb->leg_len[1], length[1], target[1], leg_r->output.d_virtual_leg_length);
+            Leg_PD_Update(&lb->roll, st->roll, 0.0f, st->roll_rate);
+            F[0] = lb->leg_len[0].pos_out + lb->roll.pos_out + machine->lqr.support_force[0] - lb->turn_ff;
+            F[1] = lb->leg_len[1].pos_out - lb->roll.pos_out + machine->lqr.support_force[1] + lb->turn_ff;
+        }
+    }
+    else
+    {
+        Roll_Height_Reset(&lb->roll_height);
     }
     Tp[0] = -st->u[LQR_U_BL];
     Tp[1] = -st->u[LQR_U_BR];
@@ -170,12 +188,6 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     {
         Tp[0] = 0.0f;
         Tp[1] = 0.0f;
-    }
-    if (!st->air_release && !config->len_pid_enable)
-    {
-        lb->turn_ff = 0.0f;
-        F[0] = machine->lqr.support_force[0];
-        F[1] = machine->lqr.support_force[1];
     }
     wheel[0] = config->wheel_enable ? st->u[LQR_U_WL] : 0.0f;
     wheel[1] = config->wheel_enable ? st->u[LQR_U_WR] : 0.0f;

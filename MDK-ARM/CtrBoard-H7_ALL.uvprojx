@@ -1276,6 +1276,16 @@
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/leg_balance.c</FilePath>
             </File>
+              <File>
+                <FileName>roll_height_model.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/Algorithm/roll_height_model.c</FilePath>
+              </File>
+              <File>
+                <FileName>roll_height_balance.c</FileName>
+                <FileType>1</FileType>
+                <FilePath>../imcalib/Algorithm/roll_height_balance.c</FilePath>
+              </File>
             <File>
               <FileName>lqr_balance.c</FileName>
               <FileType>1</FileType>

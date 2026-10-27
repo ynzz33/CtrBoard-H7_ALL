@@ -24,7 +24,7 @@ uint8_t Robot_Control_Enable_Allowed(void)
 
     if (rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_FAILED) { return 0u; }
     recovery = (uint8_t)(ground_recovery_control.lifecycle.enabled && ground_recovery_control.lifecycle.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
-    recovery |= (uint8_t)(machine->rl.configured && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
+    recovery |= (uint8_t)(rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
     return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (!robot_state.fallen || recovery));
 }
 
@@ -58,7 +58,7 @@ static void Control_Frame_Read(void)
     control_frame.drive = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
     if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
     {
-        control_frame.drive &= (uint8_t)(machine->rl.configured && rl_control.policy.ready);
+        control_frame.drive &= rl_control.policy.ready;
     }
     else
     {

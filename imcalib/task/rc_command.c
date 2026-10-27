@@ -65,13 +65,13 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         else
         {
             cmd->mode.strategy = CTRL_STRATEGY_LQR;
-            cmd->mode.rc_enable = machine->lqr_configured;
+            cmd->mode.rc_enable = 1u; /* LQR表由编译机型绑定，反馈/出力许可仍在执行层检查。 */
             cmd->mode.engage = (uint8_t)(cmd->s2 == DR16_SW_MID);
         }
         break;
 
     case DR16_SW_UP: cmd->mode.strategy = CTRL_STRATEGY_RL;
-        cmd->mode.rc_enable = machine->rl.configured ? 1u : 0u;
+        cmd->mode.rc_enable = 1u;
         cmd->mode.engage = (uint8_t)(cmd->s2 == DR16_SW_MID);
         break;
 
