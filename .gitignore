@@ -26,7 +26,7 @@ __pycache__/
 /data
 
 # MATLAB 增益表管线缓存 (matlabFunction 生成物、.mat)
-/tools/matlab/cache
-/tools/matlab/*.log
-/tools/matlab/roll_height4/output/
+/tools/matlab/lqr10/cache
+/tools/matlab/**/*.log
+/tools/matlab/lqr4/output/
 /tools/matlab/**/*.asv

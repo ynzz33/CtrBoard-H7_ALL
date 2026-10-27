@@ -107,7 +107,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .yaw_rate_hold = 1u,                     /* 偏航角速环 */
             .pos_hold = 1u,                          /* 位移环 */
             .wheel_enable = 1u,                      /* 轮矩输出 */
-            .hip_enable = 1u,                        /* 摆腿矩输出 */
+            .leg_swing_enable = 1u,                        /* 摆腿矩输出 */
         },
         /* 公共驱动保留LQR标定；RL配对转换复现作者提供的可用RL方向与零点。 */
         .rl = {
@@ -115,7 +115,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .motor_zero = {0.0f, 0.0f, 0.0f, 0.0f},
             /* 版本化XML与训练model.py微蹲闭链姿态：四腿顺序LF前/后、RF前/后。 */
             .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
-            .reference_pos = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
+            .position_limit_center = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
             .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* gyro/height/velocity缩放及两种裁剪 */
             .torque = {
                 .pos_scale = 0.5f,
@@ -153,7 +153,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .support_force = {8.0f, 8.0f},
             .turn_comp = {0.0f, 0.6918f, 0.0901f, 0.0f}, /* 小机本轮不补偿；轮距/高度偏置沿用小机模型 */
             .yaw_hold = 1u, .yaw_rate_hold = 1u,
-            .pos_hold = 1u, .wheel_enable = 1u, .hip_enable = 1u,
+            .pos_hold = 1u, .wheel_enable = 1u, .leg_swing_enable = 1u,
         },
         .dji_type       = 0u,                          /* M2006 */
         .dji_gear_ratio = 36.0f,

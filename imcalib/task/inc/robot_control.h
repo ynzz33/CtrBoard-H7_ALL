@@ -35,9 +35,9 @@ typedef struct {
     float joint_torque[4];
     leg_compensation_values_t compensation;
     uint8_t joint_ready;
-    uint8_t drive;
-    uint8_t normal;
-    uint8_t recovery;
+    uint8_t drive_permit; /* 本拍反馈、电机和总输出许可满足 */
+    uint8_t nonfallen_drive_permit; /* drive_permit且公共姿态未倒地，不代表三态NORMAL */
+    uint8_t recovery_permit; /* 本拍LQR地面恢复执行许可，不是恢复阶段 */
     uint8_t landed;
 } control_frame_t;
 

@@ -225,14 +225,14 @@
 - 大小机K表与machine配置均由MACHINE_DEFAULT编译绑定，固定使用各机当前表，无运行时K表切换、旧表对照或配套检查；LQR许可直接读取lqr_configured。实时输入/结果检查和表域限幅保留。
 - 作者要求原始反馈校验集中到处理端：IMU发布online、腿解算发布valid/force_valid、电机组发布motor.valid；消费者读取标志，不重复扫描已验证数值。映射/观测等新结果在生成处验证，固定配置/代码初始参数不做合法性扫描；保留运行反馈、奇异性、实际出力许可和最终结果检查。离地样本时间检查已删除，不能根据旧“保留采样时序”描述恢复。
 - debug_rx作为后续VOFA接收预留，当前未接通；Lowpass_Reset、Ramp_Init按作者要求暂留，不能按零调用自动删除。未使用的DR16_Rx_Cb、UART_Rx_Take、Slip_Update等旧入口不恢复，当前实际消费者使用带时间的UART快照接口及显式接触状态的Slip入口。
-- 2026-10-19作者已确认并接入公共检测、触地判断与三态实际选路，并再次确认分文件：task/control_detection.c调度原观测/判断，返回进入FALLEN事件，由执行层复位原动作；task/control_air_response.c承接原AIR响应，保留调用位置和处理行为。模型每拍准备一次，检测不依赖lqr_running/自起完成，也不由lqr_idle清历史。原AIR压缩分支、三态规则、standup动作、LQR/腿力控、物理参数和RL保持；分文件授权不等于修改处理公式。当前接口、Watch和软件验收见file-guide，实机效果及耗时待验证。
+- 2026-10-19作者已确认并接入公共检测、触地判断与三态实际选路，并再次确认分文件：task/control_detection.c调度原观测/判断，返回进入FALLEN事件，由执行层复位原动作；task/air_process.c承接原AIR响应，保留调用位置和处理行为。模型每拍准备一次，检测不依赖lqr_running/自起完成，也不由lqr_idle清历史。原AIR压缩分支、三态规则、standup动作、LQR/腿力控、物理参数和RL保持；分文件授权不等于修改处理公式。当前接口、Watch和软件验收见file-guide，实机效果及耗时待验证。
 - 2026-10-19作者进一步确认执行拍按横向三层整理：control_strategy只推进恢复、模型准备和检测并确认策略；control_compute只运行已选的一条原控制路径；control_output只复查许可、发布诊断和发送。三层由同一actuationTask同步直接调用，不新增任务、队列、跨拍候选缓存或业务结构体；先验证控制行为一致，再单独审查结构体删改。Algorithm控制实现、检测规则、控制周期与处理公式冻结。
-- 2026-10-20地面恢复已完成迁移：fallen_detection只发布姿态有效性、upright、inverted和普通异常；control_condition只做高度/三态选路；ground_recovery完整持有普通自起、倒置自救、阶段、目标、PID、映射、补偿、超时和重试，standup.c/h及旧工程源登记已删除。恢复上下文显式分为lifecycle、normal、self_right、actuator四组，不使用字段宏别名。动作姿态复核仍在ground_recovery内，不能误删。阶段顺序、PID、F/Tp、补偿、轨迹、限幅、超时和重试未改。
+- 2026-10-20地面恢复已完成迁移：fallen_detection只发布姿态有效性、upright、inverted和普通异常；control_condition只做高度/三态选路；fallen_process完整持有普通自起、倒置自救、阶段、目标、PID、映射、补偿、超时和重试，standup.c/h及旧工程源登记已删除。恢复上下文显式分为lifecycle、normal、self_right、actuator四组，不使用字段宏别名。动作姿态复核仍在fallen_process内，不能误删。阶段顺序、PID、F/Tp、补偿、轨迹、限幅、超时和重试未改。
 - 2026-10-20全局首批成员清理：`lqr_state.u_col/u_hip_col`和`robot_state.rc_enable`经全工程检索均无读取后删除。删除成员前必须同时核对直接读写、VOFA/Watch、条件编译与跨任务快照；不能以“当前不参与控制”代替无消费者证据。
 - 2026-10-20反馈元数据链已按后续全项目审查授权删除；`Robot_Feedback_Read`只复制控制实际读取的反馈。DM的`parsed_rx_ns`仍是离地相关真实接收时间，不能与已删除的IMU/遥控镜像元数据混淆。
 - 2026-10-20 `air_debug`只保留VOFA实际读取的紧凑诊断快照；完整离地检测跨拍状态仍在`air_detection`。删调试镜像字段前须核对VOFA布局与Watch用途，不改变检测器本体。
-- 2026-10-20恢复动作继续去冗余：删除只在单轮计算内使用的angle_speed_cmd、临时prepare、raw_dm和跨函数临时force/tp；`Ground_Recovery_Compute_Output`用局部候选完整映射后再发布。长度/角度目标、PID和斜坡必须独立保存，不能与正常LQR或遥控目标共用历史；`ground_recovery_param.length_rate`不能替换为machine.rc.len_rate，否则改变恢复动作速率。
-- 2026-10-20倒地触发判据归fallen_detection_param：trigger_angle、trigger_pitch、trigger_time和pitch_max不属于恢复动作参数。恢复可读同一检测阈值维持姿态保护和重新恢复确认，但检测模块不得反向包含ground_recovery头文件。
+- 2026-10-20恢复动作继续去冗余：删除只在单轮计算内使用的angle_speed_cmd、临时prepare、raw_dm和跨函数临时force/tp；`Fallen_Process_Compute_Output`用局部候选完整映射后再发布。长度/角度目标、PID和斜坡必须独立保存，不能与正常LQR或遥控目标共用历史；`fallen_process_param.length_rate`不能替换为machine.rc.len_rate，否则改变恢复动作速率。
+- 2026-10-20倒地触发判据归fallen_detection_param：trigger_angle、trigger_pitch、trigger_time和pitch_max不属于恢复动作参数。恢复可读同一检测阈值维持姿态保护和重新恢复确认，但检测模块不得反向包含fallen_process头文件。
 - 2026-10-20普通恢复超时统一为length_timeout（EXTEND/RETRACT）和angle_timeout（REAR/SWING），当前均1.5s；length_tol同时用于伸腿和收腿，收腿转摆条件为retract_len+length_tol。作者要求删除翻身F和Tp预映射限幅，恢复输出只保留最终四髋限幅。
 - 2026-10-20翻身使用与后摆共用的angle_rate；TUCK改名PRELOAD且必须等待两腿达到recovery_len-length_tol才开始FLIP，不能恢复固定等待时间后未建力臂就扫腿的旧逻辑。PRELOAD仍由recovery_timeout兜底。
 - 2026-10-20已删除recovery_timeout：PRELOAD用length_timeout，FLIP用扫角上限或卡滞保护，SETTLE只按固定等待转段；不得恢复一个覆盖不同阶段语义的通用翻身超时。
@@ -253,3 +253,7 @@
 作者明确新模型生成和networkzn1文件替换自行处理，AI不得伪造或修改生成权重/尺寸宏；2026-10-15作者替换model3023及其电脑端核对为历史记录；2026-10-17回退后按作者重新确认的方案，保留其model5849生成网络，现已接平地命令/公共几何高度/RL恢复及配套出力，板端效果仍待验证。具体调用、训练与CPU回放差异、reset_count处理在途推理及待验证项见[file-guide的RL39接口](file-guide.md#rl39)。不得把静站固定标志宣称为完整multimode状态机，不把本机独立几何核算说成运行过训练环境或完成硬件标定。
 
 CubeMX当前生成MDK工程，eIDE使用GCC，二者端口/库均需保留。GCC补充依赖已迁至CubeMX生成目录外的gcc_support：源与包含路径用FreeRTOS/ARM_CM4F，AI库用AI子目录；MDK继续保留RVDS/Keil依赖。不能依赖会被CubeMX回写的DeletePrevious开关保护Middlewares里的GCC补充文件，也不能把RVDS端口给GCC使用。重新导入工程须保持gcc_support三项引用，迁移第三方文件保留原字节与许可证，不改内容；不新增自动恢复脚本或冗余副本。详见file-guide构建段；不为修复生成依赖改变控制参数或硬件标定。
+
+## 2026-10-27 目录归类授权补充
+
+按作者最新确认，原AIR响应整体改名为Algorithm/process/air_process.c/h，与fallen_process按具体异常处理归组，但保留原task头文件依赖、共享目标写回临界区和原调用顺序；这是纯迁移，不据此宣称解耦。仅该既有模块按本轮授权保留依赖，不作为新增算法任意访问任务全局状态的依据。pitch_world仅迁入estimation，不合并实现。control_detection因包含跨模块检测调度和公共后处理计时，继续归task/control。H文件统一位于模块inc，config除外。

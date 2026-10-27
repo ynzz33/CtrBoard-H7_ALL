@@ -9,21 +9,21 @@
 #include "dm.h"
 #include "tim.h"
 #include "mono_ns.h"
-#include "ground_recovery.h"
+#include "fallen_process.h"
 #include "control_strategy.h"
 #include "control_compute.h"
 #include "control_output.h"
 
 static control_frame_t control_frame;
-volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
-volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
+volatile float output_dm_torque_nm[DM_MOTOR_NUM];
+volatile float output_wheel_torque_nm[DJI_MOTOR_NUM];
 
 uint8_t Robot_Control_Enable_Allowed(void)
 {
     uint8_t recovery;
 
     if (rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_FAILED) { return 0u; }
-    recovery = (uint8_t)(ground_recovery_control.lifecycle.enabled && ground_recovery_control.lifecycle.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
+    recovery = (uint8_t)(fallen_process_control.lifecycle.enabled && fallen_process_control.lifecycle.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
     recovery |= (uint8_t)(rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
     return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (!robot_state.fallen || recovery));
 }
@@ -55,17 +55,17 @@ static void Control_Frame_Read(void)
         control_frame.joint_ready &= (uint8_t)(feedback.motor.dm.online[i] && Dm_Is_Enabled(i));
     }
     control_frame.motor_valid = feedback.motor.valid;
-    control_frame.drive = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
+    control_frame.drive_permit = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
     if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
     {
-        control_frame.drive &= rl_control.policy.ready;
+        control_frame.drive_permit &= rl_control.policy.ready;
     }
     else
     {
-        control_frame.drive &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
+        control_frame.drive_permit &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
     }
-    control_frame.normal = (uint8_t)(control_frame.drive && !control_frame.fallen);
-    control_frame.recovery = (uint8_t)(control_frame.drive && ground_recovery_control.lifecycle.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
+    control_frame.nonfallen_drive_permit = (uint8_t)(control_frame.drive_permit && !control_frame.fallen);
+    control_frame.recovery_permit = (uint8_t)(control_frame.drive_permit && fallen_process_control.lifecycle.enabled && control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && control_frame.rc.mode.engage);
     taskEXIT_CRITICAL();
 }
 

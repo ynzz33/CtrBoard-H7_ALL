@@ -26,8 +26,8 @@ void PID_History_Set(pid_t *pid, float measured, float target, float error)
 {
     for (uint8_t i = 0u; i < 3u; i++)
     {
-        pid->get[i] = measured;
-        pid->set[i] = target;
+        pid->measured[i] = measured;
+        pid->target[i] = target;
         pid->err[i] = error;
     }
 }
@@ -55,16 +55,16 @@ float Deadband_Soften(float err, float deadband)
 
 /* 计算PID */
 /*
- * 位置式误差=set-get；P响应当前误差，I按dt积分，D沿用误差的逐拍差分。
+ * 位置式误差=target-measured；P响应当前误差，I按dt积分，D沿用误差的逐拍差分。
  * D没有除dt，其增益对应现有离散节拍；给定突变和实测突变都能进入D。
- * 计算后移位get/set/err历史，并分别限积分和总输出；角度环绕/死区按pid配置选择。
+ * 计算后移位measured/target/err历史，并分别限积分和总输出；角度环绕/死区按pid配置选择。
  */
-float pid_calc(pid_t *pid, float get, float set, float delta_time)
+float pid_calc(pid_t *pid, float measured, float target, float delta_time)
 {
-    pid->get[NOW] = get;
-    pid->set[NOW] = set;
-    pid->err[NOW] = set - get;
-    if (pid->angle_wrap) pid->err[NOW] = Angle_Wrap_180(pid->err[NOW]);
+    pid->measured[NOW] = measured;
+    pid->target[NOW] = target;
+    pid->err[NOW] = target - measured;
+    if (pid->angle_wrap) pid->err[NOW] = Angle_Wrap_Pi(pid->err[NOW]);
     if (pid->max_err != 0.0f && ABS(pid->err[NOW]) > pid->max_err)
         return 0.0f;
 
@@ -85,9 +85,9 @@ float pid_calc(pid_t *pid, float get, float set, float delta_time)
         }
 
         abs_limit(&pid->iout, pid->IntegralLimit);
-        pid->pos_out = pid->pout + pid->iout + pid->dout;
-        abs_limit(&pid->pos_out, pid->MaxOutput);
-        pid->last_pos_out = pid->pos_out;
+        pid->position_mode_output = pid->pout + pid->iout + pid->dout;
+        abs_limit(&pid->position_mode_output, pid->MaxOutput);
+        pid->last_position_mode_output = pid->position_mode_output;
     }
     else if (pid->pid_mode == DELTA_PID)
     {
@@ -104,11 +104,11 @@ float pid_calc(pid_t *pid, float get, float set, float delta_time)
 
     pid->err[LLAST] = pid->err[LAST];
     pid->err[LAST] = pid->err[NOW];
-    pid->get[LLAST] = pid->get[LAST];
-    pid->get[LAST] = pid->get[NOW];
-    pid->set[LLAST] = pid->set[LAST];
-    pid->set[LAST] = pid->set[NOW];
-    return (pid->pid_mode == POSITION_PID) ? pid->pos_out : pid->delta_out;
+    pid->measured[LLAST] = pid->measured[LAST];
+    pid->measured[LAST] = pid->measured[NOW];
+    pid->target[LLAST] = pid->target[LAST];
+    pid->target[LAST] = pid->target[NOW];
+    return (pid->pid_mode == POSITION_PID) ? pid->position_mode_output : pid->delta_out;
 }
 
 /* 计算前馈 */

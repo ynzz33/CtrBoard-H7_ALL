@@ -92,7 +92,7 @@ static void Remote_Control_Update(void)
     Rc_Command_Update(&rc_command_temp, &remote, MACHINE_TICK_DT);
     if (!(output_task_lqr_engaged() || output_task_rl_engaged()))
     {
-        rc_command_temp.len = machine->rc.len_init;
+        rc_command_temp.leg_length_target = machine->rc.len_init;
     }
     Robot_Feedback_Publish_Rc(&rc_command_temp);
 }

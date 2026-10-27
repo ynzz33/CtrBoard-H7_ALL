@@ -70,8 +70,8 @@ extern volatile uint32_t ctrl_fault;
 extern volatile uint8_t output_debug_dm_sent;
 extern volatile uint8_t output_debug_dji_sent;
 extern volatile control_time_debug_t control_time_debug;
-extern volatile float rl_output_dm_cmd_nm[DM_MOTOR_NUM];
-extern volatile float rl_output_wheel_cmd_nm[DJI_MOTOR_NUM];
+extern volatile float output_dm_torque_nm[DM_MOTOR_NUM];
+extern volatile float output_wheel_torque_nm[DJI_MOTOR_NUM];
 extern uint8_t torque_output_enabled;
 extern volatile compensation_debug_t compensation_debug;
 

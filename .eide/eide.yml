@@ -137,11 +137,11 @@ virtualFolder:
       folders: []
     - name: ControlModules
       files:
-        - path: imcalib/task/control_detection.c
-        - path: imcalib/task/control_air_response.c
-        - path: imcalib/task/control_strategy.c
-        - path: imcalib/task/control_compute.c
-        - path: imcalib/task/control_output.c
+        - path: imcalib/task/control/control_detection.c
+        - path: imcalib/Algorithm/process/air_process.c
+        - path: imcalib/task/control/control_strategy.c
+        - path: imcalib/task/control/control_compute.c
+        - path: imcalib/task/control/control_output.c
       folders: []
     - name: Doc
       files:
@@ -179,12 +179,19 @@ targets:
         - Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
         - Drivers/CMSIS/Device/ST/STM32H7xx/Include
         - Drivers/CMSIS/Include
-        - imcalib/drivers
-        - imcalib/bsp
-        - imcalib/common
+        - imcalib/drivers/inc
+        - imcalib/bsp/inc
+        - imcalib/common/inc
         - imcalib/config
-        - imcalib/Algorithm
+        - imcalib/Algorithm/lqr/inc
+        - imcalib/Algorithm/rl/inc
+        - imcalib/Algorithm/estimation/inc
+        - imcalib/Algorithm/detection/inc
+        - imcalib/Algorithm/process/inc
+        - imcalib/Algorithm/compensation/inc
         - imcalib/task/inc
+        - imcalib/task/control/inc
+        - imcalib/task/service/inc
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
         - .cmsis/include
@@ -192,11 +199,11 @@ targets:
         - Drivers/CMSIS/DSP/Include
       libList: []
     excludeList:
-      - imcalib/task/control_detection.c
-      - imcalib/task/control_air_response.c
-      - imcalib/task/control_strategy.c
-      - imcalib/task/control_compute.c
-      - imcalib/task/control_output.c
+      - imcalib/task/control/control_detection.c
+      - imcalib/Algorithm/process/air_process.c
+      - imcalib/task/control/control_strategy.c
+      - imcalib/task/control/control_compute.c
+      - imcalib/task/control/control_output.c
     settings:
       debugger: cortex-debug
     toolchain: GCC

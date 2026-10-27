@@ -2,6 +2,12 @@
 
 本文件只保存历史变更、依据、验证与删除前的文档副本。当前规则看AGENTS.md，当前代码结构看file-guide.md；历史内容不能作为现行参数、已验证状态或可直接执行的操作步骤。阅读时按日期、模块或关键词检索，不必整份加载。
 
+## 2026-10-27 · VOFA加入十态yaw实际与目标
+
+- 按作者调试yaw要求，vofa_debug.c复用40～43通道，依次发送yaw实际角度、目标角度、实际角速度、目标角速度，单位rad/rad/s。反馈直接读取十态x；目标读取target并计入与实际反馈公式一致的x_eq，实际角速度为LQR滤后值。
+- 原40～43四态诊断赋值保留为源码注释，固定48通道及单次发送保持；只读打包，不调整yaw控制、增益、滤波或力矩输出。同步总览通道表，移除旧43平衡力含义及依赖它的解读公式，并按现有源码说明14为四态roll角。
+- 验证为通道赋值、控制器反馈/目标来源及差异检查；未进行编译、烧录或上机验证。已有十态增益表及MATLAB报告改动保留。
+
 ## 2026-10-26 · 补充编译产物与个人界面忽略规则
 
 - 作者要求将已核对的四类文件加入.gitignore：Keil输出目录、个人uvguix布局、JLinkLog.txt，以及MATLAB各级目录的asv备份；保留原四态候选输出目录的忽略规则，更新现有总览。
@@ -10182,3 +10188,35 @@ MATLAB 桌面：`cd tools/matlab`，敲 `run_all`。命令行（不开桌面；�
 - 接入清理：只保留单模型，删除无人调用的旧模型切换/索引及无人消费的input_command镜像；CubeAI显式绑定35/6维独立I/O缓冲，支持导出时I/O放在activation或外部缓存两种配置。
 - 验证：ARM GCC大机完整104项编译及链接、AC5十一相关消费者×两机共22次对象编译通过。原BMI088 packed警告保留；当前旧生成尺寸使AC5在旧模型拒绝后报不可达警告，非运行错误。工程外宿主运行生产观测/映射/PD，覆盖35维下标/缩放/裁剪、名义姿态、重力投影、原始action历史、阻尼、目标/独立力矩限幅、配对符号/零偏、延迟及坏输入；真实DM解析覆盖双极性多圈正反跨界且原标定角保持。非RL机器配置词元相对本轮前备份一致。
 - 验证边界：真实rl_policy使用SDK元数据/后端替身，验证35/6接收、旧25/125创建前拒绝、尺寸/格式/batch/数量不匹配、独立I/O绑定和运行失败/NaN清动作；任务联调用确定性action替身，不能证明实际新权重推理、硬件调度频率、CAN延迟、物理标定或站立效果。没有在工程内新增测试/工具文件；未改生成网络/权重，未烧录。
+
+## 2026-10-27 统一一阶低通命名
+
+按作者要求将lowpass1d_t重命名为lpf_t，Lowpass_*统一为LPF_*；同步公共声明/实现和十态/四态调用。四态velocity_filter数组改为具名lpf_omg_roll、lpf_height_rate；保留Reset接口。仅命名整理，不改滤波公式、参数或执行时序。完成源码引用及差异检查，本轮未重新编译或上机测试。
+
+## 2026-10-27 四态执行函数结构整理
+
+按作者授权，在roll_height_balance.c提取静态State_Update及Force_Update，合并三处失败处理为Fail；Observe和外部C/H接口保持。保持原几何/参考/低通、观测预测校正、力累加顺序及异常复位行为，不增删判断、不调参。源码差异及引用检查通过，未执行完整编译或实机验证。
+
+## 2026-10-27 全项目控制命名统一
+
+- 作者明确授权按命名审查清单修改；基于当前工作区进行，不回滚已有增益表、VOFA或结构整理。
+- 四态reference改target，height_goal改height_target，斜坡参数改length_ramp_target；十态leg_len_tgt/yaw_tgt/vel_tgt改leg_length_target/yaw_target/velocity_target。恢复rear_goal/length_cmd/angle_cmd改rear_angle_target/length_target/angle_target；局部goal统一target，稳定计时改stable_elapsed。
+- 遥控vel/yaw/len改velocity_target/yaw_rate_target/leg_length_target；PID set/get改target/measured，pos_out/last_pos_out明确为position_mode_output/last_position_mode_output。只写速度镜像保留，不在命名清理中删除状态。
+- 四态equilibrium改base_force；RL reference_pos改position_limit_center，重力reference缓存参数改cached_result。只改字段名，不改变原生参考角、极性、零点、物理值或训练接口。
+- frame.drive/normal/recovery改drive_permit/nonfallen_drive_permit/recovery_permit；公共最终力矩镜像移除rl前缀，hip_enable改leg_swing_enable，raw_dm改unclamped_dm，Angle_Wrap_180改Angle_Wrap_Pi。rc_enable及所有许可逻辑保留。
+- 同步声明、实现、全部调用及注释中的调试引用；四态MATLAB控制和验证脚本同步target/base_force命名。历史记录中的旧符号表示当时版本，不全局改写历史。
+- 验证：35个C/H和2个MATLAB文件与修改前快照的非命名代码结构一致；大小机各54个工程自有C源文件完成GCC语法检查，共108项通过；旧标识符引用及git diff --check通过。未执行完整链接、MATLAB数值重生成或实机测试，本轮未提交。
+
+## 2026-10-27 四态结果统一为valid
+
+按作者对结果同义状态的纠正，删除roll_height_result_t、反馈结构result成员及成功/失败赋值。控制仍使用原有roll_height.valid，复位清0、完整计算成功置1，不改变控制许可。MATLAB删除重复info.result。VOFA6保持valid，9保留0，不新增第二份valid或移动其他通道；历史CSV的9仍按旧版本解释。
+
+## 2026-10-27 职责目录整理及process命名
+
+按作者最终确认只移动、改名、同步引用；54C/53H原始工作区基线保存在工程外。Algorithm分六组，task分入口/control/service，头文件统一inc，config例外。AIR整体迁入process/air_process，ground_recovery改fallen_process并同步模块前缀；不抽离AIR内部依赖，不合并pitch_world。pitch_world独立迁入estimation，control_detection保留任务层公共调度与撤力重判。MATLAB分lqr10/lqr4，共享机器表不复制。Keil、eIDE登记/包含目录及M生成路径同步，未自动提交或烧录。验证结果见后续条目。
+
+验证结果：107个C/H与迁移前工作区逐一对照，除预定模块标识符和include位置外保持；54个C均在eIDE实际生成的sourceList/compile_commands各出现一次，并完成大小机GCC完整编译链接。Keil实际工程完整编译链接为0错误、2原有警告（rc_command中的浮点提升、background_service末尾换行），未借此改动源码。Keil构建改写的原先干净的已跟踪产物已恢复，外部验证日志保留。
+
+MATLAB前后十态生成、模型核对和四态生成均通过；四态13组模型/增益矩阵逐项完全一致，最大差为0，十态两机三组非对称腿长A/B共6组一致。全部验证deploy=false，三个固件生成数据源字节与原工作区一致；十态验证报告按新路径更新，候选C恢复为原固件一致内容。原四态目录被MATLAB当前目录占用时采用逐文件迁移，随后将MATLAB当前目录切到lqr4；旧空目录归档到工程外临时备份。未清理用户baseline，未关闭或保存旧编辑器页签，需从新路径打开继续编辑。
+
+没有提交、推送、下载、烧录或实机测试。目录移动不证明控制效果改善。

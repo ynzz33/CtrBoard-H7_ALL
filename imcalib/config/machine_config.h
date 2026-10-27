@@ -116,7 +116,7 @@ typedef struct {
     int8_t motor_sign[6];      /* 固件↔模型配对方向，输入角/速与输出力矩共用 */
     float motor_zero[4];       /* 固件标定单圈角至模型零位的额外偏移，rad */
     float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
-    float reference_pos[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
+    float position_limit_center[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
     machine_rl_observation_cfg_t observation;
     machine_rl_torque_cfg_t torque;
     uint32_t action_timeout_ms; /* 已发布动作停止更新的故障期限 */
@@ -146,7 +146,7 @@ typedef struct {
     uint8_t yaw_rate_hold;
     uint8_t pos_hold;
     uint8_t wheel_enable;
-    uint8_t hip_enable;
+    uint8_t leg_swing_enable;
 } machine_lqr_cfg_t;
 
 typedef struct {
