@@ -22,7 +22,7 @@ void Air_Process_Update(control_frame_t *frame)
     if (frame->landed)
     {
         taskENTER_CRITICAL();
-        rc_command.leg_length_target = 0.25f;
+        rc_command.leg_length_target = 0.2f;
         frame->rc.leg_length_target = rc_command.leg_length_target;
         taskEXIT_CRITICAL();
     }

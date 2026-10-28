@@ -256,4 +256,8 @@ CubeMX当前生成MDK工程，eIDE使用GCC，二者端口/库均需保留。GCC
 
 ## 2026-10-27 目录归类授权补充
 
+长腿离地诊断后续增加四髋反馈/请求、映射有效性及行列式，10～11、20～23、26～27、32～35已换义，按file-guide最新通道表解析CSV；本轮不改用户已调的离地门槛。
+
+2026-10-27长腿FLIGHT排查临时VOFA布局为file-guide的长腿离地诊断表；不得用此前yaw/四态通道解释新CSV。当前只增加只读观测，未确认根因前不修改AIR估力、阈值或原压缩落地处理。
+
 按作者最新确认，原AIR响应整体改名为Algorithm/process/air_process.c/h，与fallen_process按具体异常处理归组，但保留原task头文件依赖、共享目标写回临界区和原调用顺序；这是纯迁移，不据此宣称解耦。仅该既有模块按本轮授权保留依赖，不作为新增算法任意访问任务全局状态的依据。pitch_world仅迁入estimation，不合并实现。control_detection因包含跨模块检测调度和公共后处理计时，继续归task/control。H文件统一位于模块inc，config除外。

@@ -10,6 +10,7 @@
 #include "robot_state.h"
 #include "dm.h"
 #include "air_detection.h"
+#include "control_detection.h"
 #include "control_condition.h"
 #include "machine_config.h"
 #include "Vofa_send.h"
@@ -17,6 +18,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include <math.h>
 #include <string.h>
 
 void Vofa_Debug_Send(void)
@@ -24,6 +26,9 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
+    const lqr_gain_desc_t *gain;
+    float term;
+    uint8_t group;
 
     memset(dbg, 0, sizeof(dbg));
     /* ch0 在线掩码 */
@@ -121,58 +126,138 @@ void Vofa_Debug_Send(void)
 //     // dbg[23] = lqr_state.a_fwd;
 //
 //
-    /* LQR排查布局：固定48路；40～43用于yaw实际/目标，其余保留四态诊断。 */
+//     /* LQR排查布局：固定48路；40～43用于yaw实际/目标，其余保留四态诊断。 */
+//     taskENTER_CRITICAL();
+//     dbg[3] = (float)control_condition.condition;
+//     dbg[4] = (float)control_condition.valid;
+//     dbg[5] = (float)Roll_Height_Available();
+//     dbg[6] = (float)leg_balance.roll_height.valid;
+//     dbg[7] = (float)leg_balance.roll_height.update_count;
+//     dbg[8] = (float)((air_detection.valid ? 0x01u : 0u) | (air_detection.initialized ? 0x02u : 0u) | (air_detection.fault ? 0x04u : 0u) | (air_detection.flight ? 0x08u : 0u) | (leg_balance.roll_height.observer.seeded ? 0x10u : 0u) | (leg_balance.roll_height.observer.updated ? 0x20u : 0u) | (leg_balance.roll_height.observer.limited ? 0x40u : 0u));
+//     /* ch9保留为0（数组入口已清零）；四态结果可用性统一看ch6的valid。 */
+//     dbg[10] = leg_balance.roll_height.x[2] - leg_balance.roll_height.target[2];
+//     dbg[11] = air_detection.leg[0].force; /* 左FN估计N；由反馈力矩、弹簧和轮重动态项生成 */
+//     dbg[12] = air_detection.leg[1].force; /* 右FN估计N；须结合ch8的valid位读取 */
+//     dbg[13] = lqr_state.roll;
+//     dbg[14] = leg_balance.roll_height.x[0];
+//     dbg[15] = leg_balance.roll_height.x[1];
+//     dbg[16] = leg_balance.roll_height.x[2];
+//     dbg[17] = leg_balance.roll_height.target[2];
+//     dbg[18] = leg_balance.roll_height.x[3];
+//     dbg[19] = machine->lqr.lpf_alpha[3];
+//     dbg[20] = leg_l.output.virtual_leg_length;
+//     dbg[21] = leg_r.output.virtual_leg_length;
+//     dbg[22] = lqr_state.leg_length_target[0];
+//     dbg[23] = lqr_state.leg_length_target[1];
+//     dbg[24] = leg_balance.roll_height.observer.bias[0]; /* 左等效附加力估计；控制中减去 */
+//     dbg[25] = leg_balance.roll_height.observer.bias[1]; /* 右等效附加力估计；控制中减去 */
+//     dbg[26] = leg_balance.F[0];
+//     dbg[27] = leg_balance.F[1];
+//     dbg[28] = 0.5f * (leg_balance.roll_height.force[0] - leg_balance.roll_height.lqr.base_force[0] + leg_balance.roll_height.force[1] - leg_balance.roll_height.lqr.base_force[1]);
+//     dbg[29] = 0.5f * (leg_balance.F[0] + leg_balance.F[1]);
+//     dbg[30] = 0.5f * (leg_balance.roll_height.force[0] - leg_balance.roll_height.lqr.base_force[0] - leg_balance.roll_height.force[1] + leg_balance.roll_height.lqr.base_force[1]);
+//     dbg[31] = 0.5f * (leg_balance.F[0] - leg_balance.F[1]);
+//     dbg[32] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][0] - leg_balance.roll_height.lqr.feedback[1][0]);
+//     dbg[33] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][1] - leg_balance.roll_height.lqr.feedback[1][1]);
+//     dbg[34] = leg_balance.Tp[0];
+//     dbg[35] = leg_balance.Tp[1];
+//     dbg[36] = (float)leg_balance.compensation.saturated;
+//     dbg[37] = 0.5f * ((leg_l.output.virtual_leg_length - leg_balance.length_ramp[0].out) - (leg_r.output.virtual_leg_length - leg_balance.length_ramp[1].out));
+//     dbg[38] = (float)lqr_state.air_control;
+//     dbg[39] = (float)lqr_state.air_release;
+//     /* 原40～43四态诊断，保留供手动恢复布局。 */
+//     // dbg[40] = leg_balance.roll_height.height_target;
+//     // dbg[41] = leg_balance.roll_height.height_rate_raw;
+//     // dbg[42] = 0.5f * (leg_balance.length_ramp[0].out + leg_balance.length_ramp[1].out);
+//     // dbg[43] = 0.5f * (leg_balance.roll_height.lqr.base_force[0] + leg_balance.roll_height.lqr.base_force[1]);
+//     dbg[40] = lqr_state.x[LQR_X_PHI]; /* yaw实际角度rad */
+//     dbg[41] = lqr_state.target[LQR_X_PHI] + LQR_Gain_Info()->x_eq[LQR_X_PHI]; /* yaw目标角度rad */
+//     dbg[42] = lqr_state.x[LQR_X_DPHI]; /* yaw实际角速度rad/s，LQR使用的滤后反馈 */
+//     dbg[43] = lqr_state.target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI]; /* yaw目标角速度rad/s */
+//     dbg[44] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][2] + leg_balance.roll_height.lqr.feedback[1][2]);
+//     dbg[45] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][3] + leg_balance.roll_height.lqr.feedback[1][3]);
+//     dbg[46] = machine->lqr.lpf_alpha[2];
+//     dbg[47] = (float)robot_state.fallen;
+//     taskEXIT_CRITICAL();
+
+    /* LQR静止抖动分项：只读已有K/状态，不重算增益、不推进控制器。
+     * 27~46按四输出各五组记录限幅前贡献，单位统一Nm。
+     * 世界腿角+pitch即相对机身腿角；长度与状态取自LQR本身。
+     */
     taskENTER_CRITICAL();
-    dbg[3] = (float)control_condition.condition;
-    dbg[4] = (float)control_condition.valid;
-    dbg[5] = (float)Roll_Height_Available();
-    dbg[6] = (float)leg_balance.roll_height.valid;
-    dbg[7] = (float)leg_balance.roll_height.update_count;
-    dbg[8] = (float)((air_detection.valid ? 0x01u : 0u) | (air_detection.initialized ? 0x02u : 0u) | (air_detection.fault ? 0x04u : 0u) | (air_detection.flight ? 0x08u : 0u) | (leg_balance.roll_height.observer.seeded ? 0x10u : 0u) | (leg_balance.roll_height.observer.updated ? 0x20u : 0u) | (leg_balance.roll_height.observer.limited ? 0x40u : 0u));
-    /* ch9保留为0（数组入口已清零）；四态结果可用性统一看ch6的valid。 */
-    dbg[10] = leg_balance.roll_height.x[2] - leg_balance.roll_height.target[2];
-    dbg[11] = air_detection.leg[0].force; /* 左FN估计N；由反馈力矩、弹簧和轮重动态项生成 */
-    dbg[12] = air_detection.leg[1].force; /* 右FN估计N；须结合ch8的valid位读取 */
-    dbg[13] = lqr_state.roll;
-    dbg[14] = leg_balance.roll_height.x[0];
-    dbg[15] = leg_balance.roll_height.x[1];
-    dbg[16] = leg_balance.roll_height.x[2];
-    dbg[17] = leg_balance.roll_height.target[2];
-    dbg[18] = leg_balance.roll_height.x[3];
-    dbg[19] = machine->lqr.lpf_alpha[3];
-    dbg[20] = leg_l.output.virtual_leg_length;
-    dbg[21] = leg_r.output.virtual_leg_length;
-    dbg[22] = lqr_state.leg_length_target[0];
-    dbg[23] = lqr_state.leg_length_target[1];
-    dbg[24] = leg_balance.roll_height.observer.bias[0]; /* 左等效附加力估计；控制中减去 */
-    dbg[25] = leg_balance.roll_height.observer.bias[1]; /* 右等效附加力估计；控制中减去 */
-    dbg[26] = leg_balance.F[0];
-    dbg[27] = leg_balance.F[1];
-    dbg[28] = 0.5f * (leg_balance.roll_height.force[0] - leg_balance.roll_height.lqr.base_force[0] + leg_balance.roll_height.force[1] - leg_balance.roll_height.lqr.base_force[1]);
-    dbg[29] = 0.5f * (leg_balance.F[0] + leg_balance.F[1]);
-    dbg[30] = 0.5f * (leg_balance.roll_height.force[0] - leg_balance.roll_height.lqr.base_force[0] - leg_balance.roll_height.force[1] + leg_balance.roll_height.lqr.base_force[1]);
-    dbg[31] = 0.5f * (leg_balance.F[0] - leg_balance.F[1]);
-    dbg[32] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][0] - leg_balance.roll_height.lqr.feedback[1][0]);
-    dbg[33] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][1] - leg_balance.roll_height.lqr.feedback[1][1]);
-    dbg[34] = leg_balance.Tp[0];
-    dbg[35] = leg_balance.Tp[1];
-    dbg[36] = (float)leg_balance.compensation.saturated;
-    dbg[37] = 0.5f * ((leg_l.output.virtual_leg_length - leg_balance.length_ramp[0].out) - (leg_r.output.virtual_leg_length - leg_balance.length_ramp[1].out));
-    dbg[38] = (float)lqr_state.air_control;
-    dbg[39] = (float)lqr_state.air_release;
-    /* 原40～43四态诊断，保留供手动恢复布局。 */
-    // dbg[40] = leg_balance.roll_height.height_target;
-    // dbg[41] = leg_balance.roll_height.height_rate_raw;
-    // dbg[42] = 0.5f * (leg_balance.length_ramp[0].out + leg_balance.length_ramp[1].out);
-    // dbg[43] = 0.5f * (leg_balance.roll_height.lqr.base_force[0] + leg_balance.roll_height.lqr.base_force[1]);
-    dbg[40] = lqr_state.x[LQR_X_PHI]; /* yaw实际角度rad */
-    dbg[41] = lqr_state.target[LQR_X_PHI] + LQR_Gain_Info()->x_eq[LQR_X_PHI]; /* yaw目标角度rad */
-    dbg[42] = lqr_state.x[LQR_X_DPHI]; /* yaw实际角速度rad/s，LQR使用的滤后反馈 */
-    dbg[43] = lqr_state.target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI]; /* yaw目标角速度rad/s */
-    dbg[44] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][2] + leg_balance.roll_height.lqr.feedback[1][2]);
-    dbg[45] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][3] + leg_balance.roll_height.lqr.feedback[1][3]);
-    dbg[46] = machine->lqr.lpf_alpha[2];
-    dbg[47] = (float)robot_state.fallen;
+    gain = LQR_Gain_Info();
+    for (uint8_t j = 0u; j < LQR_X_NUM; j++)
+    {
+        dbg[3u + j] = lqr_state.x[j];
+    }
+    dbg[13] = lqr_state.target[LQR_X_S] + gain->x_eq[LQR_X_S];
+    dbg[14] = lqr_state.target[LQR_X_DS] + gain->x_eq[LQR_X_DS];
+    dbg[15] = lqr_state.target[LQR_X_PHI] + gain->x_eq[LQR_X_PHI];
+    dbg[16] = lqr_state.target[LQR_X_DPHI] + gain->x_eq[LQR_X_DPHI];
+    dbg[17] = lqr_state.target[LQR_X_THL] + gain->x_eq[LQR_X_THL];
+    dbg[18] = lqr_state.target[LQR_X_THR] + gain->x_eq[LQR_X_THR];
+    dbg[19] = lqr_state.target[LQR_X_THB] + gain->x_eq[LQR_X_THB];
+    dbg[20] = lqr_state.len[0];
+    dbg[21] = lqr_state.len[1];
+    /* bit0状态有效/1增益有效/2 AIR反馈/3轴向释放/4离地/5三态有效/6四髋限幅/7四态有效；bit8~9三态。 */
+    dbg[22] = (float)((lqr_state.valid ? 0x01u : 0u) |
+                      (lqr_state.gain_valid ? 0x02u : 0u) |
+                      (lqr_state.air_control ? 0x04u : 0u) |
+                      (lqr_state.air_release ? 0x08u : 0u) |
+                      (air_detection.flight ? 0x10u : 0u) |
+                      (control_condition.valid ? 0x20u : 0u) |
+                      (leg_balance.compensation.saturated ? 0x40u : 0u) |
+                      (leg_balance.roll_height.valid ? 0x80u : 0u) |
+                      ((uint16_t)control_condition.condition << 8));
+    /* 最终门控后的轮矩请求；不能再用未投入时的LQR缓存代表已下发输出。 */
+    dbg[23] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_LFT];
+    dbg[24] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_RGT];
+    dbg[25] = lqr_state.u[LQR_U_BL]; /* 虚拟髋模型输出，尚未组合轴向力/补偿。 */
+    dbg[26] = lqr_state.u[LQR_U_BR];
+    /* 仅在LQR投入且状态/增益有效时重建；后台读取，不保证与缓存u严格同拍。
+     * 每输出：速度、左腿角速度、右腿角速度、pitch角速度、其余状态+u_eq。
+     * AIR掩码、开关和角度环绕与LQR_Control_Update保持一致。
+     */
+    if (output_task_lqr_engaged() && lqr_state.valid && lqr_state.gain_valid)
+    {
+        for (uint8_t i = 0u; i < LQR_U_NUM; i++)
+        {
+            dbg[31u + i * 5u] = lqr_state.air_control ? 0.0f : gain->u_eq[i];
+            for (uint8_t j = 0u; j < LQR_X_NUM; j++)
+            {
+                if (lqr_state.air_control && (i == LQR_U_WL || i == LQR_U_WR || j < LQR_X_THL || j > LQR_X_DTHR))
+                {
+                    term = 0.0f;
+                }
+                else if (j == LQR_X_PHI)
+                {
+                    term = lqr_debug.yaw_hold ? lqr_state.K[i][j] * Angle_Wrap_Pi(lqr_state.target[j] + gain->x_eq[j] - lqr_state.x[j]) : 0.0f;
+                }
+                else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold) || (j == LQR_X_S && !lqr_debug.pos_hold))
+                {
+                    term = 0.0f;
+                }
+                else if (lqr_state.air_control && (j == LQR_X_THL || j == LQR_X_THR))
+                {
+                    term = lqr_state.K[i][j] * remainderf(lqr_state.target[j] + gain->x_eq[j] - lqr_state.x[j], LEG_2PI);
+                }
+                else
+                {
+                    term = lqr_state.K[i][j] * (lqr_state.target[j] + gain->x_eq[j] - lqr_state.x[j]);
+                }
+                switch (j)
+                {
+                case LQR_X_DS:   group = 0u; break;
+                case LQR_X_DTHL: group = 1u; break;
+                case LQR_X_DTHR: group = 2u; break;
+                case LQR_X_DTHB: group = 3u; break;
+                default:         group = 4u; break;
+                }
+                dbg[27u + i * 5u + group] += term;
+            }
+        }
+    }
+    dbg[47] = (float)HAL_GetTick(); /* 毫秒时间戳；按它识别掉帧，不将记录强当固定周期。 */
     taskEXIT_CRITICAL();
 
     /* RL布局参考：obs39及恢复诊断，切换观测时手动启用。 */

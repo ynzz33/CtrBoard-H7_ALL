@@ -1,0 +1,87 @@
+==== 表号 big_wheelleg-sjtu5-20261029-0049 ====
+机器 big_wheelleg (MACHINE_ID_BIG_WHEELLEG)   模型 sjtu5   拟合 poly33
+Q = diag([3300    2500     200     540   90000     700   90000     700  300000    4000])
+R = diag([500  500   50   50])
+网格 0.15:0.01:0.31 (17 点)   Ts = 0.001   腿数据取行 interp
+待实测项: leg.table_tail(待实测 (0.32~0.34 m 惯量不满足平行轴条件))
+scan_grid: 17x17 点, dlqr 成功 289/289, 标称 L=0.23 可控秩 10/10, 耗时 0.8 s
+fit_K: poly33, 拟合残差 max|K_fit-K_dlqr| = 0.0225 (相对 0.004)
+float32 密网格 33x33: rho=0.999389987, 一拍延迟 rho=0.999390015
+10s 饱和线性仿真: 加权状态末值比例 1.75730806e-05, 饱和 0 拍
+闭环检查: 通过
+标称 lL=lR=0.23 的拟合 K (行 T_wl T_wr T_bl T_br, 列 s ds phi dphi th_ll dth_ll th_lr dth_lr th_b dth_b):
+  列 1
+
+   -1.5228
+   -1.5228
+    2.3392
+    2.3392
+
+  列 2
+
+   -2.7408
+   -2.7408
+    4.0857
+    4.0857
+
+  列 3
+
+   -0.1814
+    0.1814
+   -1.2826
+    1.2826
+
+  列 4
+
+   -0.3132
+    0.3132
+   -2.2968
+    2.2968
+
+  列 5
+
+   16.0316
+    2.4101
+  -33.4220
+    9.8172
+
+  列 6
+
+    1.0737
+    0.0728
+   -2.1267
+    0.5329
+
+  列 7
+
+    2.4101
+   16.0316
+    9.8172
+  -33.4220
+
+  列 8
+
+    0.0728
+    1.0737
+    0.5329
+   -2.1267
+
+  列 9
+
+   -9.0325
+   -9.0325
+  -48.3749
+  -48.3749
+
+  列 10
+
+   -1.5416
+   -1.5416
+   -6.8026
+   -6.8026
+
+emit: 已写 C:\Users\ynz\Desktop\s2rgap\H7_RL\tools\matlab\lqr10\output\lqr_gain_big.c
+
+==== 闭环检查通过, 已覆盖 C:\Users\ynz\Desktop\s2rgap\H7_RL\imcalib\Algorithm\lqr\lqr_gain_big.c → 整项目编译后上板 ====
+产物: C:\Users\ynz\Desktop\s2rgap\H7_RL\tools\matlab\lqr10\output\lqr_gain_big.c
+报告: C:\Users\ynz\Desktop\s2rgap\H7_RL\tools\matlab\lqr10\output\report_big_latest.txt

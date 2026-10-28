@@ -16,7 +16,7 @@
 slip_param_t slip_param = {
     .p0_velocity     = 0.1f,   /* (m/s)² */
     .p0_acceleration = 0.25f,  /* (m/s²)² */
-    .q_velocity      = 0.007f, /* 每1ms */
+    .q_velocity      = 0.007f, /* 每1ms；降低直接速度过程噪声，适度平滑轮速修正 */
     .q_acceleration  = 0.01f,  /* 每1ms */
     .r_velocity      = 0.01f,  /* (m/s)² */
     .r_acceleration  = 0.25f,  /* (m/s²)² */

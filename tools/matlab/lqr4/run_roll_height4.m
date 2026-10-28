@@ -7,7 +7,7 @@ CFG.model='roll_height4_lqr';
 CFG.deploy=true;
 if nargin>=1 && ~isempty(machine_name),CFG.machine=machine_name;end
 % 状态顺序：roll、roll角速度、H、Hdot；Q/R以当前调参值为准，名义检查通过不等于实机稳定。
-q=[17 0.01 500 0.01]; % 仅增强roll回正，高度及观测时间常数保持
+q=[10 0.01 100 0.01]; % 仅增强roll回正，高度及观测时间常数保持
 r=[1e-4 1e-4];
 observer_tau=[0.02 0.5]; % s：物理状态估计/慢变力偏置；按当前1kHz重新设计L
 addpath(fileparts(mfilename('fullpath')));
