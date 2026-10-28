@@ -7,9 +7,9 @@
 
 fallen_detection_t fallen_detection;
 fallen_detection_param_t fallen_detection_param = {
-    .trigger_angle = 50.0f * LEG_PI / 180.0f,
-    .trigger_pitch = 50.0f * LEG_PI / 180.0f,
-    .trigger_time = 0.2f,
+    .trigger_angle = 40.0f * LEG_PI / 180.0f,
+    .trigger_pitch = 40.0f * LEG_PI / 180.0f,
+    .trigger_time = 0.1f,
     .pitch_max = 1.0f,
 };
 

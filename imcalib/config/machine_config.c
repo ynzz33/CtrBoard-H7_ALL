@@ -48,7 +48,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .name           = "big_wheelleg",             /* 大轮腿 */
         .rc = {
             .vel_max = 3.0f,
-            .yaw_max = 7.0f,
+            .yaw_max = 5.0f,
             .len_init = 0.15f,
             .len_rate = 1.3f,
         },
