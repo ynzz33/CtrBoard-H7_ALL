@@ -102,11 +102,11 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
  * 同 Leg2: 不查实测腿长, 趴地也投入, 靠腿长 PID 撑起 (倒地自起状态机后做) */
 /*
  * 投入时建立位置/朝向基准并读取公共腿长；腿几何由执行层检查。
- * 允许从较短实测腿长撑起；机器和K表区间约束目标，不伪造实测长度。
+ * 允许从较短实测腿长撑起；目标只按现有机械范围裁剪，K求值仍在表范围取边界，不伪造实测长度。
  */
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
 {
-    st->leg_length_target[0] = clampf(cmd->leg_length_target, fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min), fminf(machine->leg_len_max, LQR_Gain_Info()->len_max));
+    st->leg_length_target[0] = clampf(cmd->leg_length_target, machine->leg_len_min, machine->leg_len_max);
     st->leg_length_target[1] = st->leg_length_target[0];
     st->yaw_target = st->x[LQR_X_PHI];    /* 朝向锁当前 */
     st->velocity_target = 0.0f;
@@ -120,7 +120,7 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
 /* 指令 → 目标 */
 /*
  * 将统一遥控命令变成速度/偏航及最终腿长目标。
- * RC只限制公共拨轮范围；LQR在此按机械/K表交集裁剪腿长，不回写公共命令。
+ * RC只限制公共拨轮范围；LQR在此按现有机械范围裁剪腿长，不回写公共命令。
  */
 uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
 {
@@ -146,7 +146,7 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
     st->target[LQR_X_THB]   = machine->lqr.pitch_trim;
     st->target[LQR_X_DTHB]  = 0.0f;
 
-    st->leg_length_target[0] = clampf(cmd->leg_length_target, fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min), fminf(machine->leg_len_max, LQR_Gain_Info()->len_max));
+    st->leg_length_target[0] = clampf(cmd->leg_length_target, machine->leg_len_min, machine->leg_len_max);
     st->leg_length_target[1] = st->leg_length_target[0];
     return 1u;
 }

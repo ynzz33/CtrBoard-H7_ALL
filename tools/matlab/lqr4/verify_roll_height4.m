@@ -70,7 +70,7 @@ for k=1:10
  assert(~o.updated && ~o.seeded && all(o.bias==[10;6]),'无有效输入时不应学习');
 end
 o=observe_roll_height4(m,o,x0,support,true);assert(o.seeded && ~o.updated,'恢复首拍必须重对齐');
-o.bias=[150;150];o=observe_roll_height4(m,o,x0,support,true);
+o.bias=1.2*p.roll_height_bias_common_max*[1;1];o=observe_roll_height4(m,o,x0,support,true);
 assert(o.limited && abs(mean(o.bias))<=p.roll_height_bias_common_max+1e-9,'共模偏置界限错误');
 o.bias=[60;-60];o=observe_roll_height4(m,o,x0,support,true);
 assert(o.limited && abs(o.bias(1)-o.bias(2))<=p.roll_height_bias_diff_max+1e-9,'差模偏置界限错误');
@@ -89,19 +89,19 @@ p=m.p;plant=m;
 if strcmp(scenario,'mismatch')
  pp=p;pp.M=1.05*p.M;pp.I_roll=.8*p.I_roll;pp.damping=1.5*p.damping;plant=model_roll_height4(pp);
 end
-h0=p.test_height(1);h1=p.test_height(2);x=[.03;0;h0;0];rate=zeros(2,1);height_ramp_target=h0;
+h0=p.test_height(1);h1=p.test_height(2);x=[.03;0;h0;0];rate=zeros(2,1);height_ramp_target=h0;height_rate_target=0;
 n=round(8/p.Ts);forces=zeros(2,n);bias_history=zeros(2,n);o=initial_observer(x);
 previous=p.M*p.g/2*ones(2,1);frozen_change=0;last=o.bias;disturbance=zeros(2,1);
 for k=1:n
  t=(k-1)*p.Ts;height_target=h0+(h1-h0)*double(t>=.5&&t<2);
- height_ramp_target=height_ramp_target+min(max(height_target-height_ramp_target,-p.len_rate*p.Ts),p.len_rate*p.Ts); % 使用C原给定斜坡最大速率，覆盖全行程
+ [height_ramp_target,height_rate_target]=reference_step(height_ramp_target,height_rate_target,height_target,p.len_rate,p.length_ref_accel_max,p.Ts);
  measured=x;
  if strcmp(scenario,'noise'),measured=measured+[1e-4*sin(2*pi*50*t);.15*sin(2*pi*40*t);.0002*cos(2*pi*45*t);.03*cos(2*pi*35*t)];end
  rate=rate+[p.roll_rate_lp;p.hdot_lp].*([measured(2);measured(4)]-rate);
  permit=~(strcmp(scenario,'gated')&&t>=2.2&&t<2.5);
  o=observe_roll_height4(m,o,measured,previous,permit);
  if ~permit,frozen_change=max(frozen_change,max(abs(o.bias-last)));end
- u=solve_roll_height4(m,[measured(1);rate(1);measured(3);rate(2)],[0;0;height_ramp_target;0],p.M*p.g/2*ones(2,1),0,o.bias);
+ u=solve_roll_height4(m,[measured(1);rate(1);measured(3);rate(2)],[0;0;height_ramp_target;height_rate_target],p.M*p.g/2*ones(2,1),0,o.bias);
  if t>=1.5 && (strcmp(scenario,'bias')||strcmp(scenario,'gated')),disturbance=[47.3;41.3];end
  forces(:,k)=u;bias_history(:,k)=o.bias;x=plant.Ad*x+plant.Bd*(u+disturbance)+plant.fd;
  previous=u;last=o.bias;
@@ -118,4 +118,18 @@ end
 function [L,Ld,a,ad,r,rd]=trajectory(t)
 L=[.27+.02*sin(t);.28+.01*cos(2*t)];Ld=[.02*cos(t);-.02*sin(2*t)];
 a=[.2*sin(3*t);-.15*cos(t)];ad=[.6*cos(3*t);.15*sin(t)];r=.1*sin(2*t);rd=.2*cos(2*t);
+end
+
+function [position,velocity]=reference_step(position,velocity,target,speed_max,accel_max,dt)
+% 与NORMAL C参考生成器同序；固定零roll/腿角参考时高度等于对称腿长。
+error=target-position;dv=accel_max*dt;
+brake_speed=sqrt(2*accel_max*abs(error)+.25*dv*dv)-.5*dv;
+wanted=sign(error)*min(speed_max,brake_speed);
+next=min(max(wanted,velocity-dv),velocity+dv);
+if abs(error)<=dv*dt && abs(error/dt-velocity)<=dv
+ next=error/dt;position=target;
+else
+ position=position+next*dt;
+end
+velocity=next;
 end

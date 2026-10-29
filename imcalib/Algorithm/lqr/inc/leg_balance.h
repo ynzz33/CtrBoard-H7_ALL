@@ -23,7 +23,9 @@
 /* NORMAL固定四态；PD容器仅供非NORMAL，恢复动作另持有独立实例。 */
 typedef struct {
     pid_t leg_len[2]; /* 非NORMAL长度PD；p为N/m，d为N·s/m，输出为N */
-    ramp_t length_ramp[2]; /* 原给定轨迹历史，首次实测播种，随后沿上拍输出 */
+    ramp_t length_ramp[2]; /* NORMAL成对参考位置，非NORMAL仍使用原斜坡 */
+    float length_ref_rate[2]; /* NORMAL长度参考速度m/s，与参考位置成对生成 */
+    uint8_t length_ref_ready;
     pid_t roll; /* 非NORMAL横滚PD；p为N/rad，d为N·s/rad */
     float turn_ff; /* NORMAL向心补偿N，正值左减右加；最终限矩前请求 */
     float F[2]; /* 含向心项，弹簧/自重补偿及逐电机限幅前的左右轴向请求N */

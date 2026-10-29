@@ -19,8 +19,8 @@
 #define MACHINE_NUM               2u
 
 /* 两份机器配置表同时编译，各自引用机械腿长范围，单位m。 */
-#define MACHINE_BIG_LEG_LEN_MIN   0.13f
-#define MACHINE_BIG_LEG_LEN_MAX   0.34f
+#define MACHINE_BIG_LEG_LEN_MIN   0.14f
+#define MACHINE_BIG_LEG_LEN_MAX   0.33f
 #define MACHINE_RL_HEIGHT_CMD_MIN  0.27f
 #define MACHINE_RL_HEIGHT_CMD_MAX  0.47f
 
@@ -147,6 +147,7 @@ typedef struct {
     float pos_target;
     float pos_arm_vel;
     float lpf_alpha[4]; /* [0]pitch角速度 [1]yaw角速度 [2]roll角速度 [3]高度变化速度；系数越小越平滑、延迟越大 */
+    float length_ref_accel_max; /* NORMAL长度参考加速度上限m/s²，不影响起立/翻身 */
     float roll_height_bias_common_max; /* 观测器平均偏置上限N/腿，不是腿力输出限幅 */
     float roll_height_bias_diff_max; /* 左右偏置之差上限N，不是单腿力输出限幅 */
     machine_pid_cfg_t leg_len[2]; /* 非NORMAL PD初始化乘LQR周期；恢复动作PID直接用原Kd */

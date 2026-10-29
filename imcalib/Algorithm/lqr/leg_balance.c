@@ -54,6 +54,8 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     memset(&lb->cmd, 0, sizeof(lb->cmd));
     memset(&lb->compensation, 0, sizeof(lb->compensation));
     memset(lb->length_ramp, 0, sizeof(lb->length_ramp));
+    memset(lb->length_ref_rate, 0, sizeof(lb->length_ref_rate));
+    lb->length_ref_ready = 0u;
     lb->turn_ff = 0.0f;
     lb->air_release = 0u;
     Roll_Height_Reset(&lb->roll_height);
@@ -112,10 +114,43 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
 
 /* NORMAL仅四状态反馈，非NORMAL保留原PD；统一映射为电机力矩。 */
 /*
- * 非释放：最终目标 → 原轨迹斜坡 → 四状态反馈（非NORMAL仍PD）+原支撑前馈。
+ * NORMAL：加速度受限的长度位置/速度参考→四态反馈；非NORMAL沿用原斜坡/PD。
  * 释放：轴向F=0且不推进长度/roll PD与斜坡；摆角LQR和完整重力仍保留。
  * 轴向/摆矩映射和补偿在输出辅助函数中完成，本函数返回成功与否，发送由执行任务负责。
  */
+/* NORMAL参考：速度/加速度有界，离散制动距离避免到位时强行切断速度。
+ * 目标中途反向时先减速；不拿实测噪声重置每拍参考，也不改公共Ramp函数。
+ */
+static float Normal_Length_Target_Update(ramp_t *ramp, float *velocity, float target, float speed_max, float accel_max, float dt)
+{
+    float error;
+    float dv;
+    float brake_speed;
+    float wanted;
+    float next_velocity;
+    if (!isfinite(target))
+    {
+        return NAN;
+    }
+    error = target - ramp->out;
+    dv = accel_max * dt;
+    brake_speed = sqrtf(2.0f * accel_max * fabsf(error) + 0.25f * dv * dv) - 0.5f * dv;
+    wanted = copysignf(fminf(speed_max, brake_speed), error);
+    next_velocity = clampf(wanted, *velocity - dv, *velocity + dv);
+    if (fabsf(error) <= dv * dt && fabsf(error / dt - *velocity) <= dv)
+    {
+        next_velocity = error / dt;
+        ramp->out = target;
+    }
+    else
+    {
+        ramp->out += next_velocity * dt;
+    }
+    *velocity = next_velocity;
+    ramp->rate = speed_max;
+    return ramp->out;
+}
+
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             const leg_compensation_values_t *values,
@@ -145,23 +180,49 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     F[1] = 0.0f;
     if (!st->air_release)
     {
-        target[0] = Ramp_Target_Update(&lb->length_ramp[0], length[0], target[0], machine->rc.len_rate, dt);
-        target[1] = Ramp_Target_Update(&lb->length_ramp[1], length[1], target[1], machine->rc.len_rate, dt);
-        if (!isfinite(target[0]) || !isfinite(target[1]))
+        if (normal_mode)
+        {
+            if (!Roll_Height_Available())
+            {
+                return 0u;
+            }
+            if (!lb->length_ref_ready)
+            {
+                for (uint8_t i = 0u; i < 2u; i++)
+                {
+                    Ramp_Reset(&lb->length_ramp[i], length[i]);
+                    lb->length_ref_rate[i] = 0.0f;
+                    target[i] = length[i];
+                }
+                lb->length_ref_ready = 1u;
+            }
+            else
+            {
+                for (uint8_t i = 0u; i < 2u; i++)
+                {
+                    target[i] = Normal_Length_Target_Update(&lb->length_ramp[i], &lb->length_ref_rate[i], target[i], machine->rc.len_rate, machine->lqr.length_ref_accel_max, dt);
+                }
+            }
+        }
+        else
+        {
+            lb->length_ref_ready = 0u;
+            lb->length_ref_rate[0] = 0.0f;
+            lb->length_ref_rate[1] = 0.0f;
+            target[0] = Ramp_Target_Update(&lb->length_ramp[0], length[0], target[0], machine->rc.len_rate, dt);
+            target[1] = Ramp_Target_Update(&lb->length_ramp[1], length[1], target[1], machine->rc.len_rate, dt);
+        }
+        if (!isfinite(target[0]) || !isfinite(target[1]) || !isfinite(lb->length_ref_rate[0]) || !isfinite(lb->length_ref_rate[1]))
         {
             return 0u;
         }
 
         if (normal_mode)
         {
-            if (!Roll_Height_Available())
-            {
-                return 0u; /* 不匹配的机型不允许用大机模型，也不再后备PD。 */
-            }
             height = 0.5f * (length[0] + length[1]) + machine->lqr.turn_comp.height_offset;
             lb->turn_ff = machine->lqr.turn_comp.gain * machine->lqr.turn_comp.mass * height * st->ds_kf * st->x[LQR_X_DPHI] / machine->lqr.turn_comp.track;
             lb->roll_height.permit = 1u;
-            if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->turn_ff))
+            if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->length_ref_rate, lb->turn_ff))
             {
                 return 0u;
             }

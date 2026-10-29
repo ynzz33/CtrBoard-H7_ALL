@@ -5,6 +5,9 @@
 #include <math.h>
 #include <string.h>
 
+/* 单腿轴向力下限N：允许负值补偿，但不允许无限往下拉把腿卸掉。 */
+#define ROLL_HEIGHT_FORCE_MIN (-10.0f)
+
 uint8_t Roll_Height_Available(void)
 {
     return (uint8_t)(roll_height_model.machine_id == MACHINE_DEFAULT);
@@ -86,10 +89,10 @@ static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float mea
     return 1u;
 }
 
-/* 几何投影、原斜坡参考和控制速度低通；不推进观测器。 */
+/* 几何投影、成对位置/速度参考和控制速度低通；不推进观测器。 */
 static uint8_t Roll_Height_State_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                                       const leg_state_t *left, const leg_state_t *right,
-                                      const float length_ramp_target[RH_NU])
+                                      const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU])
 {
     const leg_state_t *legs[2] = {left, right};
     float projection = 0.0f;
@@ -111,11 +114,11 @@ static uint8_t Roll_Height_State_Update(roll_height_balance_t *state, const lqr_
     state->height_rate_raw = 0.5f * (cosf(lqr->roll) * velocity - sinf(lqr->roll) * lqr->roll_rate * projection);
     state->target[0] = 0.0f;
     state->target[1] = 0.0f;
-    /* 复用原腿长斜坡；与原PD一致，只阻尼实际速度，不微分给定。 */
+    /* 固定腿角目标、roll目标为0：高度位置与速度来自同一长度参考。 */
     state->target[2] = 0.5f * (length_ramp_target[0] * cosf(lqr->target[LQR_X_THL]) + length_ramp_target[1] * cosf(lqr->target[LQR_X_THR]));
-    state->target[3] = 0.0f;
+    state->target[3] = 0.5f * (length_rate_target[0] * cosf(lqr->target[LQR_X_THL]) + length_rate_target[1] * cosf(lqr->target[LQR_X_THR]));
     state->height_target = 0.5f * (lqr->leg_length_target[0] * cosf(lqr->target[LQR_X_THL]) + lqr->leg_length_target[1] * cosf(lqr->target[LQR_X_THR]));
-    if (!isfinite(state->x[2]) || !isfinite(state->height_rate_raw) || !isfinite(state->target[2]))
+    if (!isfinite(state->x[2]) || !isfinite(state->height_rate_raw) || !isfinite(state->target[2]) || !isfinite(state->target[3]))
     {
         return 0u;
     }
@@ -142,7 +145,8 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
         {
             return 0u;
         }
-        state->force[i] = value; /* 允许负F主动压缩；最终电机限矩由原输出口执行。 */
+        /* 允许负F主动压缩；只拦住深负值，不改其余计算。 */
+        state->force[i] = fmaxf(value, ROLL_HEIGHT_FORCE_MIN);
     }
     return 1u;
 }
@@ -156,7 +160,7 @@ static uint8_t Roll_Height_Fail(roll_height_balance_t *state)
 
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
-                          const float length_ramp_target[RH_NU], float turn_ff)
+                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff)
 {
     float measurement[RH_NX];
     uint32_t started;
@@ -170,7 +174,7 @@ uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
         return state->valid;
     }
     state->sampled = 1u;
-    if (!Roll_Height_State_Update(state, lqr, left, right, length_ramp_target))
+    if (!Roll_Height_State_Update(state, lqr, left, right, length_ramp_target, length_rate_target))
     {
         return Roll_Height_Fail(state);
     }

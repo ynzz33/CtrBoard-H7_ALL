@@ -19,11 +19,13 @@ air_param_t air_param = {
     .hip_max = 10.0f,
     .time_off = 0.15f, .time_on = 0.05f,
     .compression_on = 0.03f, .compression_time = 0.1f,
+    .air_min_height = 0.145f, /* 机身贴地区间，公共高度不高于此值不判离地 */
 #else
     .wheel_mass = 0.13463f, .force_off = 6.0f, .force_on = 18.0f,
     .hip_max = 8.0f,
     .time_off = 0.01f, .time_on = 0.02f,
     .compression_on = 0.01f, .compression_time = 0.05f,
+    .air_min_height = 0.0f, /* 小机未接NORMAL四态，保持原行为不屏蔽 */
 #endif
     .derivative_tau = 0.01f, .force_tau = 0.01f,
 };
@@ -120,7 +122,7 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
  * AIR每拍更新各腿峰值；压缩模式使用每腿独立计时，任一腿达时即可恢复整机接地。
  * landing_enabled关闭时只观察峰值/压缩，不退出AIR；非压缩模式才使用高支持力落地。
  */
-static void Air_State_Update(air_detection_t *state, const air_input_t *input)
+static void Air_State_Update(air_detection_t *state, const air_input_t *input, uint8_t height_block)
 {
     const float dt = MACHINE_LQR_DT;
     float duration;
@@ -142,8 +144,12 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input)
             state->initialized = 1u;
             state->elapsed = 0.0f;
             state->initial_unload_elapsed = 0.0f;
-            /* 已知AIR的失效重确认保留原峰值；只为新AIR播种。 */
-            if (!state->flight)
+            /* 已知AIR的失效重确认保留原峰值；只为新AIR播种。贴地时不计入离地，计时清零后重新累计。 */
+            if (height_block)
+            {
+                state->initial_unload_elapsed = 0.0f;
+            }
+            else if (!state->flight)
             {
                 state->flight = 1u;
                 memset(state->landing, 0, sizeof(state->landing));
@@ -188,6 +194,12 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input)
     condition = state->flight ? (uint8_t)(state->mean_force > air_param.force_on) : (uint8_t)(state->mean_force < air_param.force_off);
     duration = state->flight ? air_param.time_on : air_param.time_off;
     state->elapsed = condition ? state->elapsed + dt : 0.0f;
+    if (!state->flight && height_block)
+    {
+        /* 公共高度已到机身贴地区间：物理上不可能离地，清零计时避免高度一升高就立即跳进离地。 */
+        state->elapsed = 0.0f;
+        return;
+    }
     if (state->elapsed + 1.0e-6f >= duration)
     {
         state->flight = (uint8_t)!state->flight;
@@ -212,6 +224,8 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input)
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
 {
     air_leg_t air_leg_temp[2];
+    float height;
+    uint8_t height_block;
 
     if (!air_param.enabled)
     {
@@ -236,5 +250,8 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
     state->mean_force = air_leg_temp[0].force * 0.5f + air_leg_temp[1].force * 0.5f;
     state->valid = 1u;
     state->fault = 0u;
-    Air_State_Update(state, input);
+    /* 公共髋轮投影高度不高于门槛即视为机身贴地，不判离地；短腿站立时支持力本身就在门槛附近。 */
+    height = 0.0f;
+    height_block = (uint8_t)(air_param.air_min_height > 0.0f && Leg_Height_Estimate(input->leg[0], input->leg[1], &height) && height <= air_param.air_min_height);
+    Air_State_Update(state, input, height_block);
 }

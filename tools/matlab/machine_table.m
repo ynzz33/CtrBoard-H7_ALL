@@ -83,10 +83,11 @@ switch name
         m.ctrl.T_hip_max = 54.0;
         m.ctrl.grid = 0.15:0.01:0.31;
         % 四状态roll/高度LQR专用；Q/R在独立run_roll_height4入口。
-        % 保留作者当前M=20.534设置，I_roll/阻尼等仍待辨识，不改十状态参数。
-        m.roll_height = struct('M',20.534,'half_track',m.body.half_track,'I_roll',0.578, ...
+        % M取CKP腿长MPC同一"站立负载"口径25.544kg（整机含两轮），取代原十态机体质量20.534；
+        % I_roll/阻尼仍是待辨识初值，不改十状态参数。
+        m.roll_height = struct('M',25.544,'half_track',m.body.half_track,'I_roll',0.578, ...
             'damping',8,'stiffness',0,'G_roll',0,'g',m.body.g,'Ts',0.001,'H0',0.27);
-        m.roll_height.pending = 'M保留当前设置；I_roll/阻尼待辨识，轴向力按近直立等效支持力处理';
+        m.roll_height.pending = 'I_roll/阻尼待辨识（CKP为估算初值，需侧向冲激拟合）；轴向力按近直立等效支持力处理';
         m.status = {
             'body.*', 'Leg3 同机 s03 / 轮径作者确认';
             'leg.data_sjtu5', 'Leg3 质心轴向投影及平行轴换算';

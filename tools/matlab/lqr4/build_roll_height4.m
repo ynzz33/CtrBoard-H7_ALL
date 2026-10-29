@@ -10,7 +10,7 @@ source=fileread(config);entry_source=fileread(entry);
 token=regexp(source,'\.lpf_alpha\s*=\s*\{\s*([\d.eE+-]+)f?\s*,\s*([\d.eE+-]+)f?\s*,\s*([\d.eE+-]+)f?\s*,\s*([\d.eE+-]+)f?\s*\}','tokens','once');
 if isempty(token),error('roll_height4:filter','找不到四项lpf_alpha（pitch/yaw/roll角速度/高度速度）');end
 p.roll_rate_lp=str2double(token{3});p.hdot_lp=str2double(token{4});
-for name={'roll_height_bias_common_max','roll_height_bias_diff_max','len_rate'}
+for name={'roll_height_bias_common_max','roll_height_bias_diff_max','len_rate','length_ref_accel_max'}
  token=regexp(source,['\.' name{1} '\s*=\s*([\d.eE+-]+)f?\s*,'],'tokens','once');
  if isempty(token),error('roll_height4:runtime','找不到machine_config.c的%s',name{1});end
  p.(name{1})=str2double(token{1});
@@ -44,6 +44,7 @@ cleanup=onCleanup(@()fclose(fid));
 fprintf(fid,'四状态LQR+慢变力偏置观测\n机器: %s\n模型: %s\n时间: %s\n',CFG.machine,CFG.model,char(datetime('now')));
 fprintf(fid,'Q=%s\nR=%s\nM=%g half_track=%g I_roll=%g damping=%g Ts=%g\n',mat2str(q),mat2str(r),p.M,p.half_track,p.I_roll,p.damping,p.Ts);
 fprintf(fid,'roll_rate_lp=%g hdot_lp=%g observer_tau=%s\n',p.roll_rate_lp,p.hdot_lp,mat2str(observer_tau));
+fprintf(fid,'length_ref_accel_max=%g m/s^2\n',p.length_ref_accel_max);
 fprintf(fid,'bias_common_max=%g bias_diff_max=%g\n',p.roll_height_bias_common_max,p.roll_height_bias_diff_max);
 fprintf(fid,'K=\n');fprintf(fid,'%.12g %.12g %.12g %.12g\n',m.K');
 fprintf(fid,'L=\n');fprintf(fid,'%.12g %.12g %.12g %.12g\n',m.L');

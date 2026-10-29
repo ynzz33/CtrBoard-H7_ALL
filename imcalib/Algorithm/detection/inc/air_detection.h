@@ -30,6 +30,7 @@ typedef struct {
     float hip_max; /* AIR摆矩限幅N·m，执行层使用 */
     float compression_on; /* 峰值减实测腿长的压缩门槛m */
     float compression_time; /* 单腿压缩条件连续持续时间s */
+    float air_min_height; /* 公共高度不高于此值时不判离地（机身贴地），0表示不屏蔽 */
 } air_param_t;
 
 /* 执行层提供的本次快照：数组第一维左右腿，第二维同腿前/后髋。 */

@@ -329,16 +329,128 @@ void Vofa_Debug_Send(void)
 //     taskEXIT_CRITICAL();
 // //
 //
-    /* model1999：完整obs35与原始action6，固定通道，不按模式选帧。 */
-    /* 3~6命令，7~9角速度，10~12重力，13~18位置，19~24速度，25~30上一动作，31~37模式。
-     * 38~43当前动作：左前/左后/右前/右后/左轮/右轮；44阶段、45obs有效、46推理us、47时间ms。
-     * 后台读取最新共享值，当前动作与obs不保证来自同一次推理，仅作趋势诊断。 */
+//     /* model1999：完整obs35与原始action6，固定通道，不按模式选帧。 */
+//     /* 3~6命令，7~9角速度，10~12重力，13~18位置，19~24速度，25~30上一动作，31~37模式。
+//      * 38~43当前动作：左前/左后/右前/右后/左轮/右轮；44阶段、45obs有效、46推理us、47时间ms。
+//      * 后台读取最新共享值，当前动作与obs不保证来自同一次推理，仅作趋势诊断。 */
+//     taskENTER_CRITICAL();
+//     for (uint8_t i = 0u; i < RL_OBS_SIZE; i++) { dbg[3u + i] = rl_control.observation.obs[i]; }
+//     for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++) { dbg[38u + i] = action_state.a[i]; }
+//     dbg[44] = (float)rl_control.recovery.phase;
+//     dbg[45] = (float)rl_control.observation.valid;
+//     dbg[46] = (float)rl_control.policy.run_us;
+//     dbg[47] = (float)HAL_GetTick();
+//     taskEXIT_CRITICAL();
+    /* 上一版十态/四态联合布局，保留供手动恢复；本版改为腿长差排查布局。 */
+#if 0
     taskENTER_CRITICAL();
-    for (uint8_t i = 0u; i < RL_OBS_SIZE; i++) { dbg[3u + i] = rl_control.observation.obs[i]; }
-    for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++) { dbg[38u + i] = action_state.a[i]; }
-    dbg[44] = (float)rl_control.recovery.phase;
-    dbg[45] = (float)rl_control.observation.valid;
-    dbg[46] = (float)rl_control.policy.run_us;
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (leg_balance.roll_height.valid ? 4u : 0u) | (control_condition.valid ? 8u : 0u) | (lqr_state.air_control ? 16u : 0u) | (lqr_state.air_release ? 32u : 0u) | (air_detection.flight ? 64u : 0u) | (leg_balance.compensation.saturated ? 128u : 0u) | (leg_balance.roll_height.observer.permit ? 256u : 0u) | (leg_balance.roll_height.observer.updated ? 512u : 0u) | (leg_balance.roll_height.observer.limited ? 1024u : 0u) | (leg_balance.roll_height.observer.seeded ? 2048u : 0u) | ((uint32_t)control_condition.condition << 12) | (output_debug_dm_sent ? 16384u : 0u) | (output_debug_dji_sent ? 32768u : 0u));
+    dbg[4] = leg_balance.roll_height.height_target;
+    dbg[5] = leg_balance.roll_height.target[2];
+    dbg[6] = leg_balance.roll_height.x[2];
+    dbg[7] = leg_balance.roll_height.height_rate_raw;
+    dbg[8] = leg_balance.roll_height.x[3];
+    dbg[9] = leg_balance.roll_height.x[0];
+    dbg[10] = leg_balance.roll_height.target[3]; /* 高度速度参考m/s；roll目标固定0。 */
+    dbg[11] = lqr_state.roll_rate;
+    dbg[12] = leg_balance.roll_height.x[1];
+    dbg[13] = lqr_state.leg_length_target[0]; /* 当前两侧共用最终给定。 */
+    dbg[14] = leg_balance.length_ramp[0].out;
+    dbg[15] = leg_balance.length_ramp[1].out;
+    dbg[16] = leg_l.output.virtual_leg_length;
+    dbg[17] = leg_r.output.virtual_leg_length;
+    dbg[18] = leg_l.output.d_virtual_leg_length;
+    dbg[19] = leg_r.output.d_virtual_leg_length;
+    dbg[20] = lqr_state.x[LQR_X_THB];
+    dbg[21] = lqr_state.x[LQR_X_DTHB];
+    dbg[22] = lqr_state.x[LQR_X_THL];
+    dbg[23] = lqr_state.x[LQR_X_THR];
+    dbg[24] = lqr_state.x[LQR_X_DTHL];
+    dbg[25] = lqr_state.x[LQR_X_DTHR];
+    dbg[26] = lqr_state.x[LQR_X_DS];
+    dbg[27] = lqr_state.target[LQR_X_DS];
+    dbg[28] = lqr_state.x[LQR_X_DPHI];
+    dbg[29] = lqr_state.target[LQR_X_DPHI];
+    dbg[30] = leg_balance.F[0];
+    dbg[31] = leg_balance.F[1];
+    dbg[32] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][2] + leg_balance.roll_height.lqr.feedback[1][2]);
+    dbg[33] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][3] + leg_balance.roll_height.lqr.feedback[1][3]);
+    dbg[34] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][0] - leg_balance.roll_height.lqr.feedback[1][0]);
+    dbg[35] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][1] - leg_balance.roll_height.lqr.feedback[1][1]);
+    dbg[36] = 0.5f * (leg_balance.roll_height.observer.bias[0] + leg_balance.roll_height.observer.bias[1]);
+    dbg[37] = 0.5f * (leg_balance.roll_height.observer.bias[0] - leg_balance.roll_height.observer.bias[1]);
+    dbg[38] = leg_balance.turn_ff;
+    dbg[39] = leg_balance.Tp[0];
+    dbg[40] = leg_balance.Tp[1];
+    dbg[41] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_LFT];
+    dbg[42] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_RGT];
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        dbg[43u + i] = output_dm_torque_nm[i];
+    }
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+
+    /* 腿长差排查布局：只读执行拍已发布状态，不推进控制器。
+     * 4~9   左右虚拟腿长、腿长差、腿长均值、左右伸缩速度(m,m/s)
+     * 10~13 四髋反馈关节角 左前/左后/右前/右后(rad，已含驱动标定)；用于看机构是否在剪叉
+     * 14~16 左右轴向力请求N、向心项N；17偏置共模N
+     * 18~20 最终腿长目标、左右斜坡目标m
+     * 21~23 机体俯仰rad、左右世界系腿摆角rad
+     * 24~26 roll rad、roll角速度原始/滤后 rad/s
+     * 27~28 投影高度及斜坡目标m
+     * 29~31 实测前进速度m/s、yaw角速度及目标rad/s
+     * 32~35 左右轮力矩请求Nm、左右轮反馈电流raw(未加载的轮电流会明显偏小)
+     * 36~39 AIR每腿支持力估计N、由反馈反解的每腿电机轴向力N
+     * 40~42 左腿腿长雅可比两列(m/rad)、左腿力映射行列式(接近0说明接近奇异)
+     * 43~46 四髋最终力矩请求Nm 左前/左后/右前/右后；47毫秒时间
+     * 换版本时手工恢复上一段即可，不按模式选帧。 */
+    taskENTER_CRITICAL();
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (leg_balance.roll_height.valid ? 4u : 0u) | (control_condition.valid ? 8u : 0u) | (lqr_state.air_control ? 16u : 0u) | (lqr_state.air_release ? 32u : 0u) | (air_detection.flight ? 64u : 0u) | (leg_balance.compensation.saturated ? 128u : 0u) | (leg_balance.roll_height.observer.permit ? 256u : 0u) | (leg_balance.roll_height.observer.updated ? 512u : 0u) | (leg_balance.roll_height.observer.limited ? 1024u : 0u) | (leg_balance.roll_height.observer.seeded ? 2048u : 0u) | ((uint32_t)control_condition.condition << 12) | (output_debug_dm_sent ? 16384u : 0u) | (output_debug_dji_sent ? 32768u : 0u));
+    dbg[4] = leg_l.output.virtual_leg_length;
+    dbg[5] = leg_r.output.virtual_leg_length;
+    dbg[6] = leg_l.output.virtual_leg_length - leg_r.output.virtual_leg_length;
+    dbg[7] = 0.5f * (leg_l.output.virtual_leg_length + leg_r.output.virtual_leg_length);
+    dbg[8] = leg_l.output.d_virtual_leg_length;
+    dbg[9] = leg_r.output.d_virtual_leg_length;
+    dbg[10] = leg_l.input.hip_f;
+    dbg[11] = leg_l.input.hip_b;
+    dbg[12] = leg_r.input.hip_f;
+    dbg[13] = leg_r.input.hip_b;
+    dbg[14] = leg_balance.F[0];
+    dbg[15] = leg_balance.F[1];
+    dbg[16] = leg_balance.turn_ff;
+    dbg[17] = 0.5f * (leg_balance.roll_height.observer.bias[0] + leg_balance.roll_height.observer.bias[1]);
+    dbg[18] = lqr_state.leg_length_target[0];
+    dbg[19] = leg_balance.length_ramp[0].out;
+    dbg[20] = leg_balance.length_ramp[1].out;
+    dbg[21] = lqr_state.x[LQR_X_THB];
+    dbg[22] = lqr_state.x[LQR_X_THL];
+    dbg[23] = lqr_state.x[LQR_X_THR];
+    dbg[24] = leg_balance.roll_height.x[0];
+    dbg[25] = lqr_state.roll_rate;
+    dbg[26] = leg_balance.roll_height.x[1];
+    dbg[27] = leg_balance.roll_height.x[2];
+    dbg[28] = leg_balance.roll_height.target[2];
+    dbg[29] = lqr_state.x[LQR_X_DS];
+    dbg[30] = lqr_state.x[LQR_X_DPHI];
+    dbg[31] = lqr_state.target[LQR_X_DPHI];
+    dbg[32] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_LFT];
+    dbg[33] = output_wheel_torque_nm[DJI_MOTOR_WHEEL_RGT];
+    dbg[34] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[35] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    dbg[36] = air_detection.leg[0].force;
+    dbg[37] = air_detection.leg[1].force;
+    dbg[38] = air_detection.leg[0].motor_force;
+    dbg[39] = air_detection.leg[1].motor_force;
+    dbg[40] = leg_l.output.leg_jac[0][0];
+    dbg[41] = leg_l.output.leg_jac[0][1];
+    dbg[42] = leg_l.output.force_det;
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        dbg[43u + i] = output_dm_torque_nm[i];
+    }
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
     Vofa_Send(dbg, VOFA_MAX_CH);

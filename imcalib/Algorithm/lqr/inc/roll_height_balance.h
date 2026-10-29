@@ -43,5 +43,5 @@ void Roll_Height_Reset(roll_height_balance_t *state);
 void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit);
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
-                          const float length_ramp_target[RH_NU], float turn_ff);
+                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff);
 #endif

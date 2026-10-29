@@ -75,7 +75,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     default:
         break;
     }
-    len_min = fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min);
+    len_min = MACHINE_BIG_LEG_LEN_MIN;
     /* 公共拨轮仅限总命令范围；各算法入口再按腿长/机高含义分别裁剪。 */
     len_max = MACHINE_RL_HEIGHT_CMD_MAX;
     cmd->leg_length_target += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt*0.3;
