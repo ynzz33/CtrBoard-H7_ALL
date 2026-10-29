@@ -73,8 +73,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* 腿几何: 杆长 0.21/0.25; 腿长区间为实测工作区间 */
         .leg_lu         = 0.21f,
         .leg_lg         = 0.25f,
-        .leg_len_min    = 0.13f,
-        .leg_len_max    = 0.34f,
+        .leg_len_min    = MACHINE_BIG_LEG_LEN_MIN,
+        .leg_len_max    = MACHINE_BIG_LEG_LEN_MAX,
         .leg_off_phi0   = {-0.0f, -0.0f},
         /* IMU 轴映射待台架核对 */
         .imu = {
@@ -116,7 +116,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             /* 版本化XML与训练model.py微蹲闭链姿态：四腿顺序LF前/后、RF前/后。 */
             .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
             .position_limit_center = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
-            .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* gyro/height/velocity缩放及两种裁剪 */
+            .observation = {0.5f, 5.0f, 0.1f, 100.0f, 200.0f}, /* model1999：先裁剪再缩放 */
             .torque = {
                 .pos_scale = 0.5f,
                 .wheel_vel_scale = 10.0f,
@@ -124,7 +124,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
                 .d_gains = {2.0f, 2.0f, 2.0f, 2.0f},
                 .wheel_gain = {0.1f, 0.1f},
                 .position_limit = 3.14f,
-                .wheel_speed_limit = 150.0f,
+                .wheel_speed_limit = 100.0f, /* 1999检查点的max_wheel_velocity */
                 .leg_torque_limit = 40.0f, /* 训练电机饱和；公共DM限幅与MIT刻度保持原值 */
                 .wheel_torque_limit = 3.9f,
             },
@@ -173,8 +173,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* 腿几何 (本机原值) */
         .leg_lu         = 0.13087f,
         .leg_lg         = 0.15240f,
-        .leg_len_min    = 0.13f,
-        .leg_len_max    = 0.23f,
+        .leg_len_min    = MACHINE_SMALL_LEG_LEN_MIN,
+        .leg_len_max    = MACHINE_SMALL_LEG_LEN_MAX,
         .leg_off_phi0   = {-0.0f, -0.0f},
         /* IMU */
         .imu = {

@@ -20,7 +20,8 @@ static void Control_RL_Recovery_Update(const control_frame_t *frame)
     recovery = rl_control.recovery;
     previous = recovery.phase;
     request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_RL && frame->rc.mode.engage);
-    RL_Recovery_Update(&recovery, request, (uint8_t)(frame->drive_permit && frame->height_valid), frame->fallen, frame->height);
+    /* 旧模型没有承重解锁；机身接触传感器缺失，使用既有高度代理。 */
+    RL_Recovery_Update(&recovery, request, (uint8_t)(frame->drive_permit && frame->height_valid), frame->fallen, frame->height + MACHINE_RL_LEG_TO_HEIGHT);
     taskENTER_CRITICAL();
     rl_control.recovery = recovery;
     if (recovery.phase != previous)

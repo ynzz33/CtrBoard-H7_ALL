@@ -1,5 +1,5 @@
 /*
- * 50Hz策略：复制500Hz最新反馈及原始动作历史→组装obs39→推理→发布原始action6。
+ * 50Hz策略：复制500Hz最新反馈及原始动作历史→组装obs35→推理→发布原始action6。
  * 同帧复制公共遥控与恢复标志；趴地启动保持由执行任务控制，不以SDK就绪替代模型激活。
  * 共享样本/动作只在短临界区读写，观测构建和网络调用均放在临界区之外。
  */
@@ -68,7 +68,7 @@ void ctrl_task_body(void)
         taskEXIT_CRITICAL();
         return;
     }
-    /* 请求动作不反号、不全局裁剪；观测裁剪与目标裁剪由各自生成端完成。
+    /* 1999请求动作保持四腿两轮顺序，不反号或全局裁剪；限幅归各自生成端。
      * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
     taskENTER_CRITICAL();
     if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL)

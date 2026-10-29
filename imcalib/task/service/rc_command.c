@@ -44,10 +44,6 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     }
     cmd->velocity_target = Rc_Axis(rc->ch1, RC_DEADBAND_VEL) * machine->rc.vel_max;
     cmd->yaw_rate_target = -Rc_Axis(rc->ch2, RC_DEADBAND_YAW) * machine->rc.yaw_max;
-    len_min = fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min);
-    len_max = fminf(machine->leg_len_max, LQR_Gain_Info()->len_max);
-    cmd->leg_length_target += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt*0.3;
-    cmd->leg_length_target = fminf(fmaxf(cmd->leg_length_target, len_min), len_max);
     cmd->s1 = rc->s1;
     cmd->s2 = rc->s2;
     cmd->online = 1u;
@@ -79,4 +75,9 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     default:
         break;
     }
+    len_min = fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min);
+    /* 公共拨轮仅限总命令范围；各算法入口再按腿长/机高含义分别裁剪。 */
+    len_max = MACHINE_RL_HEIGHT_CMD_MAX;
+    cmd->leg_length_target += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt*0.3;
+    cmd->leg_length_target = fminf(fmaxf(cmd->leg_length_target, len_min), len_max);
 }

@@ -57,6 +57,27 @@ uint16_t Dm_Float_To_Uint(float value, float min, float max, uint8_t bits)
     return (uint16_t)(uint32_t)scaled;
 }
 
+/* 解码方向下跨边界计圈；LQR使用的pos_zero_rad保持原值。 */
+static void Dm_Update_Angle(uint8_t index)
+{
+    static uint16_t last_angle[DM_MOTOR_NUM];
+    static int32_t turns[DM_MOTOR_NUM];
+    static uint8_t initialized[DM_MOTOR_NUM];
+    dm_motor_feedback_t *feedback = &dm_motor_feedback[index];
+    int32_t delta;
+
+    if (initialized[index])
+    {
+        delta = (int32_t)feedback->angle_raw - (int32_t)last_angle[index];
+        if (delta > DM_ANGLE_CPR / 2L) { turns[index]--; }
+        else if (delta < -DM_ANGLE_CPR / 2L) { turns[index]++; }
+    }
+    last_angle[index] = feedback->angle_raw;
+    initialized[index] = 1u;
+    feedback->angle_total = turns[index] * DM_ANGLE_CPR + feedback->angle_raw;
+    feedback->pos_continuous_rad = feedback->pos_zero_rad + (float)turns[index] * (2.0f * machine->dm_pos_max);
+}
+
 /* 中断收 */
 static void Dm_Read(void *ctx, uint32_t id, const uint8_t *data, uint8_t dlc)
 {
@@ -135,6 +156,7 @@ void Dm_Parse(void)
         }
         feedback->pos_rad = Dm_Uint_To_Float(feedback->angle_raw, -machine->dm_pos_max, machine->dm_pos_max, 16u);
         feedback->pos_zero_rad = feedback->pos_rad + machine->dm_zero[i];
+        Dm_Update_Angle(i);
         feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw, -machine->dm_vel_max, machine->dm_vel_max, 12u);
         feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw, -machine->dm_trq_max, machine->dm_trq_max, 12u);
         feedback->parsed_rx_ns = rx_ns;

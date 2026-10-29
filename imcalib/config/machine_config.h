@@ -18,6 +18,14 @@
 
 #define MACHINE_NUM               2u
 
+/* 两份机器配置表同时编译，各自引用机械腿长范围，单位m。 */
+#define MACHINE_BIG_LEG_LEN_MIN   0.13f
+#define MACHINE_BIG_LEG_LEN_MAX   0.34f
+#define MACHINE_RL_HEIGHT_CMD_MIN  0.27f
+#define MACHINE_RL_HEIGHT_CMD_MAX  0.47f
+
+#define MACHINE_SMALL_LEG_LEN_MIN 0.13f
+#define MACHINE_SMALL_LEG_LEN_MAX 0.23f
 /* 电机数量 (须与 dm.c / dji.c 的枚举一致) */
 #define MACHINE_LEG_NUM           4u
 #define MACHINE_WHEEL_NUM         2u
@@ -31,7 +39,7 @@
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_TICK_DT           0.001f
 #define MACHINE_RL_CTRL_DIV       2u      /* RL实体PD/反馈采样/正常下发：500Hz */
-#define MACHINE_POLICY_DIV        20u     /* actor推理50Hz；一个action保持10个2ms控制子步 */
+#define MACHINE_POLICY_DIV        20u     /* model1999单帧35维，50Hz策略/500Hz PD */
 #define MACHINE_DM_OFFLINE_MS     50u
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
 #define MACHINE_JETSON_PORT       10u     /* UART10：Jetson只读镜像/探测，独立于VOFA。 */
@@ -55,7 +63,10 @@
 
 #define MACHINE_LQR_DT            MACHINE_TICK_DT
 #define MACHINE_RL_CTRL_DT        (MACHINE_TICK_DT * (float)MACHINE_RL_CTRL_DIV)
+/* 训练参考点换算，仅RL恢复代理高度使用，不修改公共髋轮投影。 */
+#define MACHINE_RL_LEG_TO_HEIGHT  (0.06f - 0.02352f)
 #define MACHINE_POLICY_DT         (MACHINE_TICK_DT * (float)MACHINE_POLICY_DIV)
+
 
 /* 一路电机的极性 */
 typedef struct {
@@ -90,13 +101,13 @@ typedef struct {
     float len_rate;             /* m/s */
 } machine_rc_cfg_t;
 
-/* RL39：缩放前裁剪，模型原生q/dq供电机PD使用。 */
+/* model1999：先裁剪后缩放，模型原生q/dq供电机PD使用。 */
 typedef struct {
     float gyro_scale;          /* 机体角速度观测缩放 */
     float height_scale;        /* 目标高度命令观测缩放 */
     float joint_vel_scale;     /* 六路电机速度观测缩放 */
-    float obs_clip;            /* 角速度/重力/角差/action的缩放前裁剪幅值 */
-    float velocity_clip;       /* 电机速度缩放前裁剪幅值，rad/s */
+    float obs_clip;            /* 角速度/重力/角差/action缩放前裁剪幅值 */
+    float velocity_clip;       /* 1999电机速度先裁剪±200rad/s再缩放 */
 } machine_rl_observation_cfg_t;
 typedef struct {
     float pos_scale;           /* action→相对名义角偏移，rad/action */
@@ -110,11 +121,11 @@ typedef struct {
     float wheel_torque_limit; /* RL轮力矩限幅，Nm；与公共满电流限幅分开 */
 } machine_rl_torque_cfg_t;
 /* 实体顺序LF前/后、RF前/后、左轮/右轮。
- * 电机反馈已包含驱动机械标定；motor_zero基于pos_zero_rad，不再叠加旧虚拟关节零位。
+ * 电机反馈已包含驱动机械标定；motor_zero基于pos_continuous_rad，不再叠加旧虚拟关节零位。
  * 配对映射将公共驱动坐标转换至RL坐标，不能照网络action顺序填写。 */
 typedef struct {
     int8_t motor_sign[6];      /* 固件↔模型配对方向，输入角/速与输出力矩共用 */
-    float motor_zero[4];       /* 固件标定单圈角至模型零位的额外偏移，rad */
+    float motor_zero[4];       /* 固件标定连续角至模型零位的额外偏移，rad */
     float nominal_pos[4];      /* q_nominal：训练默认站立原生角，观测减此值、目标加此值 */
     float position_limit_center[4];    /* q_reference：XML的qpos0，目标限幅中心，非实机零偏 */
     machine_rl_observation_cfg_t observation;

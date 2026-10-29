@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    networkzn1_data.h
   * @author  AST Embedded Analytics Research Platform
-  * @date    2026-10-20T19:32:58+0800
+  * @date    2026-10-30T00:40:51+0800
   * @brief   AI Tool Automatic Code Generator for Embedded NN computing
   ******************************************************************************
   * Copyright (c) 2026 STMicroelectronics.
@@ -32,7 +32,7 @@ AI_DEPRECATED
 AI_API_DECLARE_BEGIN
 
 
-extern const ai_u64 s_networkzn1_weights_array_u64[25891];
+extern const ai_u64 s_networkzn1_weights_array_u64[25379];
 
 
 

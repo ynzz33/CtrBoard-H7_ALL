@@ -18,6 +18,7 @@ static slip_state_t slip_control;
 static uint8_t lqr_running;
 static uint8_t rl_engaged;
 static uint8_t rl_wait_ticks;
+static rl_motor_map_state_t rl_motor_map; /* 执行任务持有初始角分支，退出投入后重选。 */
 
 /* 公共检测已在策略层更新；此处构建LQR状态、接入原AIR响应和速度融合。 */
 static void Control_State_Update(control_frame_t *frame, uint8_t reset_velocity)
@@ -201,9 +202,10 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
     tick = (uint8_t)(rl_wait_ticks == 0u);
     lqr_running = 0u;
     rl_wait_ticks = tick ? MACHINE_RL_CTRL_DIV - 1u : rl_wait_ticks - 1u;
+    if (!frame->rc.mode.engage) { rl_motor_map.initialized = 0u; }
     if (tick)
     {
-        (void)RL_Motor_Map(&machine->rl, frame->motor_pos, frame->motor_vel, frame->wheel_vel, frame->motor_valid, &frame->rl_motor);
+        (void)RL_Motor_Map(&machine->rl, 2.0f * machine->dm_pos_max, frame->motor_pos, frame->motor_vel, frame->wheel_vel, frame->motor_valid, &rl_motor_map, &frame->rl_motor);
         RL_Observation_Sample(&rl_control.observation, frame->imu.gyro_rad_s, frame->imu.quat, &frame->rl_motor, frame->imu.online);
     }
     rl_engaged = (uint8_t)(frame->drive_permit && frame->rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);
@@ -260,6 +262,7 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     if (strategy != CTRL_STRATEGY_RL)
     {
         rl_wait_ticks = 0u;
+        rl_motor_map.initialized = 0u;
     }
 
     switch (strategy)

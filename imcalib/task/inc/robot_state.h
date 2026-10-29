@@ -25,7 +25,7 @@
 
 
 typedef struct {
-    float a[RL_ACTION_SIZE];    /* 原始网络顺序[LF前,LF后,L轮,RF前,RF后,R轮]，未缩放 */
+    float a[RL_ACTION_SIZE];    /* 1999原始顺序[LF前,LF后,RF前,RF后,L轮,R轮]，未缩放 */
     uint32_t reset_count;       /* 动作清零次数：拒绝清零前已在途、清零后才返回的推理 */
     uint32_t last_ok_tick;      /* 最近一次有效动作发布时间，ms */
     uint8_t updated;            /* 动作已发布，看门狗可开始检查更新时间 */

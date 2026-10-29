@@ -1,5 +1,5 @@
 /*
- * CubeAI单actor封装：输入float32[1,39]，输出原始action[1,6]，按左右两侧排列。
+ * model1999单actor：输入float32[1,35]，输出action[1,6]，按四腿两轮排列。
  * 管理网络工作区、SDK调用和推理耗时；观测由rl_observation提供，电机控制归rl_torque。
  * 旧25/125生成模型仍能编译，但尺寸不符时拒绝初始化；新模型须成套替换生成文件。
  */
@@ -33,7 +33,7 @@ static uint8_t RL_Policy_Init_Network(void)
         network->inputs = ai_networkzn1_inputs_get(network->network, &input_count);
         network->outputs = ai_networkzn1_outputs_get(network->network, &output_count);
         network->ready = (uint8_t)(network->inputs != NULL && network->outputs != NULL && input_count == 1u && output_count == 1u);
-        /* SDK逻辑元素数可能与底层对齐容量不同，按实际39/6、batch1及float32检查。 */
+        /* SDK逻辑元素数可能与底层对齐容量不同，按实际35/6、batch1及float32检查。 */
         if (network->ready)
         {
             network->ready = (uint8_t)(AI_BUFFER_SIZE_UNPAD(&network->inputs[0]) == RL_OBS_SIZE && AI_BUFFER_SIZE_UNPAD(&network->outputs[0]) == RL_ACTION_SIZE && AI_BUFFER_SHAPE_ELEM(&network->inputs[0], AI_SHAPE_BATCH) == 1u && AI_BUFFER_SHAPE_ELEM(&network->outputs[0], AI_SHAPE_BATCH) == 1u && AI_BUFFER_FMT_GET_TYPE(network->inputs[0].format) == AI_BUFFER_FMT_TYPE_FLOAT && AI_BUFFER_FMT_GET_TYPE(network->outputs[0].format) == AI_BUFFER_FMT_TYPE_FLOAT && AI_BUFFER_FMT_GET_BITS(network->inputs[0].format) == 32u && AI_BUFFER_FMT_GET_BITS(network->outputs[0].format) == 32u);
@@ -68,7 +68,7 @@ uint8_t RL_Policy_Init(rl_policy_t *policy)
     policy->ready = RL_Policy_Init_Network();
     return policy->ready;
 }
-/* 复制有效obs39→推理→读取原始action6；失败返回零动作，是否出力由任务层决定。 */
+/* 复制有效obs35→推理→读取原始action6；失败返回零动作，是否出力由任务层决定。 */
 uint8_t RL_Policy_Run(rl_policy_t *policy, const rl_observation_state_t *observation, float action[RL_ACTION_SIZE])
 {
     rl_network_t *network;

@@ -23,7 +23,7 @@ uint8_t RL_Torque_Compute(const rl_motor_state_t *motor, const machine_rl_cfg_t 
     {
         state->target[i] = clampf(config->nominal_pos[i] + config->torque.pos_scale * action[RL_Action_Index(i)], config->position_limit_center[i] - config->torque.position_limit, config->position_limit_center[i] + config->torque.position_limit);
     }
-    /* 网络action[2、5]生成左右轮轴速度目标，内部轮槽为[4、5]。 */
+    /* model1999网络action[4、5]生成左右轮轴速度目标。 */
     for (uint8_t i = 0u; i < 2u; i++)
     {
         state->target[RL_MOTOR_L_WHEEL + i] = clip(config->torque.wheel_vel_scale * action[RL_Action_Index(RL_MOTOR_L_WHEEL + i)], config->torque.wheel_speed_limit);

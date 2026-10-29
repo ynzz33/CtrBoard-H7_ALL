@@ -1,37 +1,37 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-10-20 19:33:02
-Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_5849_opset13.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace368193181543003845726276573751195 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
+Created date          : 2026-10-30 00:40:53
+Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/model_1999_opset13.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace1405406736422008779069704012310130 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
 
 Exec/report summary (generate)
----------------------------------------------------------------------------------------------------------
-model file         :   C:\Users\ynz\Desktop\model_5849_opset13.onnx                                      
-type               :   onnx                                                                              
-c_name             :   networkzn1                                                                        
-compression        :   none                                                                              
-options            :   allocate-inputs, allocate-outputs                                                 
-optimization       :   time                                                                              
-target/series      :   stm32h7                                                                           
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace368193181543003845726276573751195   
-output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                       
-model_fmt          :   float                                                                             
-model_name         :   model_5849_opset13                                                                
-model_hash         :   0xd08eafcefc806ad2b05e796fa9c49479                                                
-params #           :   51,782 items (202.27 KiB)                                                         
----------------------------------------------------------------------------------------------------------
-input 1/1          :   'obs', f32(1x39), 156 Bytes, activations                                          
-output 1/1         :   'actions', f32(1x6), 24 Bytes, activations                                        
-macc               :   56,710                                                                            
-weights (ro)       :   207,128 B (202.27 KiB) (1 segment)                                                
-activations (rw)   :   1,536 B (1.50 KiB) (1 segment) *                                                  
-ram (total)        :   1,536 B (1.50 KiB) = 1,536 + 0 + 0                                                
----------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------
+model file         :   C:\Users\ynz\Desktop\model_1999_opset13.onnx                                       
+type               :   onnx                                                                               
+c_name             :   networkzn1                                                                         
+compression        :   none                                                                               
+options            :   allocate-inputs, allocate-outputs                                                  
+optimization       :   time                                                                               
+target/series      :   stm32h7                                                                            
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace1405406736422008779069704012310130   
+output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                        
+model_fmt          :   float                                                                              
+model_name         :   model_1999_opset13                                                                 
+model_hash         :   0xbbd415a7ba3fc2da94860b9dd7496629                                                 
+params #           :   50,758 items (198.27 KiB)                                                          
+----------------------------------------------------------------------------------------------------------
+input 1/1          :   'observation', f32(1x35), 140 Bytes, activations                                   
+output 1/1         :   'action', f32(1x6), 24 Bytes, activations                                          
+macc               :   55,686                                                                             
+weights (ro)       :   203,032 B (198.27 KiB) (1 segment)                                                 
+activations (rw)   :   1,536 B (1.50 KiB) (1 segment) *                                                   
+ram (total)        :   1,536 B (1.50 KiB) = 1,536 + 0 + 0                                                 
+----------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - model_5849_opset13
+Model name - model_1999_opset13
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
 m_id   layer (type,original)                 oshape          param/size           macc       connected to   | c_size            c_macc             c_type             
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
-1      node_0.weight (Placeholder, Gemm)     [b:256,c:39]    9,984/39,936                                   | +1,024(+2.6%)     +10,240(+100.0%)   Dense_[0]          
+1      node_0.weight (Placeholder, Gemm)     [b:256,c:35]    8,960/35,840                                   | +1,024(+2.9%)     +9,216(+100.0%)    Dense_[0]          
        node_0.bias (Placeholder, Gemm)       [b:256]         256/1,024                                      | -1,024(-100.0%)                      
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
 3      node_2.weight (Placeholder, Gemm)     [b:128,c:256]   32,768/131,072                                 | +512(+0.4%)       +32,896(+100.0%)   Dense_[2]          
@@ -43,9 +43,9 @@ m_id   layer (type,original)                 oshape          param/size         
 7      node_6.weight (Placeholder, Gemm)     [b:6,c:64]      384/1,536                                      | +24(+1.6%)        +390(+100.0%)      Dense_[o][6]       
        node_6.bias (Placeholder, Gemm)       [b:6]           6/24                                           | -24(-100.0%)                         
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
-0      obs (Input, )                         [b:1,c:39]                                                     |                                      
+0      observation (Input, )                 [b:1,c:35]                                                     |                                      
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
-1      _0_Gemm_output_0 (Gemm, Gemm)         [b:1,c:256]                        10,240                obs   |                   -10,240(-100.0%)   
+1      _0_Gemm_output_0 (Gemm, Gemm)         [b:1,c:256]                         9,216        observation   |                   -9,216(-100.0%)    
                                                                                             node_0.weight   | 
                                                                                               node_0.bias   | 
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
@@ -63,25 +63,25 @@ m_id   layer (type,original)                 oshape          param/size         
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
 6      _5_Elu_output_0 (Nonlinearity, Elu)   [b:1,c:64]                            768   _4_Gemm_output_0   |                   -64(-8.3%)         Nonlinearity_[5]   
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
-7      actions (Gemm, Gemm)                  [b:1,c:6]                             390    _5_Elu_output_0   |                   -390(-100.0%)      
+7      action (Gemm, Gemm)                   [b:1,c:6]                             390    _5_Elu_output_0   |                   -390(-100.0%)      
                                                                                             node_6.weight   | 
                                                                                               node_6.bias   | 
 ------ ------------------------------------- --------------- ---------------- -------- ------------------ --- ----------------- ------------------ ------------------ 
-model/c-model: macc=57,158/56,710 -448(-0.8%) weights=207,128/207,128  activations=--/1,536 io=--/0
+model/c-model: macc=56,134/55,686 -448(-0.8%) weights=203,032/203,032  activations=--/1,536 io=--/0
 
 
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : model_5849_opset13
+model name            : model_1999_opset13
 c-name                : networkzn1
 c-node #              : 7
 c-array #             : 16
 activations size      : 1536 (1 segment)
-weights size          : 207128 (1 segment)
-macc                  : 56710
-inputs                : ['obs_output']
-outputs               : ['actions_output']
+weights size          : 203032 (1 segment)
+macc                  : 55686
+inputs                : ['observation_output']
+outputs               : ['action_output']
 
 C-Arrays (16)
 ------ -------------------------- -------------- ------------------------- ------------- --------- 
@@ -89,7 +89,7 @@ c_id   name (*_array)             item/size      domain/mem-pool           c-typ
 ------ -------------------------- -------------- ------------------------- ------------- --------- 
 0      _0_Gemm_output_0_bias      256/1024       weights/weights           const float             
 1      _0_Gemm_output_0_output    256/1024       activations/**default**   float                   
-2      _0_Gemm_output_0_weights   9984/39936     weights/weights           const float             
+2      _0_Gemm_output_0_weights   8960/35840     weights/weights           const float             
 3      _1_Elu_output_0_output     256/1024       activations/**default**   float                   
 4      _2_Gemm_output_0_bias      128/512        weights/weights           const float             
 5      _2_Gemm_output_0_output    128/512        activations/**default**   float                   
@@ -99,18 +99,18 @@ c_id   name (*_array)             item/size      domain/mem-pool           c-typ
 9      _4_Gemm_output_0_output    64/256         activations/**default**   float                   
 10     _4_Gemm_output_0_weights   8192/32768     weights/weights           const float             
 11     _5_Elu_output_0_output     64/256         activations/**default**   float                   
-12     actions_bias               6/24           weights/weights           const float             
-13     actions_output             6/24           activations/**default**   float         /output   
-14     actions_weights            384/1536       weights/weights           const float             
-15     obs_output                 39/156         activations/**default**   float         /input    
+12     action_bias                6/24           weights/weights           const float             
+13     action_output              6/24           activations/**default**   float         /output   
+14     action_weights             384/1536       weights/weights           const float             
+15     observation_output         35/140         activations/**default**   float         /input    
 ------ -------------------------- -------------- ------------------------- ------------- --------- 
 
 C-Layers (7)
 ------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
 c_id   name (*_layer)     id   layer_type      macc    rom      tensors                       shape (array id)   
 ------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
-0      _0_Gemm_output_0   1    Dense           10240   40960    I: obs_output                 f32(1x39) (15)     
-                                                                W: _0_Gemm_output_0_weights   f32(256x39) (2)    
+0      _0_Gemm_output_0   1    Dense           9216    36864    I: observation_output         f32(1x35) (15)     
+                                                                W: _0_Gemm_output_0_weights   f32(256x35) (2)    
                                                                 W: _0_Gemm_output_0_bias      f32(256) (0)       
                                                                 O: _0_Gemm_output_0_output    f32(1x256) (1)     
 ------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
@@ -133,10 +133,10 @@ c_id   name (*_layer)     id   layer_type      macc    rom      tensors         
 5      _5_Elu_output_0    6    Nonlinearity    704     0        I: _4_Gemm_output_0_output    f32(1x64) (9)      
                                                                 O: _5_Elu_output_0_output     f32(1x64) (11)     
 ------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
-6      actions            7    Dense           390     1560     I: _5_Elu_output_0_output     f32(1x64) (11)     
-                                                                W: actions_weights            f32(6x64) (14)     
-                                                                W: actions_bias               f32(6) (12)        
-                                                                O: actions_output             f32(1x6) (13)      
+6      action             7    Dense           390     1560     I: _5_Elu_output_0_output     f32(1x64) (11)     
+                                                                W: action_weights             f32(6x64) (14)     
+                                                                W: action_bias                f32(6) (12)        
+                                                                O: action_output              f32(1x6) (13)      
 ------ ------------------ ---- --------------- ------- -------- ----------------------------- ------------------ 
 
 
@@ -145,36 +145,36 @@ Number of operations per c-layer
 ------- ------ -------------------------------- -------- -------------- 
 c_id    m_id   name (type)                           #op           type 
 ------- ------ -------------------------------- -------- -------------- 
-0       1      _0_Gemm_output_0 (Dense)           10,240   smul_f32_f32 
+0       1      _0_Gemm_output_0 (Dense)            9,216   smul_f32_f32 
 1       2      _1_Elu_output_0 (Nonlinearity)      2,816     op_f32_f32 
 2       3      _2_Gemm_output_0 (Dense)           32,896   smul_f32_f32 
 3       4      _3_Elu_output_0 (Nonlinearity)      1,408     op_f32_f32 
 4       5      _4_Gemm_output_0 (Dense)            8,256   smul_f32_f32 
 5       6      _5_Elu_output_0 (Nonlinearity)        704     op_f32_f32 
-6       7      actions (Dense)                       390   smul_f32_f32 
+6       7      action (Dense)                        390   smul_f32_f32 
 ------- ------ -------------------------------- -------- -------------- 
-total                                             56,710 
+total                                             55,686 
 
 Number of operation types
 ---------------- -------- ----------- 
 operation type          #           % 
 ---------------- -------- ----------- 
-smul_f32_f32       51,782       91.3% 
-op_f32_f32          4,928        8.7% 
+smul_f32_f32       50,758       91.2% 
+op_f32_f32          4,928        8.8% 
 
 Complexity report (model)
 ------ ----------------- ------------------------- ------------------------- ------ 
 m_id   name              c_macc                    c_rom                     c_id   
 ------ ----------------- ------------------------- ------------------------- ------ 
-1      node_0.weight     |||||             18.1%   |||||             19.8%   [0]    
-3      node_2.weight     ||||||||||||||||  58.0%   ||||||||||||||||  63.5%   [2]    
-5      node_4.weight     ||||              14.6%   ||||              15.9%   [4]    
+1      node_0.weight     |||||             16.5%   |||||             18.2%   [0]    
+3      node_2.weight     ||||||||||||||||  59.1%   ||||||||||||||||  64.8%   [2]    
+5      node_4.weight     ||||              14.8%   ||||              16.3%   [4]    
 7      node_6.weight     |                  0.7%   |                  0.8%   [6]    
-2      _1_Elu_output_0   ||                 5.0%   |                  0.0%   [1]    
+2      _1_Elu_output_0   ||                 5.1%   |                  0.0%   [1]    
 4      _3_Elu_output_0   |                  2.5%   |                  0.0%   [3]    
-6      _5_Elu_output_0   |                  1.2%   |                  0.0%   [5]    
+6      _5_Elu_output_0   |                  1.3%   |                  0.0%   [5]    
 ------ ----------------- ------------------------- ------------------------- ------ 
-macc=56,710 weights=207,128 act=1,536 ram_io=0
+macc=55,686 weights=203,032 act=1,536 ram_io=0
  
  Requested memory size by section - "stm32h7" target
  ------------------------------ ------- --------- ------- ------- 
@@ -187,11 +187,11 @@ macc=56,710 weights=207,128 act=1,536 ram_io=0
  ------------------------------ ------- --------- ------- ------- 
  RT total**                       7,896       460   2,156     152 
  ------------------------------ ------- --------- ------- ------- 
- weights                              0   207,128       0       0 
+ weights                              0   203,032       0       0 
  activations                          0         0       0   1,536 
  io                                   0         0       0       0 
  ------------------------------ ------- --------- ------- ------- 
- TOTAL                            7,896   207,588   2,156   1,688 
+ TOTAL                            7,896   203,492   2,156   1,688 
  ------------------------------ ------- --------- ------- ------- 
  *  toolchain objects (libm/libgcc*)
  ** RT AI runtime objects (kernels+infrastructure)
@@ -200,9 +200,9 @@ macc=56,710 weights=207,128 act=1,536 ram_io=0
   --------------------------------------------------
                FLASH (ro)     %*   RAM (rw)       % 
   --------------------------------------------------
-  RT total         10,512   4.8%      2,308   60.0% 
+  RT total         10,512   4.9%      2,308   60.0% 
   --------------------------------------------------
-  TOTAL           217,640             3,844         
+  TOTAL           213,544             3,844         
   --------------------------------------------------
   *  rt/total
 

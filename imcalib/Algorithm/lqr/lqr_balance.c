@@ -9,6 +9,7 @@
 #include "lqr_balance.h"
 #include "lqr_gain_table.h"
 #include "machine_config.h"
+#include "math_utils.h"
 
 #include <math.h>
 #include <string.h>
@@ -105,8 +106,8 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
  */
 uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
 {
-    st->leg_length_target[0] = cmd->leg_length_target;
-    st->leg_length_target[1] = cmd->leg_length_target;
+    st->leg_length_target[0] = clampf(cmd->leg_length_target, fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min), fminf(machine->leg_len_max, LQR_Gain_Info()->len_max));
+    st->leg_length_target[1] = st->leg_length_target[0];
     st->yaw_target = st->x[LQR_X_PHI];    /* 朝向锁当前 */
     st->velocity_target = 0.0f;
     /* 只清位移积分; 滤波器每拍都在跑, 已是热态, 不复位 */
@@ -119,7 +120,7 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
 /* 指令 → 目标 */
 /*
  * 将统一遥控命令变成速度/偏航及最终腿长目标。
- * RC已经完成拨轮累加和限幅，这里直接读取最终腿长。
+ * RC只限制公共拨轮范围；LQR在此按机械/K表交集裁剪腿长，不回写公共命令。
  */
 uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
 {
@@ -145,8 +146,8 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
     st->target[LQR_X_THB]   = machine->lqr.pitch_trim;
     st->target[LQR_X_DTHB]  = 0.0f;
 
-    st->leg_length_target[0] = cmd->leg_length_target;
-    st->leg_length_target[1] = cmd->leg_length_target;
+    st->leg_length_target[0] = clampf(cmd->leg_length_target, fmaxf(machine->leg_len_min, LQR_Gain_Info()->len_min), fminf(machine->leg_len_max, LQR_Gain_Info()->len_max));
+    st->leg_length_target[1] = st->leg_length_target[0];
     return 1u;
 }
 

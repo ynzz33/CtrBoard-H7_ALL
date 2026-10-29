@@ -1,5 +1,5 @@
 /*
- * model5849的RL39输入与恢复模式：原生电机反馈、限幅后的公共遥控命令、实际投入状态。
+ * model1999的RL35输入与恢复模式：原生电机反馈、限幅后的公共遥控命令、实际投入状态。
  * 位置/速度使用rad、rad/s；先裁剪再缩放。机器配置直接取固定表，不扫描配置合法性。
  * 执行任务保存最新反馈，策略任务复制后构建；不添加训练噪声或延迟，不调用网络或发送电机。
  */
@@ -7,11 +7,11 @@
 #include "math_utils.h"
 #include <math.h>
 #include <string.h>
-/* 恢复采用仿真时间阈值；0.20m用于作者指定的髋轮间距，替代仿真机身接触/高度测量。 */
-#define RL_RECOVERY_HEIGHT 0.20f
+/* 1999连续触地/倾倒20个50Hz步终止；作者实机试验指定代理机高≤0.13m。 */
+#define RL_RECOVERY_HEIGHT 0.13f
 #define RL_RECOVERY_HOLD_MS 200u
 #define RL_RECOVERY_STABLE_MS 500u
-#define RL_RECOVERY_TIMEOUT_MS 2000u
+#define RL_RECOVERY_TIMEOUT_MS 400u
 #define RL_RECOVERY_TICK_MS ((uint16_t)(MACHINE_TICK_DT * 1000.0f + 0.5f))
 void RL_Recovery_Reset(rl_recovery_state_t *state)
 {
@@ -36,7 +36,7 @@ void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t fee
     {
         state->stable_ms = 0u;
         state->fallen_ms += RL_RECOVERY_TICK_MS;
-        if (state->phase != RL_RECOVERY_HOLD) { state->phase = RL_RECOVERY_RECOVER; }
+        if (state->phase != RL_RECOVERY_HOLD) { state->phase = RL_RECOVERY_NORMAL; }
     }
     else
     {
@@ -44,17 +44,22 @@ void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t fee
         if (state->stable_ms < RL_RECOVERY_STABLE_MS) { state->stable_ms += RL_RECOVERY_TICK_MS; }
         if (state->stable_ms >= RL_RECOVERY_STABLE_MS) { state->phase = RL_RECOVERY_NORMAL; }
     }
-    if (state->phase == RL_RECOVERY_HOLD && state->hold_ms >= RL_RECOVERY_HOLD_MS) { state->phase = RL_RECOVERY_RECOVER; }
-    if (state->fallen_ms > RL_RECOVERY_TIMEOUT_MS) { state->phase = RL_RECOVERY_FAILED; }
+    if (state->phase == RL_RECOVERY_HOLD && state->hold_ms >= RL_RECOVERY_HOLD_MS) { state->phase = RL_RECOVERY_NORMAL; }
+    if (state->fallen_ms >= RL_RECOVERY_TIMEOUT_MS) { state->phase = RL_RECOVERY_FAILED; }
 }
 /* 固件→模型：位置去额外零偏后乘sign，速度只乘sign；输出力矩在rl_torque中配对还原。 */
-uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_state_t *out)
+uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, float position_period, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_map_state_t *state, rl_motor_state_t *out)
 {
     out->valid = 0u;
     if (!source_valid) { return 0u; }
     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
     {
         out->pos[i] = (float)config->motor_sign[i] * (position[i] - config->motor_zero[i]);
+        if (!state->initialized)
+        {
+            state->position_offset[i] = position_period * floorf((out->pos[i] - config->position_limit_center[i]) / position_period + 0.5f);
+        }
+        out->pos[i] -= state->position_offset[i];
         out->vel[i] = (float)config->motor_sign[i] * velocity[i];
     }
     for (uint8_t i = 0u; i < 2u; i++)
@@ -62,6 +67,7 @@ uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, const float position[4], co
         out->vel[RL_MOTOR_L_WHEEL + i] = (float)config->motor_sign[RL_MOTOR_L_WHEEL + i] * wheel_velocity[i];
     }
     out->valid = (uint8_t)(Float_Array_Finite(out->pos, RL_LEG_MOTOR_NUM) && Float_Array_Finite(out->vel, RL_ACTION_SIZE));
+    if (out->valid) { state->initialized = 1u; }
     return out->valid;
 }
 /* 四元数顺序w/x/y/z；归一化后将世界单位重力[0,0,-1]逆旋转到机体系。 */
@@ -112,9 +118,9 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg
     state->valid = 0u;
     if (!source_valid || recovery->phase == RL_RECOVERY_FAILED) { return 0u; }
     /* 作者选择直接复用rc.len作高度命令，接受低段拨轮被下限截住；不回写公共RC。 */
-    state->obs[RL_OBS_CMD_VX] = clip(command->velocity_target, 1.5f);
-    state->obs[RL_OBS_CMD_YAW_RATE] = clip(command->yaw_rate_target, 1.5f);
-    state->obs[RL_OBS_CMD_HEIGHT] = clampf(command->leg_length_target, 0.27f, 0.34f) * config->observation.height_scale;
+    state->obs[RL_OBS_CMD_VX] = clip(command->velocity_target, 2.7f);
+    state->obs[RL_OBS_CMD_YAW_RATE] = clip(command->yaw_rate_target, 6.283185307f);
+    state->obs[RL_OBS_CMD_HEIGHT] = clampf(command->leg_length_target, MACHINE_RL_HEIGHT_CMD_MIN, MACHINE_RL_HEIGHT_CMD_MAX) * config->observation.height_scale;
     /* 4～9：机体角速度与单位重力；角速度先限幅，再乘训练缩放。 */
     for (uint8_t i = 0u; i < 3u; i++)
     {
@@ -132,10 +138,7 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg
         state->obs[RL_OBS_MOTOR_VEL + i] = clip(sample->vel[i], config->observation.velocity_clip) * config->observation.joint_vel_scale;
         state->obs[RL_OBS_LAST_ACTION + i] = clip(state->last_action[RL_Action_Index(i)], config->observation.obs_clip);
     }
-    state->obs[RL_OBS_CONTROL_MODE + ((recovery->phase == RL_RECOVERY_HOLD || recovery->phase == RL_RECOVERY_RECOVER) ? 3u : 0u)] = 1.0f;
-    state->obs[RL_OBS_GROUND_START] = (float)recovery->ground_start;
-    state->obs[RL_OBS_POLICY_ACTIVE] = (float)(recovery->phase == RL_RECOVERY_NORMAL || recovery->phase == RL_RECOVERY_RECOVER);
-    /* 平地运动/恢复不请求跳跃或台阶，airborne/step_active保持0，不借用LQR离地状态。 */
+    state->obs[RL_OBS_CONTROL_MODE] = 1.0f; /* 1999动态模式关闭，始终普通模式。 */
     state->valid = Float_Array_Finite(state->obs, RL_OBS_SIZE);
     return state->valid;
 }
