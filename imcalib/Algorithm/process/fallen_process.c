@@ -20,7 +20,7 @@ fallen_process_param_t fallen_process_param = {
     /* 普通起立腿长 */
     .length_rate             = 1.0f,                            /* 腿长 m/s */
     .extend_len              = 0.25f,                           /* 目标 m */
-    .length_tol              = 0.01f,                           /* 伸/收腿到位容差 m */
+    .length_tol              = 0.02f,                           /* 伸/收腿到位容差 m */
     .length_timeout          = 1.5f,                            /* 伸/收腿超时 s */
 
     /* 普通起立摆角 */
