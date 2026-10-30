@@ -8,6 +8,7 @@
 /* 单腿轴向力下限N：允许负值补偿，但不允许无限往下拉把腿卸掉。 */
 #define ROLL_HEIGHT_FORCE_MIN (-10.0f)
 
+
 uint8_t Roll_Height_Available(void)
 {
     return (uint8_t)(roll_height_model.machine_id == MACHINE_DEFAULT);
@@ -37,6 +38,12 @@ void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_
 /* 输入F保持补偿前坐标；仅使用上一拍确认提交且未限矩的请求，不把FN估计当模型输入。 */
 static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float measurement[RH_NX])
 {
+#if !MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE
+    (void)measurement;
+    /* 清除历史偏置，避免停止学习后仍残留补偿。 */
+    memset(&state->observer, 0, sizeof(state->observer));
+    return 1u;
+#else
     roll_height_observer_t *observer = &state->observer;
     float predicted[RH_NX];
     float innovation[RH_NX];
@@ -87,6 +94,7 @@ static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float mea
     observer->limited = (uint8_t)(bounded_common != common || bounded_difference != difference);
     observer->updated = 1u;
     return 1u;
+#endif
 }
 
 /* 几何投影、成对位置/速度参考和控制速度低通；不推进观测器。 */
@@ -131,6 +139,10 @@ static uint8_t Roll_Height_State_Update(roll_height_balance_t *state, const lqr_
 static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn_ff)
 {
     float value;
+    float raw_force[RH_NU];
+    float common;
+    float limited_common;
+    float difference;
 
     for (uint8_t i = 0u; i < RH_NU; i++)
     {
@@ -145,8 +157,29 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
         {
             return 0u;
         }
-        /* 允许负F主动压缩；只拦住深负值，不改其余计算。 */
-        state->force[i] = fmaxf(value, ROLL_HEIGHT_FORCE_MIN);
+        raw_force[i] = value;
+    }
+    difference = 0.5f * raw_force[0] - 0.5f * raw_force[1];
+    state->lqr.difference_request = difference;
+    state->lqr.common_shift = 0.0f;
+    if (raw_force[0] < ROLL_HEIGHT_FORCE_MIN || raw_force[1] < ROLL_HEIGHT_FORCE_MIN)
+    {
+        /* 触限时只抬升共模，保留原始差模；不修改roll/高度增益或偏置。 */
+        common = 0.5f * raw_force[0] + 0.5f * raw_force[1];
+        limited_common = fmaxf(common, ROLL_HEIGHT_FORCE_MIN + fabsf(difference));
+        state->lqr.common_shift = limited_common - common;
+        state->force[0] = limited_common + difference;
+        state->force[1] = limited_common - difference;
+    }
+    else
+    {
+        /* 未触限逐值保留原请求，避免无意义的分解/重组舍入。 */
+        state->force[0] = raw_force[0];
+        state->force[1] = raw_force[1];
+    }
+    if (!isfinite(state->force[0]) || !isfinite(state->force[1]) || !isfinite(state->lqr.common_shift))
+    {
+        return 0u;
     }
     return 1u;
 }

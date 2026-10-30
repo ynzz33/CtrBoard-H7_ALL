@@ -182,7 +182,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     {
         if (normal_mode)
         {
-            if (!Roll_Height_Available())
+            if (MACHINE_NORMAL_LEG_CONTROL == 1u && !Roll_Height_Available())
             {
                 return 0u;
             }
@@ -221,6 +221,9 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
         {
             height = 0.5f * (length[0] + length[1]) + machine->lqr.turn_comp.height_offset;
             lb->turn_ff = machine->lqr.turn_comp.gain * machine->lqr.turn_comp.mass * height * st->ds_kf * st->x[LQR_X_DPHI] / machine->lqr.turn_comp.track;
+        }
+        if (normal_mode && MACHINE_NORMAL_LEG_CONTROL == 1u)
+        {
             lb->roll_height.permit = 1u;
             if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->length_ref_rate, lb->turn_ff))
             {

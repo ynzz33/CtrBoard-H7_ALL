@@ -12,6 +12,19 @@
 
 #include <stdint.h>
 
+/* NORMAL腿长/roll控制选择；修改后重新编译烧录。十态平衡及公共补偿不变。 */
+#define MACHINE_NORMAL_LEG_CONTROL 0u /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
+#define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE 0u /* 仅四态有效；PD不使用观测器 */
+
+
+
+#if MACHINE_NORMAL_LEG_CONTROL != 0u && MACHINE_NORMAL_LEG_CONTROL != 1u
+#error "Unsupported MACHINE_NORMAL_LEG_CONTROL"
+#endif
+#if MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE != 0u && MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE != 1u
+#error "Unsupported MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE"
+#endif
+
 /* 机器编号 */
 #define MACHINE_ID_BIG_WHEELLEG    0u
 #define MACHINE_ID_SMALL_WHEELLEG  1u

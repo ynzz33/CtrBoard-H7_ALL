@@ -15,6 +15,11 @@ for name={'roll_height_bias_common_max','roll_height_bias_diff_max','len_rate','
  if isempty(token),error('roll_height4:runtime','找不到machine_config.c的%s',name{1});end
  p.(name{1})=str2double(token{1});
 end
+force_source=fullfile(repo,'imcalib','Algorithm','lqr','roll_height_balance.c');
+force_snapshot=fileread(force_source);
+token=regexp(force_snapshot,'#define\s+ROLL_HEIGHT_FORCE_MIN\s+\(\s*([-+\d.eE]+)f?\s*\)','tokens','once');
+if isempty(token),error('roll_height4:force_min','找不到C端轴向力下限，未覆盖');end
+p.force_min=str2double(token{1});
 p.test_height=[machine.ctrl.grid(1) machine.ctrl.grid(end)];
 p.observer_tau=observer_tau;
 if numel(q)~=4 || numel(r)~=2 || any(q<0) || any(r<=0),error('roll_height4:weights','Q必须非负、R必须为正，未覆盖固件');end
@@ -33,7 +38,7 @@ m.Ae=[m.Ad m.Bd;zeros(2,4) eye(2)];m.Ce=[eye(4) zeros(4,2)];
 validation=verify_roll_height4(m);
 if ~validation.passed,error('roll_height4:validation','四状态/观测器检查失败，未覆盖固件');end
 % 作者可能在生成时继续调参；输入变动时保留上次固件表，避免注释/K跨版本。
-if ~strcmp(source,fileread(config)) || ~strcmp(entry_source,fileread(entry))
+if ~strcmp(source,fileread(config)) || ~strcmp(entry_source,fileread(entry)) || ~strcmp(force_snapshot,fileread(force_source))
  error('roll_height4:changed','生成期间参数文件发生变化，未覆盖；保存后重新运行');
 end
 out=fullfile(here,'output');if ~exist(out,'dir'),mkdir(out);end
@@ -46,13 +51,14 @@ fprintf(fid,'Q=%s\nR=%s\nM=%g half_track=%g I_roll=%g damping=%g Ts=%g\n',mat2st
 fprintf(fid,'roll_rate_lp=%g hdot_lp=%g observer_tau=%s\n',p.roll_rate_lp,p.hdot_lp,mat2str(observer_tau));
 fprintf(fid,'length_ref_accel_max=%g m/s^2\n',p.length_ref_accel_max);
 fprintf(fid,'bias_common_max=%g bias_diff_max=%g\n',p.roll_height_bias_common_max,p.roll_height_bias_diff_max);
+fprintf(fid,'force_min=%g N; coordinated common/difference lower bound\n',p.force_min);
 fprintf(fid,'K=\n');fprintf(fid,'%.12g %.12g %.12g %.12g\n',m.K');
 fprintf(fid,'L=\n');fprintf(fid,'%.12g %.12g %.12g %.12g\n',m.L');
 fprintf(fid,'validation=%s\npending=%s\n',jsonencode(validation),p.pending);
 clear cleanup;
 board=fullfile(repo,'imcalib','Algorithm','lqr','roll_height_model.c');
 if CFG.deploy
- if ~strcmp(source,fileread(config)) || ~strcmp(entry_source,fileread(entry)),error('roll_height4:changed','写出期间参数变化，未覆盖');end
+ if ~strcmp(source,fileread(config)) || ~strcmp(entry_source,fileread(entry)) || ~strcmp(force_snapshot,fileread(force_source)),error('roll_height4:changed','写出期间参数变化，未覆盖');end
  [copied,message]=copyfile(candidate,board,'f');
  if ~copied,error('roll_height4:deploy','覆盖失败：%s',message);end
 end

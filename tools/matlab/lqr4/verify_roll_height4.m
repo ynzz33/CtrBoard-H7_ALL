@@ -55,6 +55,17 @@ assert(all(low>eq) && all(high<eq),'高度反馈方向错误');
 [roll,~]=solve_roll_height4(m,x0+[.01;0;0;0],x0,support,0,zeros(2,1));
 assert(roll(1)<eq(1) && roll(2)>eq(2),'roll反馈方向错误');
 [~,bad]=solve_roll_height4(m,[NaN;0;p.H0;0],x0,support,0,zeros(2,1));assert(~bad.valid,'坏结果未拒绝');
+% 下限非线性另测；上面的特征值仅描述未触限平衡点附近。
+requests=[50 60;-30 -20;20 -30;-10 -10;-300 200;200 -300]';
+report.lower_bound_max_difference_error=0;
+for i=1:size(requests,2)
+ raw=requests(:,i);[bounded,allocation]=solve_roll_height4(m,x0,x0,raw,0,zeros(2,1));
+ assert(allocation.valid && all(bounded>=p.force_min-1e-9),'轴向力下限未满足');
+ err=abs((bounded(1)-bounded(2))-(raw(1)-raw(2)));
+ report.lower_bound_max_difference_error=max(report.lower_bound_max_difference_error,err);
+ assert(err<1e-9,'下限协调损失差模');
+ if all(raw>=p.force_min),assert(isequal(bounded,raw) && allocation.common_shift==0,'未触限改变原请求');end
+end
 report.nominal=simulate(m,'nominal');report.bias=simulate(m,'bias');
 report.mismatch=simulate(m,'mismatch');report.noise=simulate(m,'noise');report.gated=simulate(m,'gated');
 report.uncompensated_bias_error_prediction=44.3/mean(m.K(:,3));

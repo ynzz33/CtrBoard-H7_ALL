@@ -30,7 +30,7 @@ fallen_process_param_t fallen_process_param = {
     .angle_timeout           = 1.5f,                            /* 后摆/摆正超时 s */
 
     /* 收腿与站立 */
-    .retract_len             = 0.15f,                           /* 目标 m */
+    .retract_len             = 0.14f,                           /* 目标 m */
     .angle_tol               = 0.4f,                            /* 容差 rad */
 
     /* 摆角串级PD */

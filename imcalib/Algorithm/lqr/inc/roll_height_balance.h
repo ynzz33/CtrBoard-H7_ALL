@@ -1,4 +1,4 @@
-/* 正常LQR路径：1kHz四状态反馈+慢变力偏置观测，无额外腿力限幅。 */
+/* 正常LQR路径：1kHz四态/偏置观测，轴向下限协调保持差模，最终电机限矩保持。 */
 #ifndef ROLL_HEIGHT_BALANCE_H
 #define ROLL_HEIGHT_BALANCE_H
 #include "roll_height_model.h"
@@ -9,6 +9,8 @@
 typedef struct {
     float base_force[RH_NU]; /* 原支撑前馈+显式向心项-估计偏置，N */
     float feedback[RH_NU][RH_NX]; /* -K*(x-target)，分项诊断 */
+    float difference_request; /* 限幅前左右原始轴向力半差N */
+    float common_shift; /* 为满足两腿下限而增加的平均力N，未触限为0 */
 } roll_height_feedback_t;
 
 typedef struct {

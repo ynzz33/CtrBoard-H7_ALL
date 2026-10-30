@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" noNamespaceSchemaLocation="project_projx.xsd">
   <SchemaVersion>2.1</SchemaVersion>
   <Header>### uVision Project, (C) Keil Software</Header>
@@ -34,7 +34,7 @@
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath />
-          <IncludePath></IncludePath>
+          <IncludePath />
           <LibPath />
           <RegisterFilePath />
           <DBRegisterFilePath />
@@ -1898,3 +1898,4 @@
     <files />
   </RTE>
 </Project>
+
