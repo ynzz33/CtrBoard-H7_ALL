@@ -127,7 +127,7 @@ static void Robot_Fault_Update(void)
         fault |= FAULT_MOTOR;
     }
     /* 模型就绪且已有动作后才判停更；等待首帧由下面的持续不可用保护处理。 */
-    if (ctrl_strategy == CTRL_STRATEGY_RL && rl_control.policy.ready && action_state.updated && HAL_GetTick() - action_state.last_ok_tick >= machine->rl.action_timeout_ms)
+    if (ctrl_strategy == CTRL_STRATEGY_RL && rl_control.policy.ready && action_state.updated && HAL_GetTick() - action_state.last_ok_tick >= machine->rl.timing.action_timeout_ms)
     {
         fault |= FAULT_ACTION;
     }
@@ -138,7 +138,7 @@ static void Robot_Fault_Update(void)
         {
             rl_ready_lost_tick = HAL_GetTick();
         }
-        else if (HAL_GetTick() - rl_ready_lost_tick >= machine->rl.ready_timeout_ms)
+        else if (HAL_GetTick() - rl_ready_lost_tick >= machine->rl.timing.ready_timeout_ms)
         {
             fault |= FAULT_ACTION;
         }

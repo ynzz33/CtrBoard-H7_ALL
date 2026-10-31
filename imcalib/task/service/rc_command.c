@@ -42,8 +42,8 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         cmd->online = 0u;
         return;
     }
-    cmd->velocity_target = Rc_Axis(rc->ch1, RC_DEADBAND_VEL) * machine->rc.vel_max;
-    cmd->yaw_rate_target = -Rc_Axis(rc->ch2, RC_DEADBAND_YAW) * machine->rc.yaw_max;
+    cmd->velocity_target = Rc_Axis(rc->ch1, machine->rc.deadband_vel) * machine->rc.vel_max;
+    cmd->yaw_rate_target = -Rc_Axis(rc->ch2, machine->rc.deadband_yaw) * machine->rc.yaw_max;
     cmd->s1 = rc->s1;
     cmd->s2 = rc->s2;
     cmd->online = 1u;
@@ -54,7 +54,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     case DR16_SW_MID:
         if (cmd->s2 == DR16_SW_UP)
         {
-            cmd->mode.rc_enable = (uint8_t)(GAS_SPRING_COMP_ENABLE && machine->spring != NULL && machine->gravity != NULL);
+            cmd->mode.rc_enable = (uint8_t)(GAS_SPRING_COMP_ENABLE && machine->compensation.spring != NULL && machine->compensation.gravity != NULL);
             cmd->mode.strategy = cmd->mode.rc_enable ? CTRL_STRATEGY_COMPENSATION : CTRL_STRATEGY_DISABLE;
             cmd->mode.engage = 1u;
         }
@@ -78,6 +78,6 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     len_min = MACHINE_BIG_LEG_LEN_MIN;
     /* 公共拨轮仅限总命令范围；各算法入口再按腿长/机高含义分别裁剪。 */
     len_max = MACHINE_RL_HEIGHT_CMD_MAX;
-    cmd->leg_length_target += Rc_Axis(rc->wheel, RC_DEADBAND_LEN) * machine->rc.len_rate * dt*0.3;
+    cmd->leg_length_target += Rc_Axis(rc->wheel, machine->rc.deadband_len) * machine->rc.len_rate * dt*0.3;
     cmd->leg_length_target = fminf(fmaxf(cmd->leg_length_target, len_min), len_max);
 }

@@ -8,10 +8,6 @@
 #include <math.h>
 #include <string.h>
 /* 1999连续触地/倾倒20个50Hz步终止；作者实机试验指定代理机高≤0.13m。 */
-#define RL_RECOVERY_HEIGHT 0.13f
-#define RL_RECOVERY_HOLD_MS 200u
-#define RL_RECOVERY_STABLE_MS 500u
-#define RL_RECOVERY_TIMEOUT_MS 400u
 #define RL_RECOVERY_TICK_MS ((uint16_t)(MACHINE_TICK_DT * 1000.0f + 0.5f))
 void RL_Recovery_Reset(rl_recovery_state_t *state)
 {
@@ -24,14 +20,14 @@ void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t fee
     if (!request) { RL_Recovery_Reset(state); return; }
     if (state->phase == RL_RECOVERY_FAILED) { return; }
     if (!feedback_valid) { RL_Recovery_Reset(state); return; }
-    down = (uint8_t)(fallen || height <= RL_RECOVERY_HEIGHT);
+    down = (uint8_t)(fallen || height <= machine->rl.recovery.recovery_height);
     if (state->phase == RL_RECOVERY_IDLE)
     {
         state->ground_start = down;
         state->phase = down ? RL_RECOVERY_HOLD : RL_RECOVERY_NORMAL;
         return; /* 投入当拍为t=0，不提前推进启动保持。 */
     }
-    if (state->hold_ms < RL_RECOVERY_HOLD_MS) { state->hold_ms += RL_RECOVERY_TICK_MS; }
+    if (state->hold_ms < machine->rl.recovery.recovery_hold_ms) { state->hold_ms += RL_RECOVERY_TICK_MS; }
     if (down)
     {
         state->stable_ms = 0u;
@@ -41,11 +37,11 @@ void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t fee
     else
     {
         state->fallen_ms = 0u;
-        if (state->stable_ms < RL_RECOVERY_STABLE_MS) { state->stable_ms += RL_RECOVERY_TICK_MS; }
-        if (state->stable_ms >= RL_RECOVERY_STABLE_MS) { state->phase = RL_RECOVERY_NORMAL; }
+        if (state->stable_ms < machine->rl.recovery.recovery_stable_ms) { state->stable_ms += RL_RECOVERY_TICK_MS; }
+        if (state->stable_ms >= machine->rl.recovery.recovery_stable_ms) { state->phase = RL_RECOVERY_NORMAL; }
     }
-    if (state->phase == RL_RECOVERY_HOLD && state->hold_ms >= RL_RECOVERY_HOLD_MS) { state->phase = RL_RECOVERY_NORMAL; }
-    if (state->fallen_ms >= RL_RECOVERY_TIMEOUT_MS) { state->phase = RL_RECOVERY_FAILED; }
+    if (state->phase == RL_RECOVERY_HOLD && state->hold_ms >= machine->rl.recovery.recovery_hold_ms) { state->phase = RL_RECOVERY_NORMAL; }
+    if (state->fallen_ms >= machine->rl.recovery.recovery_timeout_ms) { state->phase = RL_RECOVERY_FAILED; }
 }
 /* 固件→模型：位置去额外零偏后乘sign，速度只乘sign；输出力矩在rl_torque中配对还原。 */
 uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, float position_period, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_map_state_t *state, rl_motor_state_t *out)

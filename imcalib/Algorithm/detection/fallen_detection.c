@@ -39,9 +39,9 @@ void Fallen_Detection_Update(fallen_detection_t *state, const imu_state_t *imu,
     }
     state->valid = 1u;
     state->inverted = (uint8_t)(state->upright < 0.0f || fabsf(imu->pitch_world) > fallen_detection_param.pitch_max);
-    left_error = Angle_Wrap_Pi(left->output.virtual_leg_angle - machine->lqr.leg_trim[0]);
-    right_error = Angle_Wrap_Pi(right->output.virtual_leg_angle - machine->lqr.leg_trim[1]);
-    pitch_error = Angle_Wrap_Pi(imu->pitch_world - machine->lqr.pitch_trim);
+    left_error = Angle_Wrap_Pi(left->output.virtual_leg_angle - machine->lqr.reference.leg_trim[0]);
+    right_error = Angle_Wrap_Pi(right->output.virtual_leg_angle - machine->lqr.reference.leg_trim[1]);
+    pitch_error = Angle_Wrap_Pi(imu->pitch_world - machine->lqr.reference.pitch_trim);
     state->abnormal = (uint8_t)(fabsf(left_error) > fallen_detection_param.trigger_angle || fabsf(right_error) > fallen_detection_param.trigger_angle || fabsf(pitch_error) > fallen_detection_param.trigger_pitch);
 }
 

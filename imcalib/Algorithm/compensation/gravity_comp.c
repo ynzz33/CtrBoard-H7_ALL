@@ -69,7 +69,7 @@ void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, con
     float angle;
 
     memset(result, 0, sizeof(*result));
-    if (machine->gravity == NULL)
+    if (machine->compensation.gravity == NULL)
     {
         return;
     }
@@ -85,13 +85,13 @@ void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, con
                 continue;
             }
             result->leg[side].world_angle = angle;
-            result->leg[side].torque = machine->gravity->mass * machine->gravity->gravity * result->leg[side].radius * sinf(angle - result->leg[side].offset);
+            result->leg[side].torque = machine->compensation.gravity->mass * machine->compensation.gravity->gravity * result->leg[side].radius * sinf(angle - result->leg[side].offset);
             if (!isfinite(result->leg[side].torque))
             {
                 return;
             }
         }
-        else if (!Gravity_Comp_Compute(machine->gravity, leg[side]->output.virtual_leg_length, world_angle[side], &result->leg[side]))
+        else if (!Gravity_Comp_Compute(machine->compensation.gravity, leg[side]->output.virtual_leg_length, world_angle[side], &result->leg[side]))
         {
             return;
         }

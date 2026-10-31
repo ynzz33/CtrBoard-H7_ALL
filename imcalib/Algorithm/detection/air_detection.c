@@ -15,13 +15,13 @@ air_param_t air_param = {
     .enabled = 1u, .control_enabled = 1u,
     .landing_enabled = 1u, .compression_enabled = 1u,
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
-    .wheel_mass = 0.65f, .force_off = 30.0f, .force_on = 35.0f,
+    .wheel_mass = 0.65f, .force_off = 35.0f, .force_on = 35.0f,
     .hip_max = 10.0f,
     .time_off = 0.15f, .time_on = 0.05f,
     .compression_on = 0.03f, .compression_time = 0.1f,
-    .air_min_height = 0.145f, /* 机身贴地区间，公共高度不高于此值不判离地 */
+    .air_min_height = 0.16f, /* 机身贴地区间，公共高度不高于此值不判离地 */
 #else
-    .wheel_mass = 0.13463f, .force_off = 6.0f, .force_on = 18.0f,
+    .wheel_mass = 0.13463f, .force_off = 35.0f, .force_on = 35.0f,
     .hip_max = 8.0f,
     .time_off = 0.01f, .time_on = 0.02f,
     .compression_on = 0.01f, .compression_time = 0.05f,
@@ -95,7 +95,7 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     }
     next->spring_force = input->compensation->spring.force[side];
     next->gravity_torque = 0.0f;
-    if (machine->gravity != NULL)
+    if (machine->compensation.gravity != NULL)
     {
         next->gravity_torque = input->compensation->gravity.leg[side].torque;
     }
@@ -232,7 +232,7 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
         Air_Detection_Reset(state);
         return;
     }
-    if (!input->imu->online || !input->imu->pitch_world_valid || !input->leg[0]->output.valid || !input->leg[1]->output.valid || !input->joint_ready || !input->compensation->spring.valid || (machine->gravity != NULL && !input->compensation->gravity.valid))
+    if (!input->imu->online || !input->imu->pitch_world_valid || !input->leg[0]->output.valid || !input->leg[1]->output.valid || !input->joint_ready || !input->compensation->spring.valid || (machine->compensation.gravity != NULL && !input->compensation->gravity.valid))
     {
         Air_Invalid(state);
         return;

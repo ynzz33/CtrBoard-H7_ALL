@@ -13,7 +13,6 @@
 #include <math.h>
 #include <string.h>
 
-#define FALLEN_PROCESS_SUPPORT_ANGLE_RANGE 0.6f
 
 fallen_process_ctx_t fallen_process_control;
 fallen_process_param_t fallen_process_param = {
@@ -30,7 +29,7 @@ fallen_process_param_t fallen_process_param = {
     .angle_timeout           = 1.5f,                            /* 后摆/摆正超时 s */
 
     /* 收腿与站立 */
-    .retract_len             = 0.14f,                           /* 目标 m */
+    .retract_len             = 0.15f,                           /* 目标 m */
     .angle_tol               = 0.4f,                            /* 容差 rad */
 
     /* 摆角串级PD */
@@ -82,10 +81,10 @@ static void Fallen_Process_PID_Init(fallen_process_ctx_t *st)
 {
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&st->actuator.length_pid[i], POSITION_PID, machine->lqr.leg_len[i].max_output, 0.0f, machine->lqr.leg_len[i].kp, 0.0f, machine->lqr.leg_len[i].kd, 0.0f, 0.0f);
+        PID_struct_init(&st->actuator.length_pid[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd, 0.0f, 0.0f);
         PID_struct_init(&st->actuator.angle_pos_pid[i], POSITION_PID, fallen_process_param.angle_speed_max, 0.0f, fallen_process_param.angle_pos_kp, 0.0f, fallen_process_param.angle_pos_kd, 0.0f, 0.0f);
         st->actuator.angle_pos_pid[i].angle_wrap = 1u;
-        PID_struct_init(&st->actuator.angle_speed_pid[i], POSITION_PID, machine->dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd, 0.0f, 0.0f);
+        PID_struct_init(&st->actuator.angle_speed_pid[i], POSITION_PID, machine->hip.dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd, 0.0f, 0.0f);
     }
 }
 
@@ -140,7 +139,7 @@ static uint8_t Fallen_Process_Input_Valid(const imu_state_t *imu,
 /* 伸腿目标 */
 static float Fallen_Process_Extend_Length(void)
 {
-    return clampf(fallen_process_param.extend_len, machine->leg_len_min, machine->leg_len_max);
+    return clampf(fallen_process_param.extend_len, machine->leg.leg_len_min, machine->leg.leg_len_max);
 }
 
 static uint8_t Fallen_Process_Extended(const leg_state_t *const leg[2])
@@ -156,7 +155,7 @@ static uint8_t Fallen_Process_Preloaded(const leg_state_t *const leg[2])
 {
     float minimum;
 
-    minimum = clampf(fallen_process_param.recovery_len, machine->leg_len_min, machine->leg_len_max) - fallen_process_param.length_tol;
+    minimum = clampf(fallen_process_param.recovery_len, machine->leg.leg_len_min, machine->leg.leg_len_max) - fallen_process_param.length_tol;
     return (uint8_t)(leg[0]->output.virtual_leg_length >= minimum && leg[1]->output.virtual_leg_length >= minimum);
 }
 
@@ -262,8 +261,8 @@ static uint8_t Fallen_Process_Ready(fallen_process_ctx_t *st,
     {
         if (st->lifecycle.phase == FALLEN_PROCESS_SWING)
         {
-            angle_error = Fallen_Process_Wrap(leg[i]->output.virtual_leg_angle - machine->lqr.leg_trim[i]);
-            command_error = Fallen_Process_Wrap(st->actuator.angle_target[i] - machine->lqr.leg_trim[i]);
+            angle_error = Fallen_Process_Wrap(leg[i]->output.virtual_leg_angle - machine->lqr.reference.leg_trim[i]);
+            command_error = Fallen_Process_Wrap(st->actuator.angle_target[i] - machine->lqr.reference.leg_trim[i]);
             if (fabsf(angle_error) > fallen_process_param.angle_tol)
             {
                 ready_block |= (uint16_t)(1u << (4u + i));
@@ -444,7 +443,7 @@ static void Fallen_Process_Recovery_Target(fallen_process_ctx_t *st,
     float target;
 
     target = fallen_process_param.recovery_len;
-    target = clampf(target, machine->leg_len_min, machine->leg_len_max);
+    target = clampf(target, machine->leg.leg_len_min, machine->leg.leg_len_max);
     for (uint8_t i = 0u; i < 2u; i++)
     {
         if (st->lifecycle.phase == FALLEN_PROCESS_SETTLE)
@@ -691,7 +690,7 @@ static void Fallen_Process_Target_Update(fallen_process_ctx_t *st,
             st->actuator.length_target[i] = fallen_process_param.retract_len;
             if (st->lifecycle.phase == FALLEN_PROCESS_SWING)
             {
-                st->actuator.angle_target[i] = Fallen_Process_Wrap(machine->lqr.leg_trim[i]);
+                st->actuator.angle_target[i] = Fallen_Process_Wrap(machine->lqr.reference.leg_trim[i]);
             }
         }
     }
@@ -756,8 +755,8 @@ static uint8_t Fallen_Process_Compute_Output(fallen_process_ctx_t *st,
             }
             tp[i] = pid_calc(&st->actuator.angle_speed_pid[i], rate, angle_speed_target, dt);
         }
-        support_weight = clampf(1.0f - fabsf(Fallen_Process_Wrap(angle - machine->lqr.leg_trim[i])) / FALLEN_PROCESS_SUPPORT_ANGLE_RANGE, 0.0f, 1.0f);
-        force[i] += st->actuator.support * support_weight * machine->lqr.support_force[i];
+        support_weight = clampf(1.0f - fabsf(Fallen_Process_Wrap(angle - machine->lqr.reference.leg_trim[i])) / machine->recovery.fallen_support_angle_range, 0.0f, 1.0f);
+        force[i] += st->actuator.support * support_weight * machine->lqr.roll_height.support_force[i];
         if (!isfinite(force[i]) || !isfinite(tp[i]))
         {
             return 0u;
@@ -777,7 +776,7 @@ static uint8_t Fallen_Process_Compute_Output(fallen_process_ctx_t *st,
             return 0u;
         }
     }
-    if (!Leg_Compensation_Apply(&values->spring, &values->gravity_world, base, machine->dm_trq_clamp, prepared.dm, &st->actuator.compensation))
+    if (!Leg_Compensation_Apply(&values->spring, &values->gravity_world, base, machine->hip.dm_trq_clamp, prepared.dm, &st->actuator.compensation))
     {
         return 0u;
     }

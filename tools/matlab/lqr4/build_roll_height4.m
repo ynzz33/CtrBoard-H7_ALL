@@ -17,8 +17,8 @@ for name={'roll_height_bias_common_max','roll_height_bias_diff_max','len_rate','
 end
 force_source=fullfile(repo,'imcalib','Algorithm','lqr','roll_height_balance.c');
 force_snapshot=fileread(force_source);
-token=regexp(force_snapshot,'#define\s+ROLL_HEIGHT_FORCE_MIN\s+\(\s*([-+\d.eE]+)f?\s*\)','tokens','once');
-if isempty(token),error('roll_height4:force_min','找不到C端轴向力下限，未覆盖');end
+token=regexp(source,'\.leg_force_min\s*=\s*([-+\d.eE]+)f?\s*,','tokens','once');
+if isempty(token),error('roll_height4:force_min','找不到machine_config.c的leg_force_min，未覆盖');end
 p.force_min=str2double(token{1});
 p.test_height=[machine.ctrl.grid(1) machine.ctrl.grid(end)];
 p.observer_tau=observer_tau;

@@ -28,7 +28,7 @@ static float Spring_Force(const machine_spring_cfg_t *model, float L0)
 /* 实体弹簧力 */
 float Gas_Spring_Force(float L0)
 {
-    return machine->spring != NULL ? Spring_Force(machine->spring, L0) : 0.0f;
+    return machine->compensation.spring != NULL ? Spring_Force(machine->compensation.spring, L0) : 0.0f;
 }
 
 /* 本拍实体力与抵消量 */
@@ -37,7 +37,7 @@ void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_s
     const leg_state_t *leg[2] = {left, right};
 
     memset(result, 0, sizeof(*result));
-    if (machine->spring != NULL)
+    if (machine->compensation.spring != NULL)
     {
         for (uint8_t side = 0u; side < 2u; side++)
         {
@@ -61,7 +61,7 @@ void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_s
 uint8_t Gas_Spring_Apply(const gas_spring_result_t *spring, const float base_dm[4], float unclamped_dm[4])
 {
     float result[4];
-    uint8_t active = (uint8_t)(GAS_SPRING_COMP_ENABLE && machine->spring != NULL);
+    uint8_t active = (uint8_t)(GAS_SPRING_COMP_ENABLE && machine->compensation.spring != NULL);
 
     memcpy(result, base_dm, sizeof(result));
     memset(unclamped_dm, 0, sizeof(result));

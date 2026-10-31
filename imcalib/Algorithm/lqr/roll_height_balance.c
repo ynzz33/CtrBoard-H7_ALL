@@ -6,7 +6,6 @@
 #include <string.h>
 
 /* 单腿轴向力下限N：允许负值补偿，但不允许无限往下拉把腿卸掉。 */
-#define ROLL_HEIGHT_FORCE_MIN (-10.0f)
 
 
 uint8_t Roll_Height_Available(void)
@@ -17,8 +16,8 @@ uint8_t Roll_Height_Available(void)
 void Roll_Height_Reset(roll_height_balance_t *state)
 {
     memset(state, 0, sizeof(*state));
-    LPF_Init(&state->lpf_omg_roll, machine->lqr.lpf_alpha[2]);
-    LPF_Init(&state->lpf_height_rate, machine->lqr.lpf_alpha[3]);
+    LPF_Init(&state->lpf_omg_roll, machine->lqr.filter.lpf_alpha[2]);
+    LPF_Init(&state->lpf_height_rate, machine->lqr.filter.lpf_alpha[3]);
 }
 
 void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit)
@@ -86,8 +85,8 @@ static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float mea
     }
     common = 0.5f * (next[RH_NX] + next[RH_NX + 1u]);
     difference = next[RH_NX] - next[RH_NX + 1u];
-    bounded_common = clampf(common, -machine->lqr.roll_height_bias_common_max, machine->lqr.roll_height_bias_common_max);
-    bounded_difference = clampf(difference, -machine->lqr.roll_height_bias_diff_max, machine->lqr.roll_height_bias_diff_max);
+    bounded_common = clampf(common, -machine->lqr.roll_height.roll_height_bias_common_max, machine->lqr.roll_height.roll_height_bias_common_max);
+    bounded_difference = clampf(difference, -machine->lqr.roll_height.roll_height_bias_diff_max, machine->lqr.roll_height.roll_height_bias_diff_max);
     memcpy(observer->state, next, sizeof(observer->state));
     observer->bias[0] = bounded_common + 0.5f * bounded_difference;
     observer->bias[1] = bounded_common - 0.5f * bounded_difference;
@@ -143,10 +142,17 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
     float common;
     float limited_common;
     float difference;
+    float fraction;
 
+    state->lqr.height_trim = 0.0f;
+    if (MACHINE_HEIGHT_TRIM_ENABLE && MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG)
+    {
+        fraction = clampf((state->target[2] - 0.14f) / (0.33f - 0.14f), 0.0f, 1.0f);
+        state->lqr.height_trim = MACHINE_HEIGHT_TRIM_LOW_N + fraction * (MACHINE_HEIGHT_TRIM_HIGH_N - MACHINE_HEIGHT_TRIM_LOW_N);
+    }
     for (uint8_t i = 0u; i < RH_NU; i++)
     {
-        state->lqr.base_force[i] = machine->lqr.support_force[i] + (i == 0u ? -turn_ff : turn_ff) - state->observer.bias[i];
+        state->lqr.base_force[i] = machine->lqr.roll_height.support_force[i] + state->lqr.height_trim + (i == 0u ? -turn_ff : turn_ff) - state->observer.bias[i];
         value = state->lqr.base_force[i];
         for (uint8_t j = 0u; j < RH_NX; j++)
         {
@@ -162,11 +168,11 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
     difference = 0.5f * raw_force[0] - 0.5f * raw_force[1];
     state->lqr.difference_request = difference;
     state->lqr.common_shift = 0.0f;
-    if (raw_force[0] < ROLL_HEIGHT_FORCE_MIN || raw_force[1] < ROLL_HEIGHT_FORCE_MIN)
+    if (raw_force[0] < machine->lqr.roll_height.leg_force_min || raw_force[1] < machine->lqr.roll_height.leg_force_min)
     {
         /* 触限时只抬升共模，保留原始差模；不修改roll/高度增益或偏置。 */
         common = 0.5f * raw_force[0] + 0.5f * raw_force[1];
-        limited_common = fmaxf(common, ROLL_HEIGHT_FORCE_MIN + fabsf(difference));
+        limited_common = fmaxf(common, machine->lqr.roll_height.leg_force_min + fabsf(difference));
         state->lqr.common_shift = limited_common - common;
         state->force[0] = limited_common + difference;
         state->force[1] = limited_common - difference;
@@ -219,6 +225,9 @@ uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
     measurement[1] = lqr->roll_rate;
     measurement[2] = state->x[2];
     measurement[3] = state->height_rate_raw;
+    state->lqr.observer_force[0] = state->force[0];
+    state->lqr.observer_force[1] = state->force[1];
+    state->lqr.observer_input_used = (float)(MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE && state->observer.permit && state->observer.seeded);
     /* 观测用原始速度，避免将控制低通的延迟误认为物理扰动。 */
     if (!Roll_Height_Observe(state, measurement))
     {

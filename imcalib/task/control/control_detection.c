@@ -72,7 +72,6 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     uint8_t request;
     uint8_t zero_effort;
     uint8_t normal_running;
-    uint8_t air_inhibit;
 
     request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage);
     if (!request)
@@ -87,9 +86,7 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
         {
             /* 本拍保持撤力；下一拍才开始新的初判，不把历史复位当作落地。 */
             Air_Detection_Reset(&air_detection);
-            air_inhibit = control_condition.air_inhibit;
             Control_Condition_Reset(&control_condition);
-            control_condition.air_inhibit = air_inhibit;
             Fallen_Process_Reset(&fallen_process_control);
             fallen_process_control.lifecycle.retry = control_postprocess.recovery_retry;
             control_postprocess.phase = CONTROL_POSTPROCESS_RECHECK;
@@ -110,24 +107,17 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
         }
     }
     normal_running = (uint8_t)(request && frame->drive_permit && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready);
-    if (Control_Condition_Air_Allowed(&control_condition, normal_running))
-    {
-        was_flight = air_detection.flight;
-        Air_Detection_Update(&air_detection, &input);
-        frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
-    }
-    else
-    {
-        Air_Detection_Reset(&air_detection);
-    }
-
+    /* 先观察FALLEN；AIR是否初始化不能阻止该观测或后续FALLEN选路。 */
     previous = control_condition.condition;
     zero_effort = (uint8_t)(!request || !frame->drive_permit || !control_condition.started);
     Control_Condition_Observe(&control_condition, &frame->imu, &frame->left, &frame->right, frame->height, frame->height_valid, zero_effort, normal_running);
+    was_flight = air_detection.flight;
+    Air_Detection_Update(&air_detection, &input);
+    frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
+
     Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, frame->fallen, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
     if (control_condition.valid && control_condition.condition == CONTROL_FALLEN && previous != CONTROL_FALLEN)
     {
-        Air_Detection_Reset(&air_detection);
         frame->landed = 0u;
     }
     if (control_postprocess.phase == CONTROL_POSTPROCESS_RECHECK)

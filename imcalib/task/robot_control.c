@@ -89,12 +89,12 @@ void Robot_Control_Init(void)
 
     Leg_Init(&leg_l);
     Leg_Init(&leg_r);
-    leg_l.config.lu = machine->leg_lu;
-    leg_l.config.lg = machine->leg_lg;
-    leg_l.config.offset_phi0 = machine->leg_off_phi0[0];
-    leg_r.config.lu = machine->leg_lu;
-    leg_r.config.lg = machine->leg_lg;
-    leg_r.config.offset_phi0 = machine->leg_off_phi0[1];
+    leg_l.config.lu = machine->leg.leg_lu;
+    leg_l.config.lg = machine->leg.leg_lg;
+    leg_l.config.offset_phi0 = machine->leg.leg_off_phi0[0];
+    leg_r.config.lu = machine->leg.leg_lu;
+    leg_r.config.lg = machine->leg.leg_lg;
+    leg_r.config.offset_phi0 = machine->leg.leg_off_phi0[1];
 
     leg_map_l.dm_front = DM_MOTOR_LEG_F_LFT;
     leg_map_l.dm_rear = DM_MOTOR_LEG_B_LFT;

@@ -98,7 +98,7 @@ static void Compute_Compensation(const control_frame_t *frame, torque_output_t *
     {
         return;
     }
-    torque->valid = Leg_Compensation_Apply(&frame->compensation.spring, &frame->compensation.gravity_world, base_dm, machine->dm_trq_clamp, torque->dm, debug);
+    torque->valid = Leg_Compensation_Apply(&frame->compensation.spring, &frame->compensation.gravity_world, base_dm, machine->hip.dm_trq_clamp, torque->dm, debug);
 }
 
 static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
@@ -180,8 +180,6 @@ static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *
             Torque_Output_Clear(torque);
             LQR_Idle();
             control_condition.condition = CONTROL_FALLEN;
-            control_condition.air_inhibit = 1u;
-            control_condition.air_normal_ticks = 0u;
             control_condition.normal_ready = 0u;
         }
     }
@@ -205,7 +203,7 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
     if (!frame->rc.mode.engage) { rl_motor_map.initialized = 0u; }
     if (tick)
     {
-        (void)RL_Motor_Map(&machine->rl, 2.0f * machine->dm_pos_max, frame->motor_pos, frame->motor_vel, frame->wheel_vel, frame->motor_valid, &rl_motor_map, &frame->rl_motor);
+        (void)RL_Motor_Map(&machine->rl, 2.0f * machine->hip.dm_pos_max, frame->motor_pos, frame->motor_vel, frame->wheel_vel, frame->motor_valid, &rl_motor_map, &frame->rl_motor);
         RL_Observation_Sample(&rl_control.observation, frame->imu.gyro_rad_s, frame->imu.quat, &frame->rl_motor, frame->imu.online);
     }
     rl_engaged = (uint8_t)(frame->drive_permit && frame->rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);

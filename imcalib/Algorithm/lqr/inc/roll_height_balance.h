@@ -9,6 +9,9 @@
 typedef struct {
     float base_force[RH_NU]; /* 原支撑前馈+显式向心项-估计偏置，N */
     float feedback[RH_NU][RH_NX]; /* -K*(x-target)，分项诊断 */
+    float observer_force[RH_NU]; /* 上一拍轴向请求快照，仅诊断 */
+    float observer_input_used; /* 本拍实际执行观测预测：0/1 */
+    float height_trim; /* 静态共模前馈试调N/腿，不是观测偏置 */
     float difference_request; /* 限幅前左右原始轴向力半差N */
     float common_shift; /* 为满足两腿下限而增加的平均力N，未触限为0 */
 } roll_height_feedback_t;

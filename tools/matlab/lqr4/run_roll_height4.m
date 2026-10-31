@@ -7,7 +7,7 @@ CFG.model='roll_height4_lqr';
 CFG.deploy=true;
 if nargin>=1 && ~isempty(machine_name),CFG.machine=machine_name;end
 % 鐘舵€侀『搴忥細roll銆乺oll瑙掗€熷害銆丠銆丠dot锛決/R浠ュ綋鍓嶈皟鍙傚€间负鍑嗭紝鍚嶄箟妫€鏌ラ€氳繃涓嶇瓑浜庡疄鏈虹ǔ瀹氥€?
-q=[14 0.3 400 0.01]; % 作者roll角权重20->14；q2=0.5实测放大5Hz且roll峰峰0.60rad，退回0.3
+q=[14 0.3 200 0.01]; % 作者roll角权重20->14；q2=0.5实测放大5Hz且roll峰峰0.60rad，退回0.3
 r=[1e-4 1e-4];
 observer_tau=[0.02 0.5]; % s锛氱墿鐞嗙姸鎬佷及璁?鎱㈠彉鍔涘亸缃紱鎸夊綋鍓?kHz閲嶆柊璁捐L
 addpath(fileparts(mfilename('fullpath')));

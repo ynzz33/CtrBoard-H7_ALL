@@ -55,10 +55,10 @@ uint8_t Leg_Compensation_Apply(const gas_spring_result_t *spring, const gravity_
 uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gravity_comp_result_t *gravity, const float base_dm[4], float limit, uint8_t spring_enable, float output_dm[4], compensation_debug_t *debug)
 {
     float raw[4];
-    uint8_t spring_active = (uint8_t)(spring_enable && GAS_SPRING_COMP_ENABLE && machine->spring != NULL);
+    uint8_t spring_active = (uint8_t)(spring_enable && GAS_SPRING_COMP_ENABLE && machine->compensation.spring != NULL);
 
     memset(debug, 0, sizeof(*debug));
-    if ((spring_active && !spring->valid) || (machine->gravity != NULL && !gravity->valid))
+    if ((spring_active && !spring->valid) || (machine->compensation.gravity != NULL && !gravity->valid))
     {
         return 0u;
     }
@@ -70,7 +70,7 @@ uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gra
             raw[i] += spring->delta_dm[i];
             debug->spring_dm[i] = raw[i] - base_dm[i];
         }
-        if (machine->gravity != NULL)
+        if (machine->compensation.gravity != NULL)
         {
             raw[i] += gravity->delta_dm[i];
         }

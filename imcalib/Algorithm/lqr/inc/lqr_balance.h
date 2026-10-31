@@ -50,6 +50,7 @@ typedef struct {
     float   acc_fwd_sign;      /* 前向加速度符号 */
     float   pitch_comp_sign;   /* 轮速补偿俯仰项符号 */
     float   pos_arm_vel;       /* 首次积分速度门槛m/s；0不检查速度 */
+    float   pos_leg_tol;       /* 腿角允许偏差rad；停车位置积分门控 */
     uint8_t wheel_enable;      /* 轮通道 */
     uint8_t leg_swing_enable;  /* 十态腿摆矩Tp通道，不控制轴向力F */
     uint8_t air_release_enable; /* 空中释放 */

@@ -27,6 +27,8 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
+    float position_error;
+    float velocity_error;
     // const lqr_gain_desc_t *gain;
     // float term;
     // uint8_t group;
@@ -145,7 +147,7 @@ void Vofa_Debug_Send(void)
 //     dbg[16] = leg_balance.roll_height.x[2];
 //     dbg[17] = leg_balance.roll_height.target[2];
 //     dbg[18] = leg_balance.roll_height.x[3];
-//     dbg[19] = machine->lqr.lpf_alpha[3];
+//     dbg[19] = machine->lqr.filter.lpf_alpha[3];
 //     dbg[20] = leg_l.output.virtual_leg_length;
 //     dbg[21] = leg_r.output.virtual_leg_length;
 //     dbg[22] = lqr_state.leg_length_target[0];
@@ -177,7 +179,7 @@ void Vofa_Debug_Send(void)
 //     dbg[43] = lqr_state.target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI]; /* yaw目标角速度rad/s */
 //     dbg[44] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][2] + leg_balance.roll_height.lqr.feedback[1][2]);
 //     dbg[45] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][3] + leg_balance.roll_height.lqr.feedback[1][3]);
-//     dbg[46] = machine->lqr.lpf_alpha[2];
+//     dbg[46] = machine->lqr.filter.lpf_alpha[2];
 //     dbg[47] = (float)robot_state.fallen;
 //     taskEXIT_CRITICAL();
 
@@ -392,63 +394,157 @@ void Vofa_Debug_Send(void)
     taskEXIT_CRITICAL();
 #endif
 
-    /* 腿长差排查布局：只读执行拍已发布状态，不推进控制器。
-     * 4~9   左右虚拟腿长、腿长差、腿长均值、左右伸缩速度(m,m/s)
-     * 10~13 四髋反馈关节角 左前/左后/右前/右后(rad，已含驱动标定)；用于看机构是否在剪叉
-     * 14~16 左右轴向力请求N、向心项N；17偏置共模N
-     * 18~20 最终腿长目标、左右斜坡目标m
-     * 21~23 机体俯仰rad、左右世界系腿摆角rad
-     * 24~26 roll rad、roll角速度原始/滤后 rad/s
-     * 27~28 投影高度及斜坡目标m
-     * 29~31 实测前进速度m/s、yaw角速度及目标rad/s
-     * 32~35 左右轮力矩请求Nm、左右轮反馈电流raw(未加载的轮电流会明显偏小)
-     * 36~39 AIR每腿支持力估计N、由反馈反解的每腿电机轴向力N
-     * 40~42 原始左右力半差N、协调抬升量N、左腿力映射行列式
-     * 43~46 四髋最终力矩请求Nm 左前/左后/右前/右后；47毫秒时间
-     * 换版本时手工恢复上一段即可，不按模式选帧。 */
+//     /* 腿长差排查布局：只读执行拍已发布状态，不推进控制器。
+//      * 4~9   左右虚拟腿长、腿长差、腿长均值、左右伸缩速度(m,m/s)
+//      * 10~13 四髋反馈关节角 左前/左后/右前/右后(rad，已含驱动标定)；用于看机构是否在剪叉
+//      * 14~16 左右轴向力请求N、向心项N；17偏置共模N
+//      * 18~20 最终腿长目标、左右斜坡目标m
+//      * 21~23 机体俯仰rad、左右世界系腿摆角rad
+//      * 24~26 roll rad、roll角速度原始/滤后 rad/s
+//      * 27~28 投影高度及斜坡目标m
+//      * 29~31 实测前进速度m/s、yaw角速度及目标rad/s
+//      * 32~35 左右轮力矩请求Nm、左右轮反馈电流raw(未加载的轮电流会明显偏小)
+//      * 36~39 AIR每腿支持力估计N、由反馈反解的每腿电机轴向力N
+//      * 40~42 原始左右力半差N、协调抬升量N、左腿力映射行列式
+//      * 43~46 四髋最终力矩请求Nm 左前/左后/右前/右后；47毫秒时间
+//      * 换版本时手工恢复上一段即可，不按模式选帧。 */
+//     taskENTER_CRITICAL();
+//     dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (leg_balance.roll_height.valid ? 4u : 0u) | (control_condition.valid ? 8u : 0u) | (lqr_state.air_control ? 16u : 0u) | (lqr_state.air_release ? 32u : 0u) | (air_detection.flight ? 64u : 0u) | (leg_balance.compensation.saturated ? 128u : 0u) | (leg_balance.roll_height.observer.permit ? 256u : 0u) | (leg_balance.roll_height.observer.updated ? 512u : 0u) | (leg_balance.roll_height.observer.limited ? 1024u : 0u) | (leg_balance.roll_height.observer.seeded ? 2048u : 0u) | ((uint32_t)control_condition.condition << 12) | (output_debug_dm_sent ? 16384u : 0u) | (output_debug_dji_sent ? 32768u : 0u) | (leg_balance.roll_height.lqr.common_shift > 0.0f ? 65536u : 0u));
+//     dbg[4] = leg_l.output.virtual_leg_length;
+//     dbg[5] = leg_r.output.virtual_leg_length;
+//     dbg[6] = leg_l.output.virtual_leg_length - leg_r.output.virtual_leg_length;
+//     dbg[7] = 0.5f * (leg_l.output.virtual_leg_length + leg_r.output.virtual_leg_length);
+//     dbg[8] = leg_l.output.d_virtual_leg_length;
+//     dbg[9] = leg_r.output.d_virtual_leg_length;
+//     dbg[10] = leg_l.input.hip_f;
+//     dbg[11] = leg_l.input.hip_b;
+//     dbg[12] = leg_r.input.hip_f;
+//     dbg[13] = leg_r.input.hip_b;
+//     dbg[14] = leg_balance.F[0];
+//     dbg[15] = leg_balance.F[1];
+//     dbg[16] = leg_balance.turn_ff;
+//     dbg[17] = 0.5f * (leg_balance.roll_height.observer.bias[0] + leg_balance.roll_height.observer.bias[1]);
+//     dbg[18] = lqr_state.leg_length_target[0];
+//     dbg[19] = leg_balance.length_ramp[0].out;
+//     dbg[20] = leg_balance.length_ramp[1].out;
+//     dbg[21] = lqr_state.x[LQR_X_THB];
+//     dbg[22] = lqr_state.x[LQR_X_THL];
+//     dbg[23] = lqr_state.x[LQR_X_THR];
+//     dbg[24] = lqr_state.roll;
+//     dbg[25] = lqr_state.roll_rate;
+//     dbg[26] = leg_balance.roll_height.x[1];
+//     dbg[27] = leg_balance.roll_height.x[2];
+//     dbg[28] = leg_balance.roll_height.target[2];
+//     /* 电机协议反馈力矩Nm，保持与43~46请求相同的物理坐标和顺序。 */
+//     dbg[29] = motor_state.dm.trq_nm[DM_MOTOR_LEG_F_LFT];
+//     dbg[30] = motor_state.dm.trq_nm[DM_MOTOR_LEG_B_LFT];
+//     dbg[31] = motor_state.dm.trq_nm[DM_MOTOR_LEG_F_RGT];
+//     /* 四髋顺序：左前、左后、右前、右后；实际叠加的补偿力矩Nm。 */
+//     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+//     {
+//         dbg[32u + i] = leg_balance.compensation.spring_dm[i];
+//         dbg[36u + i] = leg_balance.compensation.gravity.delta_dm[i];
+//     }
+//     dbg[40] = leg_balance.roll_height.lqr.height_trim; /* 本拍静态前馈修正N/腿 */
+//     dbg[41] = leg_balance.roll_height.lqr.common_shift; /* 下限协调抬升的平均力N */
+//     dbg[42] = motor_state.dm.trq_nm[DM_MOTOR_LEG_B_RGT]; /* 右后反馈Nm */
+//     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+//     {
+//         dbg[43u + i] = output_dm_torque_nm[i];
+//     }
+//     dbg[47] = (float)HAL_GetTick();
+//     taskEXIT_CRITICAL();
+
+//     /* 腿长闭环与观测输入诊断。 */
+//     taskENTER_CRITICAL();
+//     dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (leg_balance.roll_height.valid ? 4u : 0u) | (control_condition.valid ? 8u : 0u) | (lqr_state.air_control ? 16u : 0u) | (lqr_state.air_release ? 32u : 0u) | (air_detection.flight ? 64u : 0u) | (leg_balance.compensation.saturated ? 128u : 0u) | (leg_balance.roll_height.observer.permit ? 256u : 0u) | (leg_balance.roll_height.observer.updated ? 512u : 0u) | (leg_balance.roll_height.observer.limited ? 1024u : 0u) | (leg_balance.roll_height.observer.seeded ? 2048u : 0u) | ((uint32_t)control_condition.condition << 12) | (output_debug_dm_sent ? 16384u : 0u) | (output_debug_dji_sent ? 32768u : 0u) | (leg_balance.roll_height.lqr.common_shift > 0.0f ? 65536u : 0u));
+//     dbg[4] = leg_l.output.virtual_leg_length;
+//     dbg[5] = leg_r.output.virtual_leg_length;
+//     dbg[6] = leg_l.output.virtual_leg_length - leg_r.output.virtual_leg_length;
+//     dbg[7] = 0.5f * (leg_l.output.virtual_leg_length + leg_r.output.virtual_leg_length);
+//     dbg[8] = leg_l.output.d_virtual_leg_length;
+//     dbg[9] = leg_r.output.d_virtual_leg_length;
+//     dbg[10] = leg_l.input.hip_f;
+//     dbg[11] = leg_l.input.hip_b;
+//     dbg[12] = leg_r.input.hip_f;
+//     dbg[13] = leg_r.input.hip_b;
+//     dbg[14] = leg_balance.F[0];
+//     dbg[15] = leg_balance.F[1];
+//     dbg[16] = leg_balance.turn_ff;
+//     dbg[17] = 0.5f * (leg_balance.roll_height.observer.bias[0] + leg_balance.roll_height.observer.bias[1]);
+//     dbg[18] = lqr_state.leg_length_target[0];
+//     dbg[19] = leg_balance.length_ramp[0].out;
+//     dbg[20] = leg_balance.length_ramp[1].out;
+//     dbg[21] = lqr_state.x[LQR_X_THB];
+//     dbg[22] = lqr_state.x[LQR_X_THL];
+//     dbg[23] = lqr_state.x[LQR_X_THR];
+//     dbg[24] = lqr_state.roll;
+//     dbg[25] = lqr_state.roll_rate;
+//     dbg[26] = leg_balance.roll_height.x[1];
+//     dbg[27] = leg_balance.roll_height.x[2];
+//     dbg[28] = leg_balance.roll_height.target[2];
+//     /* 高度速度：原始/滤后/参考，m/s。 */
+//     dbg[29] = leg_balance.roll_height.height_rate_raw;
+//     dbg[30] = leg_balance.roll_height.x[3];
+//     dbg[31] = leg_balance.roll_height.target[3];
+//     dbg[32] = leg_balance.roll_height.lqr.observer_force[0];
+//     dbg[33] = leg_balance.roll_height.lqr.observer_force[1];
+//     dbg[34] = leg_balance.roll_height.lqr.observer_input_used;
+//     dbg[35] = 0.5f * (leg_balance.roll_height.lqr.base_force[0] + leg_balance.roll_height.lqr.base_force[1]);
+//     dbg[36] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][2] + leg_balance.roll_height.lqr.feedback[1][2]);
+//     dbg[37] = 0.5f * (leg_balance.roll_height.lqr.feedback[0][3] + leg_balance.roll_height.lqr.feedback[1][3]);
+//     dbg[38] = machine->lqr.roll_height.support_force[0];
+//     dbg[39] = machine->lqr.roll_height.support_force[1];
+//     dbg[40] = leg_balance.roll_height.lqr.height_trim; /* 本拍静态前馈修正N/腿 */
+//     dbg[41] = leg_balance.roll_height.lqr.common_shift; /* 下限协调抬升的平均力N */
+//     dbg[42] = (float)MACHINE_HEIGHT_TRIM_ENABLE;
+//     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+//     {
+//         dbg[43u + i] = output_dm_torque_nm[i];
+//     }
+//     dbg[47] = (float)HAL_GetTick();
+//     taskEXIT_CRITICAL();
+
+    /* 位移权重专项：保留位移/速度分项，增加停车门槛与腿姿态偏差。 */
     taskENTER_CRITICAL();
-    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (leg_balance.roll_height.valid ? 4u : 0u) | (control_condition.valid ? 8u : 0u) | (lqr_state.air_control ? 16u : 0u) | (lqr_state.air_release ? 32u : 0u) | (air_detection.flight ? 64u : 0u) | (leg_balance.compensation.saturated ? 128u : 0u) | (leg_balance.roll_height.observer.permit ? 256u : 0u) | (leg_balance.roll_height.observer.updated ? 512u : 0u) | (leg_balance.roll_height.observer.limited ? 1024u : 0u) | (leg_balance.roll_height.observer.seeded ? 2048u : 0u) | ((uint32_t)control_condition.condition << 12) | (output_debug_dm_sent ? 16384u : 0u) | (output_debug_dji_sent ? 32768u : 0u) | (leg_balance.roll_height.lqr.common_shift > 0.0f ? 65536u : 0u));
-    dbg[4] = leg_l.output.virtual_leg_length;
-    dbg[5] = leg_r.output.virtual_leg_length;
-    dbg[6] = leg_l.output.virtual_leg_length - leg_r.output.virtual_leg_length;
-    dbg[7] = 0.5f * (leg_l.output.virtual_leg_length + leg_r.output.virtual_leg_length);
-    dbg[8] = leg_l.output.d_virtual_leg_length;
-    dbg[9] = leg_r.output.d_virtual_leg_length;
-    dbg[10] = leg_l.input.hip_f;
-    dbg[11] = leg_l.input.hip_b;
-    dbg[12] = leg_r.input.hip_f;
-    dbg[13] = leg_r.input.hip_b;
-    dbg[14] = leg_balance.F[0];
-    dbg[15] = leg_balance.F[1];
-    dbg[16] = leg_balance.turn_ff;
-    dbg[17] = 0.5f * (leg_balance.roll_height.observer.bias[0] + leg_balance.roll_height.observer.bias[1]);
-    dbg[18] = lqr_state.leg_length_target[0];
-    dbg[19] = leg_balance.length_ramp[0].out;
-    dbg[20] = leg_balance.length_ramp[1].out;
-    dbg[21] = lqr_state.x[LQR_X_THB];
-    dbg[22] = lqr_state.x[LQR_X_THL];
-    dbg[23] = lqr_state.x[LQR_X_THR];
-    dbg[24] = leg_balance.roll_height.x[0];
-    dbg[25] = lqr_state.roll_rate;
-    dbg[26] = leg_balance.roll_height.x[1];
-    dbg[27] = leg_balance.roll_height.x[2];
-    dbg[28] = leg_balance.roll_height.target[2];
-    dbg[29] = lqr_state.x[LQR_X_DS];
-    dbg[30] = lqr_state.x[LQR_X_DPHI];
-    dbg[31] = lqr_state.target[LQR_X_DPHI];
-    /* 四髋顺序：左前、左后、右前、右后；实际叠加的补偿力矩Nm。 */
-    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    position_error = lqr_state.target[LQR_X_S] + LQR_Gain_Info()->x_eq[LQR_X_S] - lqr_state.x[LQR_X_S];
+    velocity_error = lqr_state.target[LQR_X_DS] + LQR_Gain_Info()->x_eq[LQR_X_DS] - lqr_state.x[LQR_X_DS];
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (lqr_state.air_control ? 4u : 0u) | (lqr_state.air_release ? 8u : 0u) | (leg_balance.compensation.saturated ? 16u : 0u) | (lqr_state.target[LQR_X_DS] == 0.0f ? 32u : 0u) | (lqr_state.pos_armed ? 64u : 0u) | (lqr_debug.pos_hold ? 128u : 0u) | (lqr_debug.pos_arm_vel <= 0.0f || fabsf(lqr_state.x[LQR_X_DS]) < lqr_debug.pos_arm_vel ? 256u : 0u) | (output_debug_dm_sent ? 512u : 0u) | (output_debug_dji_sent ? 1024u : 0u));
+    dbg[4] = lqr_state.x[LQR_X_S];
+    dbg[5] = lqr_state.target[LQR_X_S] + LQR_Gain_Info()->x_eq[LQR_X_S];
+    dbg[6] = position_error;
+    dbg[7] = lqr_state.target[LQR_X_DS];
+    dbg[8] = lqr_state.x[LQR_X_DS];
+    dbg[9] = velocity_error;
+    dbg[10] = (float)lqr_state.pos_armed;
+    dbg[11] = (float)lqr_debug.pos_hold;
+    dbg[12] = leg_l.output.virtual_leg_angle;
+    dbg[13] = leg_r.output.virtual_leg_angle;
+    dbg[14] = lqr_state.x[LQR_X_THL];
+    dbg[15] = lqr_state.x[LQR_X_THR];
+    dbg[16] = lqr_state.target[LQR_X_THL] + LQR_Gain_Info()->x_eq[LQR_X_THL];
+    dbg[17] = lqr_state.target[LQR_X_THR] + LQR_Gain_Info()->x_eq[LQR_X_THR];
+    dbg[18] = lqr_state.x[LQR_X_THB];
+    dbg[19] = lqr_state.x[LQR_X_DTHB];
+    for (uint8_t i = 0u; i < LQR_U_NUM; i++)
     {
-        dbg[32u + i] = leg_balance.compensation.spring_dm[i];
-        dbg[36u + i] = leg_balance.compensation.gravity.delta_dm[i];
+        /* 输出顺序：左轮、右轮、左腿虚拟摆矩、右腿虚拟摆矩；非最终髋电机矩。 */
+        dbg[20u + i] = lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control && lqr_debug.pos_hold ? lqr_state.K[i][LQR_X_S] * position_error : 0.0f;
+        dbg[24u + i] = lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control ? lqr_state.K[i][LQR_X_DS] * velocity_error : 0.0f;
+        dbg[28u + i] = lqr_state.u[i];
+        dbg[40u + i] = lqr_state.K[i][LQR_X_S];
     }
-    dbg[40] = leg_balance.roll_height.lqr.difference_request; /* 原始左右力半差N */
-    dbg[41] = leg_balance.roll_height.lqr.common_shift; /* 下限协调抬升的平均力N */
-    dbg[42] = leg_l.output.force_det;
-    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
-    {
-        dbg[43u + i] = output_dm_torque_nm[i];
-    }
+    dbg[32] = remainderf(lqr_state.x[LQR_X_THL] - machine->lqr.reference.leg_trim[0], LEG_2PI);
+    dbg[33] = remainderf(lqr_state.x[LQR_X_THR] - machine->lqr.reference.leg_trim[1], LEG_2PI);
+    dbg[34] = lqr_debug.pos_arm_vel;
+    dbg[35] = rc_command.velocity_target;
+    dbg[36] = leg_l.output.virtual_leg_length;
+    dbg[37] = leg_r.output.virtual_leg_length;
+    dbg[38] = lqr_state.leg_length_target[0];
+    dbg[39] = lqr_state.roll;
+    dbg[44] = lqr_state.K[LQR_U_BL][LQR_X_DS];
+    dbg[45] = lqr_state.K[LQR_U_BR][LQR_X_DS];
+    dbg[46] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u) | (fabsf(lqr_state.u[LQR_U_BL]) >= lqr_debug.trq_max_hip ? 4u : 0u) | (fabsf(lqr_state.u[LQR_U_BR]) >= lqr_debug.trq_max_hip ? 8u : 0u));
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
     Vofa_Send(dbg, VOFA_MAX_CH);

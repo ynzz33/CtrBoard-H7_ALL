@@ -19,9 +19,9 @@ void Leg_Balance_Init(leg_balance_t *lb)
 
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.leg_len[i].max_output, 0.0f, machine->lqr.leg_len[i].kp, 0.0f, machine->lqr.leg_len[i].kd * MACHINE_LQR_DT, 0.0f, 0.0f);
+        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd * MACHINE_LQR_DT, 0.0f, 0.0f);
     }
-    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.roll.max_output, 0.0f, machine->lqr.roll.kp, 0.0f, machine->lqr.roll.kd * MACHINE_LQR_DT, 0.0f, 0.0f);
+    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.pd.roll.max_output, 0.0f, machine->lqr.pd.roll.kp, 0.0f, machine->lqr.pd.roll.kd * MACHINE_LQR_DT, 0.0f, 0.0f);
     Roll_Height_Reset(&lb->roll_height);
 }
 
@@ -200,7 +200,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
             {
                 for (uint8_t i = 0u; i < 2u; i++)
                 {
-                    target[i] = Normal_Length_Target_Update(&lb->length_ramp[i], &lb->length_ref_rate[i], target[i], machine->rc.len_rate, machine->lqr.length_ref_accel_max, dt);
+                    target[i] = Normal_Length_Target_Update(&lb->length_ramp[i], &lb->length_ref_rate[i], target[i], machine->rc.len_rate, machine->lqr.roll_height.length_ref_accel_max, dt);
                 }
             }
         }
@@ -238,8 +238,8 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
             Leg_PD_Update(&lb->leg_len[0], length[0], target[0], leg_l->output.d_virtual_leg_length);
             Leg_PD_Update(&lb->leg_len[1], length[1], target[1], leg_r->output.d_virtual_leg_length);
             Leg_PD_Update(&lb->roll, st->roll, 0.0f, st->roll_rate);
-            F[0] = lb->leg_len[0].position_mode_output + lb->roll.position_mode_output + machine->lqr.support_force[0] - lb->turn_ff;
-            F[1] = lb->leg_len[1].position_mode_output - lb->roll.position_mode_output + machine->lqr.support_force[1] + lb->turn_ff;
+            F[0] = lb->leg_len[0].position_mode_output + lb->roll.position_mode_output + machine->lqr.roll_height.support_force[0] - lb->turn_ff;
+            F[1] = lb->leg_len[1].position_mode_output - lb->roll.position_mode_output + machine->lqr.roll_height.support_force[1] + lb->turn_ff;
         }
     }
     else

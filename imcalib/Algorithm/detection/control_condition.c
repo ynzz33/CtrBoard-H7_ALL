@@ -10,38 +10,12 @@
 control_condition_param_t control_condition_param = {
     .body_contact_height = 0.15f,
     .confirm_time = 0.05f,
-    .air_rearm_time = 1.0f,
 };
 control_condition_t control_condition;
 
 void Control_Condition_Reset(control_condition_t *state)
 {
     memset(state, 0, sizeof(*state));
-}
-
-/* 每执行拍只调用一次；FALLEN不观察AIR，恢复后正常运行满时才重新采样。 */
-uint8_t Control_Condition_Air_Allowed(control_condition_t *state, uint8_t normal_running)
-{
-    if (state->started && state->condition == CONTROL_FALLEN)
-    {
-        state->air_inhibit = 1u;
-        state->air_normal_ticks = 0u;
-        return 0u;
-    }
-    if (!state->air_inhibit)
-    {
-        return 1u;
-    }
-    if (!normal_running)
-    {
-        state->air_normal_ticks = 0u;
-        return 0u;
-    }
-    if ((float)state->air_normal_ticks * MACHINE_LQR_DT + 1.0e-6f < control_condition_param.air_rearm_time)
-    {
-        state->air_normal_ticks++;
-    }
-    return (uint8_t)((float)state->air_normal_ticks * MACHINE_LQR_DT + 1.0e-6f >= control_condition_param.air_rearm_time);
 }
 
 void Control_Condition_Observe(control_condition_t *state, const imu_state_t *imu,
@@ -76,18 +50,16 @@ static void Condition_Enter(control_condition_t *state, control_condition_type_t
     state->valid = 1u;
     state->normal_ready = 0u;
     state->trigger_elapsed = 0.0f;
-    if (next == CONTROL_FALLEN)
-    {
-        state->air_inhibit = 1u;
-        state->air_normal_ticks = 0u;
-    }
 }
 
 void Control_Condition_Recovery_Ready(control_condition_t *state)
 {
-    state->air_inhibit = 1u;
-    state->air_normal_ticks = 0u;
-    Condition_Enter(state, CONTROL_NORMAL);
+    if (air_param.enabled && (!air_detection.valid || !air_detection.initialized))
+    {
+        state->valid = 0u;
+        return;
+    }
+    Condition_Enter(state, (air_param.enabled && air_detection.flight) ? CONTROL_FLIGHT : CONTROL_NORMAL);
 }
 
 void Control_Condition_Select(control_condition_t *state, const air_detection_t *air,
@@ -124,10 +96,14 @@ void Control_Condition_Select(control_condition_t *state, const air_detection_t 
         }
         return;
     }
-    /* 屏蔽期结束后还需完成新的AIR初判；等待期间NORMAL控制不能被中断。 */
-    if (state->air_inhibit && state->started && state->condition == CONTROL_NORMAL && (float)state->air_normal_ticks * MACHINE_LQR_DT + 1.0e-6f >= control_condition_param.air_rearm_time && air->valid && air->initialized)
+    /* FALLEN选路必须先于高度候选等待和AIR有效性/初始化等待。
+     * 保留原各状态触发条件，不把飞行中的普通腿姿偏差当作倒地。 */
+    if ((!state->started && (fallen || fallen_detection.inverted || fallen_detection.abnormal || state->body_contact_confirmed)) ||
+        (state->started && state->condition == CONTROL_NORMAL && state->normal_ready && (fallen_detection.inverted || state->prepare_required)) ||
+        (state->started && state->condition == CONTROL_FLIGHT && fallen_detection.upright < 0.0f))
     {
-        state->air_inhibit = 0u;
+        Condition_Enter(state, CONTROL_FALLEN);
+        return;
     }
     if (!state->started)
     {
@@ -135,25 +111,14 @@ void Control_Condition_Select(control_condition_t *state, const air_detection_t 
         {
             return;
         }
-        if (state->body_contact_confirmed)
-        {
-            Condition_Enter(state, CONTROL_FALLEN);
-            return;
-        }
     }
-    if (!state->air_inhibit && air_param.enabled && (!air->valid || !air->initialized))
+    if (air_param.enabled && (!air->valid || !air->initialized))
     {
         state->normal_ready = 0u;
         return;
     }
     if (state->started && state->condition == CONTROL_FLIGHT)
     {
-        /* AIR压缩落地未确认时，真正倒置不能持续锁在只摆腿的AIR处理。 */
-        if (fallen_detection.upright < 0.0f)
-        {
-            Condition_Enter(state, CONTROL_FALLEN);
-            return;
-        }
         if (!air_param.enabled || !air->flight)
         {
             Condition_Enter(state, CONTROL_NORMAL);
@@ -164,17 +129,13 @@ void Control_Condition_Select(control_condition_t *state, const air_detection_t 
         }
         return;
     }
-    if (!state->air_inhibit && air_param.enabled && air->flight)
+    if (air_param.enabled && air->flight)
     {
         Condition_Enter(state, CONTROL_FLIGHT);
     }
     else if (!state->started)
     {
-        Condition_Enter(state, (fallen || fallen_detection.inverted || fallen_detection.abnormal) ? CONTROL_FALLEN : CONTROL_NORMAL);
-    }
-    else if (state->normal_ready && (fallen_detection.inverted || state->prepare_required))
-    {
-        Condition_Enter(state, CONTROL_FALLEN);
+        Condition_Enter(state, CONTROL_NORMAL);
     }
     else
     {
