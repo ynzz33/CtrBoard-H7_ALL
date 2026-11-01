@@ -1,3 +1,53 @@
+## 当前VOFA：倒置上电诊断v1（2026-11-01）
+
+本表覆盖下方全部旧VOFA布局。按作者要求只切换固定48路只读诊断；估力分项旧布局完整#if 0保留，0～2和唯一发送保持。此次不改普通SWING、不降速、不修改倒置判据、AIR或动作流程。需区分直接误入普通规划，以及曾进入翻身后过早回正。
+
+| 通道（0起） | 内容与单位 |
+| --- | --- |
+| 0～2 | 原在线掩码、原使能/投入状态位、整机ctrl_fault |
+| 3～4 | 三态condition、condition.valid；0 NORMAL/1 FALLEN/2 FLIGHT |
+| 5 | imu.pitch_world_valid |
+| 6～7 | fallen_detection.upright（无量纲）、inverted（0/1） |
+| 8～10 | 恢复phase、恢复fault、normal.planned（0/1） |
+| 11～12 | euler_rad[ATTITUDE_ROLL]实际补角输入、pitch_world，rad |
+| 13～16 | 当前映射/归一化四元数w/x/y/z |
+| 17～19 | 当前映射加速度x/y/z，g |
+| 20～21 | fallen_detection.valid、imu.online |
+| 22～25 | 左/右腿几何valid、左/右腿force_valid |
+| 26～29 | recovery_enabled、公共后处理phase、恢复阶段时间s、稳定时间s |
+| 30～33 | 左/右几何腿角、左/右恢复指令角，rad |
+| 34～37 | 左/右实际腿长、左/右恢复最终腿长目标，m |
+| 38～39 | 左/右normal.path：0身下保持（未规划时也为0）、1前侧、2后侧 |
+| 40～43 | 四髋最终请求Nm：左前、左后、右前、右后 |
+| 44～47 | AIR原始flight、AIR valid、电机反馈motor.valid、HAL毫秒时间 |
+
+恢复phase：0 IDLE、1 RETRACT、2 SWING、3 DONE、4 FAILED、5 REAR、6 EXTEND、7 SETTLE、8 PRELOAD、9 FLIP、10 ALIGN_FRONT（倒置前点对齐）。恢复fault：0无、1输入、2超时、3姿态、4许可、5配置。公共后处理phase：0运行、1撤力等待、2重判。upright/inverted在检测valid=0时可能保留旧值，pitch_world在补角无效时可能清零，不能脱离5/20/21解读。planned/path结合恢复阶段解释，不把DONE后的残留当正在普通选路；40～43为最终请求，不代表实体已实现。后台临界区复制仍不是控制拍快照，各来源异步，不逐帧强行对账。
+
+复现：保持当前倒置初姿，上电前让VOFA准备接收并尽早开始录制；上电后先保持未投入约2s，再按平时方式投入LQR，保留首次错误动作及退出后的记录。只需一次完整过程、导出全部48列；不要先正立一次再倒置，以免丢失冷启动条件。原始数据未确认前不改IMU符号、零点、轴映射或倒置阈值。
+
+## 当前自起与翻身流程
+
+本节仅描述当前实现，参数以fallen_process.c为准；此前试用、回退及旧自起VOFA表已移至[变更历史](sysid-change-map.md#2026-11-01--自起总览旧说明归档)，不作为现行控制依据。
+
+公共姿态检测归fallen_detection.c，低高度候选和三态仲裁归control_condition.c，动作阶段/目标/PID归fallen_process.c。恢复模块返回PREPARE、BALANCE或STOP，由control_compute选择恢复或LQR候选，再经唯一control_output发送；检测和动作完成条件职责不同。
+
+普通入口只运行新版Normal_Plan：每腿沿原连续角上绕通道选择前或后准备位，锁定本次路径；需要移动且腿短时才补伸，其余腿保持当前长度。已经在所选准备位时可跳过对齐；双腿共用阶段等待。作者已自行注释身下快捷if，AI保留该注释及normal_swing_window成员，不另行启用或删除。
+
+| 普通阶段 | 行为与转段 |
+| --- | --- |
+| EXTEND=6 | 按各腿本次长度目标控制；双腿进入length_tol窗口并持续stable_time后进入准备位对齐 |
+| REAR=5 | 此名称保留原编号，实际对齐前/后准备位；连续实际角和指令角都进入prepare_angle_tol窗口并持续stable_time后收腿或摆正 |
+| RETRACT=1 | 腿长目标为retract_len，基础摆矩Tp为0；双腿实际长度不高于retract_len+length_tol即转摆正 |
+| SWING=2 | 摆角直接给站立trim，腿长继续原目标和支撑渐入；双腿实际/指令角进入normal_angle_tol并持续stable_time后DONE |
+
+普通SWING没有目标斜坡；作者已明确本轮不需要增加。prepare_angle_tol仅由rear_tol改名，仍为原0.1rad，普通摆正容差仍为0.2rad；未加入机身俯仰、速度或外推接管门槛。身下注释、原PID/斜坡推进次数及现有速率保持。
+
+倒置流程为SETTLE=7 → PRELOAD=8 → ALIGN_FRONT=10 → FLIP=9。原腿长准备后，两腿沿连续角分支分别对齐倒置专用前点recovery_front_angle=1.45rad；双腿实际/指令均进入prepare_angle_tol、腿长仍满足预伸门槛，持续stable_time后才开始扫腿。对齐使用angle_rate限速、angle_timeout保护，不累计扫角。FLIP两侧指令统一从1.45rad开始，保留原正向连续扫角、回正及扫角/卡滞保护；普通前点front_angle=1.75rad与其独立。
+
+翻身回正后直接调用新版Normal_Plan，normal.planned置1；旧固定伸腿/统一后摆入口、旧专用函数、旧目标分支及旧0.4rad容差均已删除。自动翻身关闭但仍倒置时撤力等待。动作超时仍经公共撤力、等待、重判及重试预算处理，不将超时直接当作倒地事实。
+
+DONE仍通过原接口交接LQR；实际选NORMAL还是FLIGHT取决于有效AIR结果，不强制先NORMAL。正常控制腿长读取遥控目标，恢复PID与正常控制器历史不共用。当前AIR和物理标定不属于此次接口清理范围；VOFA固定布局以上方“倒置上电诊断v1”为准。
+
 2026-10-30当前LQR目标范围按现有机械配置：大机0.13～0.34m；公共拨轮下限已解除对LQR表下限的依赖。十态K表仍0.15～0.31m，目标超出该表域时使用边界K，尚未验证两端稳定性；下文旧交集裁剪记录仅为历史。
 
 2026-10-30当前VOFA以本文“当前VOFA与调试入口”的十态/四态联合表为准；下文RL及自起布局描述为此前记录。

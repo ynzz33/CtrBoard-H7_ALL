@@ -13,6 +13,8 @@
 #include "control_detection.h"
 #include "control_condition.h"
 #include "fallen_process.h"
+#include "fallen_detection.h"
+#include "math_utils.h"
 #include "machine_config.h"
 #include "Vofa_send.h"
 #include "dr16.h"
@@ -27,8 +29,6 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
-    float position_error;
-    float velocity_error;
     // const lqr_gain_desc_t *gain;
     // float term;
     // uint8_t group;
@@ -506,6 +506,9 @@ void Vofa_Debug_Send(void)
 //     taskEXIT_CRITICAL();
 
     /* 位移权重专项：保留位移/速度分项，增加停车门槛与腿姿态偏差。 */
+#if 0
+    float position_error;
+    float velocity_error;
     taskENTER_CRITICAL();
     position_error = lqr_state.target[LQR_X_S] + LQR_Gain_Info()->x_eq[LQR_X_S] - lqr_state.x[LQR_X_S];
     velocity_error = lqr_state.target[LQR_X_DS] + LQR_Gain_Info()->x_eq[LQR_X_DS] - lqr_state.x[LQR_X_DS];
@@ -545,6 +548,174 @@ void Vofa_Debug_Send(void)
     dbg[44] = lqr_state.K[LQR_U_BL][LQR_X_DS];
     dbg[45] = lqr_state.K[LQR_U_BR][LQR_X_DS];
     dbg[46] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u) | (fabsf(lqr_state.u[LQR_U_BL]) >= lqr_debug.trq_max_hip ? 4u : 0u) | (fabsf(lqr_state.u[LQR_U_BR]) >= lqr_debug.trq_max_hip ? 8u : 0u));
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+    /* 普通趴地自起路径采集v3：只读已有状态，不生成控制目标。
+     * 16/17沿用路径的角差定义；先fmod有界化，再按原±pi端点环绕。
+     * 18/19为PID上次实际使用的测量，RETRACT暂停角环时会保留旧值。
+     * 22/23/45观察支持力、AIR条件计时和原始flight，区分交接与后续离地。
+     * 后台同帧不是同一物理采样；仅在对应阶段解释PID和路径字段。 */
+#if 0
+    taskENTER_CRITICAL();
+    dbg[3] = (float)(fallen_process_control.lifecycle.phase);
+    dbg[4] = (float)(fallen_process_control.lifecycle.fault);
+    dbg[5] = (float)(fallen_process_control.lifecycle.elapsed);
+    dbg[6] = (float)(fallen_process_control.lifecycle.stable_elapsed);
+    dbg[7] = (float)(fallen_process_control.lifecycle.retry);
+    dbg[8] = (float)(control_postprocess.phase);
+    dbg[9] = (float)(control_condition.condition);
+    dbg[10] = (float)(control_condition.valid);
+    dbg[11] = (float)(fallen_detection.inverted);
+    dbg[12] = (float)(imu_state.pitch_world);
+    dbg[13] = (float)(imu_state.gyro_rad_s[1]); /* 原始俯仰角速度，仅观察 */
+    dbg[14] = (float)(leg_l.output.virtual_leg_angle);
+    dbg[15] = (float)(leg_r.output.virtual_leg_angle);
+    dbg[16] = (float)(Angle_Wrap_Pi(fmodf(leg_l.output.virtual_leg_angle - imu_state.pitch_world, LEG_2PI)));
+    dbg[17] = (float)(Angle_Wrap_Pi(fmodf(leg_r.output.virtual_leg_angle - imu_state.pitch_world, LEG_2PI)));
+    dbg[18] = (float)(fallen_process_control.actuator.angle_pos_pid[0].measured[NOW]);
+    dbg[19] = (float)(fallen_process_control.actuator.angle_pos_pid[1].measured[NOW]);
+    dbg[20] = (float)(fallen_process_control.actuator.angle_target[0]);
+    dbg[21] = (float)(fallen_process_control.actuator.angle_target[1]);
+    dbg[22] = (float)(air_detection.mean_force); /* 平均支持力N */
+    dbg[23] = (float)(air_detection.elapsed); /* AIR当前条件计时s */
+    dbg[24] = (float)(leg_l.output.d_virtual_leg_angle);
+    dbg[25] = (float)(leg_r.output.d_virtual_leg_angle);
+    dbg[26] = (float)(leg_l.output.virtual_leg_length);
+    dbg[27] = (float)(leg_r.output.virtual_leg_length);
+    dbg[28] = (float)(fallen_process_control.actuator.length_target[0]);
+    dbg[29] = (float)(fallen_process_control.actuator.length_target[1]);
+    dbg[30] = (float)(fallen_process_control.actuator.length_ramp[0].out);
+    dbg[31] = (float)(fallen_process_control.actuator.length_ramp[1].out);
+    dbg[32] = (float)(fallen_process_control.actuator.length_pid[0].position_mode_output);
+    dbg[33] = (float)(fallen_process_control.actuator.length_pid[1].position_mode_output);
+    dbg[34] = (float)(fallen_process_control.actuator.angle_speed_pid[0].position_mode_output);
+    dbg[35] = (float)(fallen_process_control.actuator.angle_speed_pid[1].position_mode_output);
+    dbg[36] = (float)(fallen_process_control.actuator.support);
+    dbg[37] = (float)(output_dm_torque_nm[DM_MOTOR_LEG_F_LFT]);
+    dbg[38] = (float)(output_dm_torque_nm[DM_MOTOR_LEG_B_LFT]);
+    dbg[39] = (float)(output_dm_torque_nm[DM_MOTOR_LEG_F_RGT]);
+    dbg[40] = (float)(output_dm_torque_nm[DM_MOTOR_LEG_B_RGT]);
+    dbg[41] = (float)(motor_state.dm.trq_nm[DM_MOTOR_LEG_F_LFT]);
+    dbg[42] = (float)(motor_state.dm.trq_nm[DM_MOTOR_LEG_B_LFT]);
+    dbg[43] = (float)(motor_state.dm.trq_nm[DM_MOTOR_LEG_F_RGT]);
+    dbg[44] = (float)(motor_state.dm.trq_nm[DM_MOTOR_LEG_B_RGT]);
+    dbg[45] = (float)(air_detection.flight); /* 原始AIR结果，不是三态选路 */
+    /* bit0路径就绪/bit1新普通路径，bit2~5左右路径。 */
+    dbg[46] = (float)((fallen_process_control.normal.rear_path_ready ? 1u : 0u) |
+                      (fallen_process_control.normal.planned ? 2u : 0u) |
+                      ((uint8_t)fallen_process_control.normal.path[0] << 2) |
+                      ((uint8_t)fallen_process_control.normal.path[1] << 4));
+    dbg[47] = (float)(HAL_GetTick());
+    taskEXIT_CRITICAL();
+#endif
+    /* 估力分项诊断v1：仅观察现有结果，0～2保持，完整通道/单位见file-guide。
+     * 低/中/高腿静立使用；theta沿用Air_Estimate原定义，不更改轴向或标定。
+     * 各来源是后台当前值，不保证与AIR内部严格同拍；动态瞬态不可逐行强行对账。 */
+#if 0
+    taskENTER_CRITICAL();
+    dbg[3] = (float)control_condition.condition;
+    dbg[4] = (float)control_condition.valid;
+    dbg[5] = (float)air_detection.valid;
+    dbg[6] = (float)((air_detection.initialized ? 1u : 0u) |
+                    (air_detection.flight ? 2u : 0u) |
+                    (air_detection.fault ? 4u : 0u) |
+                    (leg_l.output.force_valid ? 8u : 0u) |
+                    (leg_r.output.force_valid ? 16u : 0u) |
+                    (leg_balance.compensation.saturated ? 32u : 0u) |
+                    (output_debug_dm_sent ? 64u : 0u) |
+                    (leg_balance.roll_height.valid ? 128u : 0u) |
+                    (output_debug_dji_sent ? 256u : 0u));
+    dbg[7] = leg_balance.roll_height.lqr.height_trim; /* N/腿，实际四态高度补偿 */
+    dbg[8] = leg_l.output.virtual_leg_length;
+    dbg[9] = leg_r.output.virtual_leg_length;
+    dbg[10] = remainderf(leg_l.output.virtual_leg_angle - leg_l.config.offset_phi0 - imu_state.euler_rad[ATTITUDE_ROLL], LEG_2PI);
+    dbg[11] = remainderf(leg_r.output.virtual_leg_angle - leg_r.config.offset_phi0 - imu_state.euler_rad[ATTITUDE_ROLL], LEG_2PI);
+    dbg[12] = imu_state.accel_vertical;
+    dbg[13] = air_detection.leg[0].motor_force;
+    dbg[14] = air_detection.leg[1].motor_force;
+    dbg[15] = air_detection.leg[0].motor_torque;
+    dbg[16] = air_detection.leg[1].motor_torque;
+    dbg[17] = air_detection.leg[0].spring_force;
+    dbg[18] = air_detection.leg[1].spring_force;
+    dbg[19] = air_detection.leg[0].gravity_torque;
+    dbg[20] = air_detection.leg[1].gravity_torque;
+    dbg[21] = air_detection.leg[0].pressure;
+    dbg[22] = air_detection.leg[1].pressure;
+    dbg[23] = air_detection.leg[0].height_acceleration;
+    dbg[24] = air_detection.leg[1].height_acceleration;
+    dbg[25] = air_detection.leg[0].wheel_acceleration;
+    dbg[26] = air_detection.leg[1].wheel_acceleration;
+    dbg[27] = air_detection.leg[0].force_raw;
+    dbg[28] = air_detection.leg[1].force_raw;
+    dbg[29] = air_detection.leg[0].force;
+    dbg[30] = air_detection.leg[1].force;
+    for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
+    {
+        /* 左前/左后/右前/右后；物理坐标Nm，不重复乘驱动极性。 */
+        dbg[31u + i] = motor_state.dm.trq_nm[i];
+        dbg[35u + i] = output_dm_torque_nm[i];
+    }
+    for (uint8_t row = 0u; row < 2u; row++)
+    {
+        for (uint8_t col = 0u; col < 2u; col++)
+        {
+            dbg[39u + 2u * row + col] = leg_l.output.force_map[row][col];
+            dbg[43u + 2u * row + col] = leg_r.output.force_map[row][col];
+        }
+    }
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+
+    /* 倒置上电诊断v1：只读姿态、倒置结果与恢复路径，0～2保持。
+     * upright/inverted须结合检测valid解释；planned须结合恢复phase解释。
+     * 同帧来自异步共享状态，不等同于控制拍快照；不重新计算姿态或执行许可。 */
+    taskENTER_CRITICAL();
+    dbg[3] = (float)control_condition.condition;
+    dbg[4] = (float)control_condition.valid;
+    dbg[5] = (float)imu_state.pitch_world_valid;
+    dbg[6] = fallen_detection.upright;
+    dbg[7] = (float)fallen_detection.inverted;
+    dbg[8] = (float)fallen_process_control.lifecycle.phase;
+    dbg[9] = (float)fallen_process_control.lifecycle.fault;
+    dbg[10] = (float)fallen_process_control.normal.planned;
+    dbg[11] = imu_state.euler_rad[ATTITUDE_ROLL]; /* 补角实际使用的欧拉输入rad */
+    dbg[12] = imu_state.pitch_world;
+    dbg[13] = imu_state.quat[0];
+    dbg[14] = imu_state.quat[1];
+    dbg[15] = imu_state.quat[2];
+    dbg[16] = imu_state.quat[3];
+    dbg[17] = imu_state.acc_g[0];
+    dbg[18] = imu_state.acc_g[1];
+    dbg[19] = imu_state.acc_g[2];
+    dbg[20] = (float)fallen_detection.valid;
+    dbg[21] = (float)imu_state.online;
+    dbg[22] = (float)leg_l.output.valid;
+    dbg[23] = (float)leg_r.output.valid;
+    dbg[24] = (float)leg_l.output.force_valid;
+    dbg[25] = (float)leg_r.output.force_valid;
+    dbg[26] = (float)fallen_process_control.lifecycle.recovery_enabled;
+    dbg[27] = (float)control_postprocess.phase;
+    dbg[28] = fallen_process_control.lifecycle.elapsed;
+    dbg[29] = fallen_process_control.lifecycle.stable_elapsed;
+    dbg[30] = leg_l.output.virtual_leg_angle;
+    dbg[31] = leg_r.output.virtual_leg_angle;
+    dbg[32] = fallen_process_control.actuator.angle_target[0];
+    dbg[33] = fallen_process_control.actuator.angle_target[1];
+    dbg[34] = leg_l.output.virtual_leg_length;
+    dbg[35] = leg_r.output.virtual_leg_length;
+    dbg[36] = fallen_process_control.actuator.length_target[0];
+    dbg[37] = fallen_process_control.actuator.length_target[1];
+    dbg[38] = (float)fallen_process_control.normal.path[0];
+    dbg[39] = (float)fallen_process_control.normal.path[1];
+    dbg[40] = output_dm_torque_nm[DM_MOTOR_LEG_F_LFT];
+    dbg[41] = output_dm_torque_nm[DM_MOTOR_LEG_B_LFT];
+    dbg[42] = output_dm_torque_nm[DM_MOTOR_LEG_F_RGT];
+    dbg[43] = output_dm_torque_nm[DM_MOTOR_LEG_B_RGT];
+    dbg[44] = (float)air_detection.flight;
+    dbg[45] = (float)air_detection.valid;
+    dbg[46] = (float)motor_state.valid;
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
     Vofa_Send(dbg, VOFA_MAX_CH);

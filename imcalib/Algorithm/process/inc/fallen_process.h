@@ -23,11 +23,12 @@ enum {
     FALLEN_PROCESS_SWING, /* 摆腿使机身进入平衡姿态 */
     FALLEN_PROCESS_DONE, /* 准备完成，交给地面LQR */
     FALLEN_PROCESS_FAILED, /* 失败并按配置等待重试/停止 */
-    FALLEN_PROCESS_REAR, /* 沿连续展开角路径后摆 */
+    FALLEN_PROCESS_REAR, /* 沿连续展开角路径对齐前/后准备位 */
     FALLEN_PROCESS_EXTEND, /* 先伸腿到准备长度 */
     FALLEN_PROCESS_SETTLE, /* 倒置恢复：先稳定姿态 */
     FALLEN_PROCESS_PRELOAD, /* 倒置恢复：建立腿长/力臂 */
     FALLEN_PROCESS_FLIP, /* 倒置恢复：翻转扫角 */
+    FALLEN_PROCESS_ALIGN_FRONT, /* 倒置恢复：双腿先对齐前点；保留原阶段编号 */
 };
 
 enum {
@@ -47,6 +48,7 @@ enum {
 typedef struct {
     float recovery_settle_time;
     float recovery_len;
+    float recovery_front_angle; /* 倒置专用前点rad，与普通front_angle独立 */
     float angle_rate;
     float recovery_pitch_tol;
     float recovery_stall_time;
@@ -56,8 +58,11 @@ typedef struct {
     float extend_len;
     float length_tol;
     float length_timeout;
+    float front_angle; /* 普通自起前侧准备角rad，几何角表示 */
+    float normal_swing_window; /* 普通入口可直接收短/摆正的角区间rad，不是最终到位容差 */
+    float normal_angle_tol; /* 仅planned普通摆正到位容差rad */
     float rear_angle;
-    float rear_tol;
+    float prepare_angle_tol; /* 前/后准备位与倒置前点的到位容差rad */
     float angle_timeout;
     float retract_len;
     float angle_pos_kp;
@@ -65,7 +70,6 @@ typedef struct {
     float angle_speed_kp;
     float angle_speed_kd;
     float angle_speed_max;
-    float angle_tol;
     float stable_time;
     float support_time;
 } fallen_process_param_t;
@@ -84,6 +88,9 @@ typedef struct {
 } fallen_process_lifecycle_t;
 
 typedef struct {
+    uint8_t planned; /* 普通入口/翻身回正后置1；翻身期间清0 */
+    uint8_t path[2]; /* 0已在摆正窗口，1前侧，2后侧 */
+    float prepare_angle[2]; /* 本次锁定准备角，几何角表示 */
     uint8_t rear_path_ready;
     float rear_position[2];   /* 展开角 */
     float rear_angle_target[2];
@@ -93,6 +100,7 @@ typedef struct {
 typedef struct {
     float position[2];
     float last[2];
+    float front_goal[2]; /* 前点在各腿连续角分支中的锁定目标rad */
     float sweep;
     float stall_elapsed;
     float stall_upright;

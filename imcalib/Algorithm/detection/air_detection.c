@@ -17,7 +17,7 @@ air_param_t air_param = {
 #if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
     .wheel_mass = 0.65f, .force_off = 35.0f, .force_on = 35.0f,
     .hip_max = 10.0f,
-    .time_off = 0.15f, .time_on = 0.05f,
+    .time_off = 0.20f, .time_on = 0.05f,
     .compression_on = 0.03f, .compression_time = 0.1f,
     .air_min_height = 0.16f, /* 机身贴地区间，公共高度不高于此值不判离地 */
 #else
