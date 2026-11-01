@@ -66,6 +66,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .lqr = {
             /* 向心前馈：mass kg、track/height_offset m、gain倍率 */
             .turn_comp = {25.544f, 0.42551f , 0.07113f, 0.3f},
+            .motion_guard = {MACHINE_MOTION_GUARD_ENABLE, 0.5f, 3.0f}, /* 试用包线；放宽rad/s² */
             /* 十态姿态参考rad及yaw反馈开关 */
             .reference = {
                 .leg_trim = {-0.0f, -0.0f},
@@ -191,6 +192,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .lqr = {
             /* 向心前馈：mass kg、track/height_offset m、gain倍率 */
             .turn_comp = {0.0f, 0.6918f, 0.0901f, 0.0f},
+            .motion_guard = {0u, 0.375f, 3.0f}, /* 小机暂不启用 */
             /* 十态姿态参考rad及yaw反馈开关 */
             .reference = {
                 .leg_trim = {-0.04f, -0.04f},

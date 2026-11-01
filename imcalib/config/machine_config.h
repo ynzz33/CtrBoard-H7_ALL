@@ -11,22 +11,14 @@
 #define __MACHINE_CONFIG_H
 
 #include <stdint.h>
-
-/* NORMAL腿长/roll控制选择；修改后重新编译烧录。十态平衡及公共补偿不变。 */
-#define MACHINE_NORMAL_LEG_CONTROL 1u /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
-#define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE 0u /* 仅四态有效；PD不使用观测器 */
-/* 大机四态基础线性补偿，N/腿；按斜坡高度参考0.14~0.33m插值。
- * 范围外保持端点。经验试调值，非物理标定。 */
+#include "motion_guard.h"
+#define MACHINE_MOTION_GUARD_ENABLE 0u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
+#define MACHINE_NORMAL_LEG_CONTROL 1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
+#define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE 0u /* 4态leso观测器 */
+/* 轴向力补偿，*/
 #define MACHINE_HEIGHT_TRIM_ENABLE 1u
 #define MACHINE_HEIGHT_TRIM_LOW_N (-70.0f)
 #define MACHINE_HEIGHT_TRIM_HIGH_N (-8.0f)
-
-#if MACHINE_NORMAL_LEG_CONTROL != 0u && MACHINE_NORMAL_LEG_CONTROL != 1u
-#error "Unsupported MACHINE_NORMAL_LEG_CONTROL"
-#endif
-#if MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE != 0u && MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE != 1u
-#error "Unsupported MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE"
-#endif
 
 /* 机器编号 */
 #define MACHINE_ID_BIG_WHEELLEG    0u
@@ -225,6 +217,7 @@ typedef struct {
 
 
     machine_turn_comp_cfg_t turn_comp;
+    motion_guard_param_t motion_guard; /* NORMAL偏航参考约束策略 */
 
 
     machine_lqr_reference_cfg_t reference; /* 十态姿态参考及偏航反馈开关 */

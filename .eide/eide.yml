@@ -137,6 +137,7 @@ virtualFolder:
       folders: []
     - name: ControlModules
       files:
+        - path: imcalib/Algorithm/lqr/motion_guard.c
         - path: imcalib/task/control/control_detection.c
         - path: imcalib/Algorithm/process/air_process.c
         - path: imcalib/task/control/control_strategy.c
@@ -199,6 +200,7 @@ targets:
         - Drivers/CMSIS/DSP/Include
       libList: []
     excludeList:
+      - imcalib/Algorithm/lqr/motion_guard.c
       - imcalib/task/control/control_detection.c
       - imcalib/Algorithm/process/air_process.c
       - imcalib/task/control/control_strategy.c

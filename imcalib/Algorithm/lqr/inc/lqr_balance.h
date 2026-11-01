@@ -76,6 +76,7 @@ typedef struct {
     float a_fwd;                    /* 前向加速度 m/s² */
     float leg_length_target[2]; /* 左右最终长度目标m，原斜坡的终点 */
     float pos;                      /* 位移积分 */
+    uint16_t pos_trace; /* 只读诊断：停车门控/积分/锁定事件位，见VOFA通道表 */
     uint8_t pos_armed;              /* 位置基准已锁 */
     float yaw_target;                  /* 偏航角目标 */
     float velocity_target;                  /* 速度目标 */
@@ -97,6 +98,6 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd);
 uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,
                          const leg_state_t *leg_l, const leg_state_t *leg_r,
                          const float wheel_vel[2]);
-void    LQR_Control_Update(lqr_state_t *st);
+void    LQR_Control_Update(lqr_state_t *st, uint8_t guard_permit);
 
 #endif

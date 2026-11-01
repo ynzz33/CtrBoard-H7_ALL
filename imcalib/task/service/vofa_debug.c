@@ -12,6 +12,7 @@
 #include "air_detection.h"
 #include "control_detection.h"
 #include "control_condition.h"
+#include "motion_guard.h"
 #include "fallen_process.h"
 #include "fallen_detection.h"
 #include "math_utils.h"
@@ -29,6 +30,10 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
+    float turn_scale;
+    float contribution;
+    uint8_t row;
+    uint8_t col;
     // const lqr_gain_desc_t *gain;
     // float term;
     // uint8_t group;
@@ -671,6 +676,7 @@ void Vofa_Debug_Send(void)
     /* 倒置上电诊断v1：只读姿态、倒置结果与恢复路径，0～2保持。
      * upright/inverted须结合检测valid解释；planned须结合恢复phase解释。
      * 同帧来自异步共享状态，不等同于控制拍快照；不重新计算姿态或执行许可。 */
+#if 0
     taskENTER_CRITICAL();
     dbg[3] = (float)control_condition.condition;
     dbg[4] = (float)control_condition.valid;
@@ -716,6 +722,217 @@ void Vofa_Debug_Send(void)
     dbg[44] = (float)air_detection.flight;
     dbg[45] = (float)air_detection.valid;
     dbg[46] = (float)motor_state.valid;
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+#if 0 /* 上一版主动防翻布局保留 */
+    /* 主动防翻v1固定48路；开关关闭同样记录原请求/实际运动，用于对照。 */
+    taskENTER_CRITICAL();
+    dbg[3] = (float)control_condition.condition;
+    dbg[4] = (float)control_condition.valid;
+    dbg[5] = (float)machine->lqr.motion_guard.enabled;
+    dbg[6] = (float)motion_guard.valid;
+    dbg[7] = (float)motion_guard.limited;
+    dbg[8] = (float)motion_guard.reason;
+    dbg[9] = rc_command.velocity_target;
+    dbg[10] = lqr_state.target[LQR_X_DS];
+    dbg[11] = lqr_state.ds_kf;
+    dbg[12] = rc_command.yaw_rate_target;
+    dbg[13] = lqr_state.target[LQR_X_DPHI];
+    dbg[14] = remainderf(lqr_state.target[LQR_X_PHI] + LQR_Gain_Info()->x_eq[LQR_X_PHI] - lqr_state.x[LQR_X_PHI], LEG_2PI);
+    dbg[15] = motion_guard.yaw_equivalent_raw;
+    dbg[16] = motion_guard.yaw_equivalent;
+    dbg[17] = motion_guard.reference_scale;
+    dbg[18] = motion_guard.yaw_limit_raw;
+    dbg[19] = motion_guard.yaw_limit;
+    dbg[20] = motion_guard.lateral_budget;
+    dbg[21] = motion_guard.length_guard;
+    dbg[22] = motion_guard.height_reference;
+    dbg[23] = lqr_state.len[0];
+    dbg[24] = lqr_state.len[1];
+    dbg[25] = lqr_state.leg_length_target[0];
+    dbg[26] = lqr_state.roll;
+    dbg[27] = lqr_state.roll_rate;
+    dbg[28] = lqr_state.x[LQR_X_THB];
+    dbg[29] = lqr_state.x[LQR_X_DTHB];
+    dbg[30] = lqr_state.x[LQR_X_DPHI];
+    dbg[31] = motion_guard.heading_ratio;
+    dbg[32] = fabsf(lqr_state.ds_kf * lqr_state.x[LQR_X_DPHI]);
+    dbg[33] = leg_balance.turn_ff;
+    dbg[34] = lqr_state.u[LQR_U_WL];
+    dbg[35] = lqr_state.u[LQR_U_WR];
+    dbg[36] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u));
+    dbg[37] = (float)leg_balance.compensation.saturated;
+    dbg[38] = (float)output_debug_dm_sent;
+    dbg[39] = (float)output_debug_dji_sent;
+    dbg[40] = (float)motion_guard.releasing;
+    dbg[41] = lqr_state.valid && lqr_state.gain_valid && lqr_debug.yaw_rate_hold && !lqr_state.air_control ? -lqr_state.K[LQR_U_WL][LQR_X_DPHI] * lqr_state.x[LQR_X_DPHI] : 0.0f;
+    dbg[42] = lqr_state.valid && lqr_state.gain_valid && lqr_debug.yaw_rate_hold && !lqr_state.air_control ? -lqr_state.K[LQR_U_WR][LQR_X_DPHI] * lqr_state.x[LQR_X_DPHI] : 0.0f;
+    dbg[43] = lqr_state.target[LQR_X_DPHI] * motion_guard.reference_scale;
+    dbg[44] = dbg[14] * motion_guard.reference_scale;
+    dbg[45] = (float)air_detection.flight;
+    dbg[46] = (float)motor_state.valid;
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+#if 0 /* 上一版转弯低频速度来源布局保留 */
+    /* 转弯低频速度来源诊断：运动学左右分解，保留速度/腿角/角速度贡献。 */
+    taskENTER_CRITICAL();
+    turn_scale = motion_guard.reference_scale;
+    speed_error = lqr_state.target[LQR_X_DS] + LQR_Gain_Info()->x_eq[LQR_X_DS] - lqr_state.x[LQR_X_DS];
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (lqr_state.air_control ? 4u : 0u) | (lqr_state.air_release ? 8u : 0u));
+    dbg[4] = rc_command.velocity_target;
+    dbg[5] = lqr_state.target[LQR_X_DS];
+    dbg[6] = lqr_state.x[LQR_X_DS];
+    dbg[7] = rc_command.yaw_rate_target;
+    dbg[8] = turn_scale * (lqr_state.target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI]);
+    dbg[9] = lqr_state.x[LQR_X_DPHI];
+    dbg[10] = lqr_state.ds_raw;
+    dbg[11] = lqr_state.a_fwd;
+    dbg[12] = leg_l.output.virtual_leg_angle;
+    dbg[13] = leg_r.output.virtual_leg_angle;
+    dbg[14] = lqr_state.x[LQR_X_THL];
+    dbg[15] = lqr_state.x[LQR_X_THR];
+    dbg[16] = lqr_state.x[LQR_X_DTHL];
+    dbg[17] = lqr_state.x[LQR_X_DTHR];
+    dbg[18] = lqr_state.x[LQR_X_THB];
+    dbg[19] = lqr_state.x[LQR_X_DTHB];
+    dbg[20] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_LFT];
+    dbg[21] = motor_state.dji.vel_rad_s[DJI_MOTOR_WHEEL_RGT];
+    dbg[22] = lqr_state.len[0];
+    dbg[23] = lqr_state.len[1];
+    dbg[24] = lqr_debug.vel_leg_comp_sign;
+    dbg[25] = lqr_debug.pitch_comp_sign;
+    dbg[26] = lqr_state.whl[0] * machine->wheel.wheel_r;
+    dbg[27] = lqr_state.whl[1] * machine->wheel.wheel_r;
+    dbg[28] = -leg_l.output.virtual_leg_length * lqr_state.x[LQR_X_DTHL] * cosf(lqr_state.x[LQR_X_THL]);
+    dbg[29] = -leg_r.output.virtual_leg_length * lqr_state.x[LQR_X_DTHR] * cosf(lqr_state.x[LQR_X_THR]);
+    dbg[30] = -leg_l.output.d_virtual_leg_length * sinf(lqr_state.x[LQR_X_THL]);
+    dbg[31] = -leg_r.output.d_virtual_leg_length * sinf(lqr_state.x[LQR_X_THR]);
+    dbg[32] = dbg[26] + dbg[28] + dbg[30];
+    dbg[33] = dbg[27] + dbg[29] + dbg[31];
+    dbg[36] = lqr_state.u[LQR_U_BL];
+    dbg[37] = lqr_state.u[LQR_U_BR];
+    for (uint8_t side = 0u; side < 2u; side++)
+    {
+        uint8_t row = (uint8_t)(LQR_U_BL + side);
+        if (lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control)
+        {
+            dbg[34u + side] = lqr_state.K[row][LQR_X_DS] * speed_error;
+            /* 分开两腿角度列和角速度列，保留交叉反馈，不只看本侧。 */
+            swing_term = 0.0f;
+            for (uint8_t j = LQR_X_THL; j <= LQR_X_THR; j += 2u)
+            {
+                swing_term += lqr_state.K[row][j] * (lqr_state.target[j] + LQR_Gain_Info()->x_eq[j] - lqr_state.x[j]);
+            }
+            dbg[38u + side] = swing_term;
+            swing_term = 0.0f;
+            for (uint8_t j = LQR_X_DTHL; j <= LQR_X_DTHR; j += 2u)
+            {
+                swing_term += lqr_state.K[row][j] * (lqr_state.target[j] + LQR_Gain_Info()->x_eq[j] - lqr_state.x[j]);
+            }
+            dbg[40u + side] = swing_term;
+        }
+    }
+    dbg[42] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u) | (fabsf(lqr_state.u[LQR_U_BL]) >= lqr_debug.trq_max_hip ? 4u : 0u) | (fabsf(lqr_state.u[LQR_U_BR]) >= lqr_debug.trq_max_hip ? 8u : 0u));
+    dbg[43] = lqr_state.ds_raw - lqr_state.ds_kf;
+    dbg[44] = leg_balance.turn_ff;
+    dbg[45] = (float)control_condition.condition;
+    dbg[46] = (float)leg_balance.compensation.saturated;
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+#if 0 /* 上一版布局保留 */
+    /* 十态分项诊断v1：8个状态列对四路输出(WL/WR/BL/BR)的贡献 + 输入/状态。
+     * 省略恒零的s/phi两列；每行8项之和应约等于对应u（u_eq当前为0）。
+     * 4～35按输出分组，每组顺序 ds、dphi、thL、dthL、thR、dthR、pitch、dpitch。 */
+    taskENTER_CRITICAL();
+    turn_scale = motion_guard.reference_scale;
+    speed_error = lqr_state.target[LQR_X_DS] + LQR_Gain_Info()->x_eq[LQR_X_DS] - lqr_state.x[LQR_X_DS];
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (lqr_state.air_control ? 4u : 0u) | (lqr_state.air_release ? 8u : 0u));
+    if (lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control)
+    {
+        for (uint8_t i = 0u; i < LQR_U_NUM; i++)
+        {
+            dbg[4u + i * 8u] = lqr_state.K[i][LQR_X_DS] * speed_error;
+            dbg[5u + i * 8u] = lqr_debug.yaw_rate_hold ? lqr_state.K[i][LQR_X_DPHI] * yaw_rate_error : 0.0f;
+            for (uint8_t k = 2u; k < 8u; k++)
+            {
+                col = (uint8_t)(LQR_X_THL + (k - 2u));
+                dbg[4u + i * 8u + k] = lqr_state.K[i][col] * (lqr_state.target[col] + LQR_Gain_Info()->x_eq[col] - lqr_state.x[col]);
+            }
+        }
+    }
+    dbg[36] = rc_command.velocity_target;
+    dbg[37] = lqr_state.x[LQR_X_DS];
+    dbg[38] = rc_command.yaw_rate_target;
+    dbg[39] = lqr_state.x[LQR_X_DPHI];
+    dbg[40] = lqr_state.x[LQR_X_THL];
+    dbg[41] = lqr_state.x[LQR_X_THR];
+    dbg[42] = lqr_state.x[LQR_X_THB];
+    dbg[43] = lqr_state.roll;
+    dbg[44] = lqr_state.len[0];
+    dbg[45] = lqr_state.u[LQR_U_BL];
+    dbg[46] = lqr_state.u[LQR_U_WL];
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+    /* 固定48路：停车积分是否激起转向退出后的低频摆动。 */
+    taskENTER_CRITICAL();
+    turn_scale = motion_guard.reference_scale;
+    dbg[3] = (float)((lqr_state.valid ? 1u : 0u) | (lqr_state.gain_valid ? 2u : 0u) | (lqr_state.air_control ? 4u : 0u) | (lqr_state.air_release ? 8u : 0u));
+    dbg[4] = lqr_state.pos;
+    dbg[5] = lqr_state.target[LQR_X_S] + LQR_Gain_Info()->x_eq[LQR_X_S];
+    dbg[6] = dbg[5] - lqr_state.x[LQR_X_S];
+    dbg[7] = lqr_state.target[LQR_X_DS];
+    dbg[8] = lqr_state.x[LQR_X_DS];
+    dbg[9] = turn_scale * (lqr_state.target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI]);
+    dbg[10] = lqr_state.x[LQR_X_DPHI];
+    dbg[11] = (float)lqr_state.pos_trace;
+    dbg[12] = (float)lqr_state.pos_armed;
+    dbg[13] = (float)lqr_debug.pos_hold;
+    dbg[14] = lqr_debug.pos_leg_tol;
+    dbg[15] = lqr_debug.pos_arm_vel;
+    dbg[16] = Angle_Wrap_Pi(lqr_state.x[LQR_X_THL] - machine->lqr.reference.leg_trim[0]);
+    dbg[17] = Angle_Wrap_Pi(lqr_state.x[LQR_X_THR] - machine->lqr.reference.leg_trim[1]);
+    dbg[18] = leg_l.output.virtual_leg_angle;
+    dbg[19] = leg_r.output.virtual_leg_angle;
+    dbg[20] = lqr_state.x[LQR_X_DTHL];
+    dbg[21] = lqr_state.x[LQR_X_DTHR];
+    dbg[22] = lqr_state.x[LQR_X_THB];
+    dbg[23] = lqr_state.x[LQR_X_DTHB];
+    dbg[24] = lqr_state.len[0];
+    dbg[25] = lqr_state.len[1];
+    dbg[26] = leg_balance.turn_ff;
+    dbg[27] = leg_balance.roll_height.lqr.height_trim;
+    for (row = 0u; row < LQR_U_NUM; row++)
+    {
+        dbg[28u + row] = lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control && lqr_debug.pos_hold ? lqr_state.K[row][LQR_X_S] * dbg[6] : 0.0f;
+        dbg[40u + row] = lqr_state.u[row];
+    }
+    for (row = LQR_U_BL; row <= LQR_U_BR; row++)
+    {
+        if (lqr_state.valid && lqr_state.gain_valid && !lqr_state.air_control)
+        {
+            dbg[32u + row - LQR_U_BL] = lqr_state.K[row][LQR_X_DS] * (lqr_state.target[LQR_X_DS] + LQR_Gain_Info()->x_eq[LQR_X_DS] - lqr_state.x[LQR_X_DS]);
+            for (col = LQR_X_THL; col <= LQR_X_DTHR; col++)
+            {
+                contribution = lqr_state.K[row][col] * (lqr_state.target[col] + LQR_Gain_Info()->x_eq[col] - lqr_state.x[col]);
+                if (col == LQR_X_THL || col == LQR_X_THR)
+                {
+                    dbg[34u + row - LQR_U_BL] += contribution;
+                }
+                else
+                {
+                    dbg[36u + row - LQR_U_BL] += contribution;
+                }
+            }
+            dbg[38u + row - LQR_U_BL] = lqr_state.K[row][LQR_X_THB] * (lqr_state.target[LQR_X_THB] + LQR_Gain_Info()->x_eq[LQR_X_THB] - lqr_state.x[LQR_X_THB]) + lqr_state.K[row][LQR_X_DTHB] * (lqr_state.target[LQR_X_DTHB] + LQR_Gain_Info()->x_eq[LQR_X_DTHB] - lqr_state.x[LQR_X_DTHB]);
+        }
+    }
+    dbg[44] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u) | (fabsf(lqr_state.u[LQR_U_BL]) >= lqr_debug.trq_max_hip ? 4u : 0u) | (fabsf(lqr_state.u[LQR_U_BR]) >= lqr_debug.trq_max_hip ? 8u : 0u));
+    dbg[45] = (float)leg_balance.compensation.saturated;
+    dbg[46] = (float)control_condition.condition;
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
     Vofa_Send(dbg, VOFA_MAX_CH);

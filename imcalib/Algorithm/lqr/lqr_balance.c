@@ -159,14 +159,19 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
 {
     uint8_t legs_ready;
 
+    st->pos_trace = 0u;
     st->ds_kf = velocity;
     st->x[LQR_X_DS] = velocity;
     if (st->air_control)
     {
+        st->pos_trace |= 128u;
         st->x[LQR_X_S] = st->pos;
         return;
     }
     legs_ready = (uint8_t)(fabsf(Angle_Wrap_Pi(st->x[LQR_X_THL] - machine->lqr.reference.leg_trim[0])) <= lqr_debug.pos_leg_tol && fabsf(Angle_Wrap_Pi(st->x[LQR_X_THR] - machine->lqr.reference.leg_trim[1])) <= lqr_debug.pos_leg_tol);
+    st->pos_trace |= st->target[LQR_X_DS] == 0.0f ? 1u : 0u;
+    st->pos_trace |= legs_ready ? 2u : 0u;
+    st->pos_trace |= lqr_debug.pos_arm_vel <= 0.0f || fabsf(st->x[LQR_X_DS]) < lqr_debug.pos_arm_vel ? 4u : 0u;
     if (st->target[LQR_X_DS] != 0.0f)
     {
         st->pos = 0.0f;
@@ -174,6 +179,7 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
     }
     else if (fabsf(st->pos) >= machine->lqr.position_hold.pos_reset_dist)
     {
+        st->pos_trace |= 64u;
         st->pos = 0.0f;
         st->pos_armed = 0u;
     }
@@ -184,12 +190,16 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
             /* 此刻设为位置基准 */
             st->pos = 0.0f;
             st->pos_armed = 1u;
+            st->pos_trace |= 32u;
         }
         if (st->pos_armed)
         {
             st->pos += st->x[LQR_X_DS] * dt;
+            st->pos_trace |= 16u;
         }
     }
+    st->pos_trace |= st->pos_armed ? 8u : 0u;
+    st->pos_trace |= st->target[LQR_X_DS] == 0.0f && st->pos_armed && !legs_ready ? 256u : 0u;
     /* 腿姿态偏离只冻结，不清除已累计位移。 */
     st->x[LQR_X_S] = st->pos;
     if (!isfinite(st->pos))
@@ -260,7 +270,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,const leg_state
  * 按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
  * AIR只保留左右腿角/角速度四列，双轮贡献清零；地面使用完整反馈和既有偏置。
  */
-void LQR_Control_Update(lqr_state_t *st)
+void LQR_Control_Update(lqr_state_t *st, uint8_t guard_permit)
 {
     float K_sym[40];
     float len_l;
@@ -268,6 +278,7 @@ void LQR_Control_Update(lqr_state_t *st)
     float sum;
     float term;
     float hip_limit;
+    float reference_scale = 1.0f;
 
     st->gain_valid = 0u;
     memset(st->u, 0, sizeof(st->u));
@@ -295,6 +306,28 @@ void LQR_Control_Update(lqr_state_t *st)
         st->len_eval[1] = len_r;
     }
 
+    /* 当前K已就绪：只缩放偏航参考部分，测量反馈和其他八列保持原值。 */
+    if (guard_permit && !st->air_control && machine->lqr.motion_guard.enabled)
+    {
+        const motion_guard_input_t input = {
+            .length = {st->len[0], st->len[1]},
+            .length_target = fmaxf(st->leg_length_target[0], st->leg_length_target[1]),
+            .velocity = st->ds_kf, .velocity_request = st->velocity_target,
+            .yaw_rate = st->x[LQR_X_DPHI],
+            .yaw_request = lqr_debug.yaw_rate_hold ? st->target[LQR_X_DPHI] + LQR_Gain_Info()->x_eq[LQR_X_DPHI] : 0.0f,
+            .heading_error = lqr_debug.yaw_hold ? Angle_Wrap_Pi(st->target[LQR_X_PHI] + LQR_Gain_Info()->x_eq[LQR_X_PHI] - st->x[LQR_X_PHI]) : 0.0f,
+            .heading_gain_diff = st->K[LQR_U_WL][LQR_X_PHI] - st->K[LQR_U_WR][LQR_X_PHI],
+            .rate_gain_diff = st->K[LQR_U_WL][LQR_X_DPHI] - st->K[LQR_U_WR][LQR_X_DPHI],
+            .track = machine->lqr.turn_comp.track, .height_offset = machine->lqr.turn_comp.height_offset,
+            .yaw_max = machine->rc.yaw_max, .dt = MACHINE_LQR_DT, .permit = 1u,
+        };
+        if (!Motion_Guard_Update(&motion_guard, &machine->lqr.motion_guard, &input)) { return; }
+        reference_scale = motion_guard.reference_scale;
+    }
+    else
+    {
+        Motion_Guard_Reset(&motion_guard);
+    }
     for (uint8_t i = 0u; i < LQR_U_NUM; i++)
     {
         sum = st->air_control ? 0.0f : LQR_Gain_Info()->u_eq[i];
@@ -306,7 +339,7 @@ void LQR_Control_Update(lqr_state_t *st)
             }
             else if (j == LQR_X_PHI)
             {
-                term = lqr_debug.yaw_hold ? st->K[i][j] * Angle_Wrap_Pi(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j]) : 0.0f;                        /* 关: 偏航角不参与 */
+                term = lqr_debug.yaw_hold ? st->K[i][j] * (reference_scale * Angle_Wrap_Pi(st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j])) : 0.0f;
             }
             else if ((j == LQR_X_DPHI && !lqr_debug.yaw_rate_hold) || (j == LQR_X_S && !lqr_debug.pos_hold))
             {
@@ -318,7 +351,7 @@ void LQR_Control_Update(lqr_state_t *st)
             }
             else
             {
-                term = st->K[i][j] * (st->target[j] + LQR_Gain_Info()->x_eq[j] - st->x[j]);
+                term = st->K[i][j] * ((j == LQR_X_DPHI ? reference_scale : 1.0f) * (st->target[j] + LQR_Gain_Info()->x_eq[j]) - st->x[j]);
             }
             sum += term;
         }

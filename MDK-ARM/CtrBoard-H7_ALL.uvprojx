@@ -1282,6 +1282,11 @@
               <FilePath>../imcalib/Algorithm/lqr/lqr_balance.c</FilePath>
             </File>
             <File>
+              <FileName>motion_guard.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/lqr/motion_guard.c</FilePath>
+            </File>
+            <File>
               <FileName>lqr_gain_table.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/lqr/lqr_gain_table.c</FilePath>

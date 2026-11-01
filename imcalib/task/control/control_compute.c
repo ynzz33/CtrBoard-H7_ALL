@@ -83,6 +83,7 @@ static uint8_t LQR_Engage_Update(control_frame_t *frame)
 /* LQR退出只清私有历史；公共检测的历史由检测模块维护。 */
 static void LQR_Idle(void)
 {
+    Motion_Guard_Reset(&motion_guard);
     lqr_running = 0u;
     Leg_Balance_Reset(&leg_balance);
     lqr_state.air_control = 0u;
@@ -119,7 +120,7 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     {
         return;
     }
-    LQR_Control_Update(&lqr_state);
+    LQR_Control_Update(&lqr_state, (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL));
     if (!lqr_state.gain_valid)
     {
         return;
@@ -334,6 +335,7 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     }
     if (strategy != CTRL_STRATEGY_LQR || !torque->valid || control_condition.condition != CONTROL_NORMAL || Control_Postprocess_Inhibited())
     {
+        Motion_Guard_Reset(&motion_guard);
         Roll_Height_Reset(&leg_balance.roll_height);
     }
 }
