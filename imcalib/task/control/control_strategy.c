@@ -9,6 +9,7 @@
 #include "control_detection.h"
 #include "fallen_process.h"
 #include <string.h>
+#include <math.h>
 
 /* 恢复仅改变RL许可/观测，不动LQR离地检测。实际投入/退出清历史，模式切换只撤销旧动作就绪。 */
 static void Control_RL_Recovery_Update(const control_frame_t *frame)
@@ -16,12 +17,14 @@ static void Control_RL_Recovery_Update(const control_frame_t *frame)
     rl_recovery_state_t recovery;
     rl_recovery_phase_t previous;
     uint8_t request;
+    uint8_t rl_fallen;
 
     recovery = rl_control.recovery;
     previous = recovery.phase;
     request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_RL && frame->rc.mode.engage);
+    rl_fallen = (uint8_t)(fabsf(frame->imu.euler_deg[ATTITUDE_ROLL]) > machine->rl.recovery.fallen_angle_deg || fabsf(frame->imu.euler_deg[ATTITUDE_PITCH]) > machine->rl.recovery.fallen_angle_deg);
     /* 旧模型没有承重解锁；机身接触传感器缺失，使用既有高度代理。 */
-    RL_Recovery_Update(&recovery, request, (uint8_t)(frame->drive_permit && frame->height_valid), frame->fallen, frame->height + MACHINE_RL_LEG_TO_HEIGHT);
+    RL_Recovery_Update(&recovery, request, (uint8_t)(frame->drive_permit && frame->height_valid), rl_fallen, frame->height + MACHINE_RL_LEG_TO_HEIGHT);
     taskENTER_CRITICAL();
     rl_control.recovery = recovery;
     if (recovery.phase != previous)

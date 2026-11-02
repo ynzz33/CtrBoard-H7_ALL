@@ -136,6 +136,7 @@ typedef struct {
  * 配对映射将公共驱动坐标转换至RL坐标，不能照网络action顺序填写。 */
 /* 公共起立/恢复过程 */
 typedef struct {
+    float fallen_angle_deg; /* RL独立倾倒阈值deg */
     float recovery_height; /* 代理机高m */
     uint32_t recovery_hold_ms;
     uint32_t recovery_stable_ms;

@@ -150,27 +150,6 @@ static void Robot_Fault_Update(void)
     ctrl_fault = fault;
 }
 
-/* 更新翻倒状态 */
-/*
- * 直接读取IMU回传的俯仰/横滚角，任一绝对值超过40度写公共fallen。
- * 不包含高度条件；恢复出力许可及完成保持由执行层另行选择。
- */
-static void Robot_Fallen_Update(void)
-{
-    float pitch_deg;
-    float roll_deg;
-
-    if (ctrl_fault & FAULT_IMU)
-    {
-        return;
-    }
-    taskENTER_CRITICAL();
-    pitch_deg = imu_state.euler_deg[ATTITUDE_ROLL]; /* 沿用LQR实际俯仰取轴。 */
-    roll_deg = imu_state.euler_deg[ATTITUDE_PITCH];
-    taskEXIT_CRITICAL();
-    robot_state.fallen = (uint8_t)(fabsf(pitch_deg) > 40.0f || fabsf(roll_deg) > 40.0f);
-}
-
 /* 更新使能状态: 使能沿发使能, 失能沿发失能; 两个方向都有看门狗兜底 */
 static void Robot_Enable_Update(void)
 {
@@ -221,7 +200,6 @@ void comm_task_body(void)
 
     Remote_Control_Update();
     Robot_Fault_Update();
-    Robot_Fallen_Update();
     Robot_Enable_Update();
     
     

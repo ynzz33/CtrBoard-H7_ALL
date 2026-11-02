@@ -7,6 +7,7 @@
 #include "air_detection.h"
 #include "control_condition.h"
 #include "fallen_process.h"
+#include "robot_state.h"
 #include <string.h>
 
 control_postprocess_t control_postprocess;
@@ -115,7 +116,10 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     Air_Detection_Update(&air_detection, &input);
     frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
 
-    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, frame->fallen, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
+    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
+    frame->fallen = (uint8_t)(control_condition.started && control_condition.condition == CONTROL_FALLEN);
+    robot_state.fallen = frame->fallen;
+    frame->nonfallen_drive_permit = (uint8_t)(frame->drive_permit && !frame->fallen);
     if (control_condition.valid && control_condition.condition == CONTROL_FALLEN && previous != CONTROL_FALLEN)
     {
         frame->landed = 0u;

@@ -44,7 +44,7 @@ void Control_Condition_Observe(control_condition_t *state, const imu_state_t *im
                                uint8_t zero_effort, uint8_t normal_running);
 void Control_Condition_Select(control_condition_t *state, const air_detection_t *air,
                               uint8_t request, uint8_t drive,
-                              uint8_t fallen, uint8_t recovery_done);
+                              uint8_t recovery_done);
 /* 恢复完成后按有效AIR结果交接FLIGHT或NORMAL；未确认则等待。 */
 void Control_Condition_Recovery_Ready(control_condition_t *state);
 

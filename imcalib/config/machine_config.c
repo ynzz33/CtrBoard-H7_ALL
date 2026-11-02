@@ -128,6 +128,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             },
             /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
             .recovery = {
+                .fallen_angle_deg = 40.0f,
                 .recovery_height = 0.13f,
                 .recovery_hold_ms = 200u,
                 .recovery_stable_ms = 500u,
@@ -247,6 +248,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .rl = {
             /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
             .recovery = {
+                .fallen_angle_deg = 40.0f,
                 .recovery_height = 0.13f,
                 .recovery_hold_ms = 200u,
                 .recovery_stable_ms = 500u,

@@ -64,7 +64,7 @@ void Control_Condition_Recovery_Ready(control_condition_t *state)
 
 void Control_Condition_Select(control_condition_t *state, const air_detection_t *air,
                               uint8_t request, uint8_t drive,
-                              uint8_t fallen, uint8_t recovery_done)
+                              uint8_t recovery_done)
 {
     if (!request || !drive)
     {
@@ -98,7 +98,7 @@ void Control_Condition_Select(control_condition_t *state, const air_detection_t 
     }
     /* FALLEN选路必须先于高度候选等待和AIR有效性/初始化等待。
      * 保留原各状态触发条件，不把飞行中的普通腿姿偏差当作倒地。 */
-    if ((!state->started && (fallen || fallen_detection.inverted || fallen_detection.abnormal || state->body_contact_confirmed)) ||
+    if ((!state->started && (fallen_detection.inverted || fallen_detection.abnormal || state->body_contact_confirmed)) ||
         (state->started && state->condition == CONTROL_NORMAL && state->normal_ready && (fallen_detection.inverted || state->prepare_required)) ||
         (state->started && state->condition == CONTROL_FLIGHT && fallen_detection.upright < 0.0f))
     {
