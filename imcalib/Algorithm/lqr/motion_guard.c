@@ -1,4 +1,7 @@
-/* 文件职责：NORMAL偏航参考预算与保护上限的连续放宽；不发送、不读取任务全局。 */
+/*
+ * 用实际车速、腿长/高度及增益比估计NORMAL偏航参考上限。
+ * 收紧立即生效，解除按release_rate逐步放宽；只修改参考，不直接裁剪电机力矩。
+ */
 #include "motion_guard.h"
 #include <math.h>
 #include <string.h>
@@ -8,6 +11,7 @@ void Motion_Guard_Reset(motion_guard_t *state)
     memset(state, 0, sizeof(*state));
     state->reference_scale = 1.0f;
 }
+/* 从实际速度/高度和增益比求偏航参考上限；上限收紧立即跟随，放宽受release_rate限制。 */
 uint8_t Motion_Guard_Update(motion_guard_t *state, const motion_guard_param_t *param,
                             const motion_guard_input_t *input)
 {

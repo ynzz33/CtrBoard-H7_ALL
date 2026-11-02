@@ -10731,3 +10731,19 @@ MATLAB前后十态生成、模型核对和四态生成均通过；四态13组模
 - robot_state.fallen改为公共CONTROL_FALLEN选路归属，不再表示40deg倾角。公共选路仍由fallen_detection提供姿态候选：普通运行异常55deg连续0.1s、倒置立即响应；初始及FLIGHT沿用原条件。恢复完成重新选路解除。
 - LQR硬件使能入口不再受旧公共fallen标志阻断，同拍nonfallen_drive_permit在检测选路后刷新；最终输出许可仍保留。未增加RL到LQR自动切换。
 - 验证：按现有compile_commands对7个相关C源执行ARM GCC语法检查，全部通过；未链接、烧录或台架验证。
+
+
+### 2026-11-02 输出重力补偿按路径互斥选择
+
+- 按作者要求，正常LQR/FLIGHT输出请求LEG_COMP_GRAVITY，自起FALLEN及补偿测试请求LEG_COMP_GRAVITY_WORLD。不再用自起功能enabled表示正在自起；两种重力标志不同时请求。
+- Leg_Compensation_Prepare分支只填同一angle数组，末尾一处Gravity_Comp_Prepare调用，结果统一存gravity；删除输出结构的gravity_world成员并同步自起/测试消费者。双重标志请求不生成有效重力结果。
+- 为避免上一拍状态影响输入选择，公共检测在输出补偿准备前执行；同拍自起交接到平衡时再按新状态准备普通模型，因此一次准备只调用一次，交接拍可重新准备。
+- AIR仍每拍独立估力，直接用Gas_Spring_Force和Gravity_Comp_Compute求原欧拉俯仰对应的实体力/自重摆矩，不再依赖输出缓存；原支持力投影、差分/滤波、连续计时和状态机不改。未修改物理映射、阈值或控制增益。
+- 验证：8个相关源ARM GCC语法检查通过；静态对照确认AIR状态/计时函数以及估力的投影/滤波代码保持。未完整链接、烧录或台架验证。
+
+
+### 2026-11-02 删除无消费者的AIR诊断镜像
+
+- 删除Control_Output_Publish_Air_Debug调用、实现/声明，以及air_debug对象、air_debug_t类型。检测和控制继续使用air_detection，未改其算法和判据。
+- 当前VOFA布局不变；保留的旧离地诊断布局已改为在原临界区直接读取air_detection。compression[i]对应landing[i].compression，landing_elapsed[i]对应landing[i].elapsed；其余字段同名。重新启用旧布局仍可观测，无需恢复镜像。
+- 源码检索无旧标识残留，核对AIR检测源仅删除镜像全局定义、执行入口仅删除发布调用及对应注释，最终输出函数保持；差异检查通过，未构建/烧录。

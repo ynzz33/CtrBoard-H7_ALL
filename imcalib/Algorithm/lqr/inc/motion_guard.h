@@ -1,4 +1,7 @@
-/* NORMAL偏航参考约束；不依赖支持力，不修改速度请求或实际角速度反馈。 */
+/*
+ * 用实际车速、腿长/高度及增益比估计NORMAL偏航参考上限。
+ * 收紧立即生效，解除按release_rate逐步放宽；只修改参考，不直接裁剪电机力矩。
+ */
 #ifndef MOTION_GUARD_H
 #define MOTION_GUARD_H
 #include <stdint.h>

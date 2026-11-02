@@ -1,4 +1,7 @@
-/* NORMAL四状态反馈；速度低通只在1ms执行拍推进，不发送电机命令。 */
+/*
+ * 用平均腿长/长度速度、横滚角/角速度四个状态生成NORMAL左右轴向力。
+ * 可选偏置观察器只使用上一拍确认提交且未饱和的力请求；本模块不发送电机命令。
+ */
 #include "roll_height_balance.h"
 #include "machine_config.h"
 #include "mono_ns.h"
@@ -20,6 +23,7 @@ void Roll_Height_Reset(roll_height_balance_t *state)
     LPF_Init(&state->lpf_height_rate, machine->lqr.filter.lpf_alpha[3]);
 }
 
+/* 开始四态轴向控制一拍，设置控制/观察器许可并清本拍采样标志；失去许可则清历史。 */
 void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit)
 {
     if (!permit || !Roll_Height_Available())
@@ -197,6 +201,7 @@ static uint8_t Roll_Height_Fail(roll_height_balance_t *state)
     return 0u;
 }
 
+/* 由长度/横滚状态与目标求左右轴向力，并更新可选偏置观察器和力限幅诊断。 */
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
                           const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff)

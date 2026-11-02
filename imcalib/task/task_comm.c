@@ -1,9 +1,6 @@
 /*
- * 文件职责：通信刷新、腿解算、故障/跌倒/使能管理（task_comm.c）。
- * 输入/来源：DR16/DM/DJI接收数据、设备在线状态及已有IMU。
- * 输出/去向：更新物理电机量、解算双腿、发布遥控/电机反馈并维护许可。
- * 关键边界：协议解析在驱动，运动学在leg_solver；本任务管理许可，不承担策略力矩求解。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 每轮解析DM/DJI缓存、换算电机物理反馈并解算双腿，成批发布反馈。
+ * 随后更新遥控、故障位和电机使能/失能；力矩计算由执行任务完成。
  */
 
 #include "robot_control.h"
@@ -18,7 +15,7 @@
 #include <math.h>
 #include <string.h>
 
-/* 更新电机状态 */
+/* 将DM/DJI驱动反馈复制为统一电机状态，汇总在线/故障并记录本次整理时刻ms。 */
 static void Motor_State_Update(motor_state_t *next)
 {
     next->valid = 1u;
@@ -52,7 +49,7 @@ static void Motor_State_Update(motor_state_t *next)
     next->updated = 1u;
 }
 
-/* 更新单腿 */
+/* 把绑定的前后髋反馈角rad和速度rad/s送入五连杆求解；任一离线则清输出有效性。 */
 static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, leg_state_t *leg)
 {
     /* 前后电机下标由初始化固定绑定，这里只判断两路反馈是否在线。 */
@@ -71,18 +68,14 @@ static void Leg_Side_Update(const motor_state_t *motor, const leg_map_t *map, le
     }
 }
 
-/* 更新腿部状态 */
-/*
- * 按电机物理反馈更新双腿输入，再调用leg_solver得到几何、速度和力映射有效性。
- * 腿几何用于LQR/离地估计；RL直接使用实体电机反馈，不在此调整极性、零点或设目标。
- */
+/* 用同一批电机状态分别解算左右腿，写入待发布的双腿几何和映射结果。 */
 static void Leg_State_Update(const motor_state_t *motor, leg_state_t *left, leg_state_t *right)
 {
     Leg_Side_Update(motor, &leg_map_l, left);
     Leg_Side_Update(motor, &leg_map_r, right);
 }
 
-/* 更新遥控: 指令解算 + 使能 */
+/* 处理DR16接收并转换为统一遥控指令，再通过快照接口发布。 */
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
@@ -99,11 +92,7 @@ static void Remote_Control_Update(void)
 }
 
 
-/* 更新故障状态 */
-/*
- * 汇总传感器/遥控/DM/CAN已有故障与在线判据。
- * ctrl_fault是整机许可依据，和离地观察器自身valid/fault不是同一标志。
- */
+/* 每轮重算IMU/遥控/电机/CAN故障位，并分别检查RL动作停更和投入后持续无动作超时。 */
 static void Robot_Fault_Update(void)
 {
     static uint32_t rl_ready_lost_tick;
@@ -151,6 +140,7 @@ static void Robot_Fault_Update(void)
 }
 
 /* 更新使能状态: 使能沿发使能, 失能沿发失能; 两个方向都有看门狗兜底 */
+/* 根据使能请求的上升/下降沿发送DM使能/失能及DJI零电流；每轮看门狗补发未完成命令。 */
 static void Robot_Enable_Update(void)
 {
     uint8_t enable_request;
@@ -178,11 +168,7 @@ static void Robot_Enable_Update(void)
     }
 }
 
-/* 通信单周期 */
-/*
- * 每拍推进通信缓存解析、物理反馈、遥控、腿解算、故障和电机使能管理。
- * 准备好的电机/腿/遥控结果通过快照发布，控制任务读取；不在通信循环内求LQR或RL力矩。
- */
+/* 解析驱动缓存→整理电机反馈→解算双腿并发布→更新遥控和故障→管理硬件使能。 */
 void comm_task_body(void)
 {
     motor_state_t motor_state_temp;

@@ -1,3 +1,7 @@
+/*
+ * 保存MATLAB导出的固定离散四态模型、反馈增益及观察器系数。
+ * 数组顺序由roll_height_model.h定义，运行控制在roll_height_balance.c；不手改生成系数。
+ */
 /* MATLAB生成四状态LQR+力偏置观测：big_wheelleg
  * Q=[14 0.3 200 0.01] R=[0.0001 0.0001] Ts=0.001
  * M=25.544 half_track=0.212755 I_roll=0.578 damping=8 observer_tau=[0.02 0.5]；实机效果待验证。

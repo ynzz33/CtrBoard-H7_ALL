@@ -1,6 +1,6 @@
 /*
- * 文件职责：唯一最终输出口。
- * 复查候选力矩、当前许可和RL恢复状态后发送DM/DJI；不参与控制计算。
+ * 检查候选力矩是否有限、许可和故障是否允许出力，再提交DM髋力矩及DJI轮力矩。
+ * 不满足条件时发送零指令；输出数组记录提交的命令值，HAL_OK仅代表驱动提交成功。
  */
 #include "control_output.h"
 #include "robot_state.h"
@@ -10,6 +10,8 @@
 #include <math.h>
 #include <string.h>
 
+/* 复查候选有限性、基础许可、即时故障及RL阶段，再发送正常力矩或零指令。
+ * output_*记录提交命令；output_debug_*_sent仅记录HAL提交结果，不是电机实际执行回执。 */
 void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy,
                           const torque_output_t *torque,
                           const compensation_debug_t *debug)
@@ -64,21 +66,4 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
     }
     output_debug_dm_sent = (uint8_t)(Dm_Send_Torque(applied.dm) == HAL_OK);
     output_debug_dji_sent = (uint8_t)(Dji_Send_Wheel_Torque(applied.dji[DJI_MOTOR_WHEEL_LFT], applied.dji[DJI_MOTOR_WHEEL_RGT]) == HAL_OK);
-}
-
-void Control_Output_Publish_Air_Debug(void)
-{
-    taskENTER_CRITICAL();
-    air_debug.mean_force = air_detection.mean_force;
-    air_debug.elapsed = air_detection.elapsed;
-    air_debug.initial_unload_elapsed = air_detection.initial_unload_elapsed;
-    air_debug.compression[0] = air_detection.landing[0].compression;
-    air_debug.compression[1] = air_detection.landing[1].compression;
-    air_debug.landing_elapsed[0] = air_detection.landing[0].elapsed;
-    air_debug.landing_elapsed[1] = air_detection.landing[1].elapsed;
-    air_debug.flight = air_detection.flight;
-    air_debug.initialized = air_detection.initialized;
-    air_debug.valid = air_detection.valid;
-    air_debug.fault = air_detection.fault;
-    taskEXIT_CRITICAL();
 }

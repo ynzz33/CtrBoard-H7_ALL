@@ -1,9 +1,6 @@
 /*
- * 文件职责：共享控制状态定义与全机控制初始化（robot_control.c）。
- * 输入/来源：机器表、各算法初始化接口、TIM6分频节拍。
- * 输出/去向：初始化几何/LQR/RL/自起/离地与信号量，提供动作清零。
- * 关键边界：共享变量在这里定义；策略仲裁和发送在task_actuation；不在初始化中重标定物理量。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 定义跨任务共享对象；上电创建执行/推理信号量，装入腿几何并清控制器历史。
+ * TIM6经Policy_Tick_Div唤醒策略任务；Action_State_Clear使旧动作及在途推理失效。
  */
 
 #include "robot_control.h"
@@ -41,7 +38,7 @@ osSemaphoreId ctrl_tick_sem_handle = NULL;
 osSemaphoreDef(policy_tick_sem);
 osSemaphoreId policy_tick_sem_handle = NULL;
 
-/* TIM6 节拍分频: 每 MACHINE_POLICY_DIV 拍释放策略节拍 (ISR 调用) */
+/* TIM6中断每累计MACHINE_POLICY_DIV个基础拍释放一次策略信号量，随后计数归零。 */
 void Policy_Tick_Div(void)
 {
     static uint8_t div_cnt;   /* 分频计数 */
@@ -53,7 +50,8 @@ void Policy_Tick_Div(void)
     }
 }
 
-/* 清空动作 */
+/* 清原始action和就绪/时间标志，并增加reset_count让清零前启动的推理失效。
+ * 保存/恢复原中断屏蔽状态，使策略和执行任务看不到半清零动作。 */
 void Action_State_Clear(void)
 {
     uint32_t primask = __get_PRIMASK();
@@ -66,7 +64,8 @@ void Action_State_Clear(void)
     __set_PRIMASK(primask);
 }
 
-/* 控制初始化 */
+/* 创建节拍信号量，按机器表初始化双腿几何/索引，清检测、自起及LQR/RL历史。
+ * 这里只准备运行状态，CubeAI网络初始化由策略任务ctrl_task_init执行。 */
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
@@ -101,7 +100,7 @@ void Robot_Control_Init(void)
     leg_map_r.dm_front = DM_MOTOR_LEG_F_RGT;
     leg_map_r.dm_rear = DM_MOTOR_LEG_B_RGT;
 
-    /* 单模型RL39直接读取机器配置；这里只清状态，不按机型另设启用开关。 */
+    /* 清当前RL观测、网络运行标志、力矩目标和启动/失败计时；网络实例稍后由策略任务创建。 */
     RL_Observation_Reset(&rl_control.observation);
     RL_Policy_Reset(&rl_control.policy);
     RL_Torque_Reset(&rl_control.torque_state);

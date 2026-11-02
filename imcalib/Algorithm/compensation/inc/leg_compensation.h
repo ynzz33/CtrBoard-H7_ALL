@@ -1,10 +1,6 @@
 /*
- * 文件职责：弹簧和完整腿自重补偿的组合入口（leg_compensation.h）。
- * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：准备阶段读取双腿和IMU；消费阶段读取缓存、基础力矩与接入选择。
- * 输出/去向：声明本拍准备值及按弹簧、重力、限幅顺序使用的接口。
- * 关键边界：spring_enable仅决定命令是否抵消实体弹簧，不改变检测使用的实体弹簧模型；补偿只加一次。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 按enabled位标志计算气弹簧和本拍选定姿态引用的一份重力缓存；此时尚未叠加电机输出。
+ * Apply_Mode按输出开关将选中的缓存加到base_dm，再对四髋逐个限矩。
  */
 
 #ifndef LEG_COMPENSATION_H
@@ -16,19 +12,18 @@
 
 enum {
     LEG_COMP_SPRING = 1u,
-    LEG_COMP_GRAVITY = 2u,
-    LEG_COMP_GRAVITY_WORLD = 4u,
+    LEG_COMP_GRAVITY = 2u, /* 正常输出欧拉俯仰；与WORLD互斥。 */
+    LEG_COMP_GRAVITY_WORLD = 4u, /* 自起/测试输出pitch_world；与普通模式互斥。 */
 };
 
-/* 执行拍预计算值 */
+/* 输出补偿缓存；重力模式互斥，AIR不读取此结构。 */
 typedef struct {
-    gas_spring_result_t spring;
-    gravity_comp_result_t gravity; /* 原姿态引用 */
-    gravity_comp_result_t gravity_world; /* 补角引用 */
+    gas_spring_result_t spring; /* 实体弹簧力与用于抵消的四髋力矩缓存。 */
+    gravity_comp_result_t gravity; /* 本拍选定的输出重力补偿：正常欧拉俯仰，自起/测试pitch_world。 */
 } leg_compensation_values_t;
 
 typedef struct {
-    gravity_comp_result_t gravity;
+    gravity_comp_result_t gravity; /* 实际选中并应用到输出的重力补偿诊断。 */
     float spring_dm[4];
     float unclamped_dm[4];
     uint8_t saturated;

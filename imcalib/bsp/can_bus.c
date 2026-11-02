@@ -1,9 +1,6 @@
 /*
- * 文件职责：FDCAN公共注册、接收分发与发送服务（can_bus.c）。
- * 输入/来源：CubeMX FDCAN句柄、注册ID及驱动收发请求。
- * 输出/去向：HAL中断读取帧并派发协议回调；统一构造发送帧、统计接收和错误。
- * 关键边界：本层不解释DM/DJI物理协议或策略意图；HAL_OK仅表明发送入队调用成功。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 管理三路FDCAN的ID回调、发送队列与故障恢复；接收中断按ID派发到电机驱动缓存。
+ * bus-off恢复后等待新RX再恢复ACTIVE；共享硬复位会影响三路，发送HAL_OK不是总线执行回执。
  */
 
 #include "can_bus.h"
@@ -235,7 +232,7 @@ bool Can_Bus_Register(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     return true;
 }
 
-/* 发送 (兼容旧接口) */
+/* 构造CAN标准帧并尝试加入HAL发送FIFO；返回HAL状态，不等待电机回报。 */
 HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
                                    const uint8_t *data, uint8_t len)
 {

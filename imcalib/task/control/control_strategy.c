@@ -1,23 +1,24 @@
 /*
- * 文件职责：执行拍的策略确认与前置模型准备。
- * 输入为同拍反馈快照和上一拍LQR投入状态；输出为本拍策略及进入FALLEN事件。
- * 不修改LQR/RL控制器历史，不生成力矩，不下发电机。
+ * 先更新RL状态与公共倒地/AIR选路，再为本拍输出计算一种姿态引用的补偿。
+ * 返回本拍策略与刚进入FALLEN事件；AIR估力独立计算实体项；输出缓存只供后续力矩叠加。
  */
 #include "control_strategy.h"
 #include "robot_state.h"
 #include "air_detection.h"
 #include "control_detection.h"
+#include "control_condition.h"
 #include "fallen_process.h"
 #include <string.h>
 #include <math.h>
 
-/* 恢复仅改变RL许可/观测，不动LQR离地检测。实际投入/退出清历史，模式切换只撤销旧动作就绪。 */
+/* 根据本拍倾角和RL机高推进启动保持/失败状态；阶段变化时清动作或作废旧推理。
+ * request只在遥控在线、使能、RL且投入时成立；rl_fallen不写公共robot_state.fallen。 */
 static void Control_RL_Recovery_Update(const control_frame_t *frame)
 {
     rl_recovery_state_t recovery;
     rl_recovery_phase_t previous;
     uint8_t request;
-    uint8_t rl_fallen;
+    uint8_t rl_fallen; /* RL专用倾角超限，不影响公共LQR倒地阈值。 */
 
     recovery = rl_control.recovery;
     previous = recovery.phase;
@@ -45,8 +46,9 @@ static void Control_RL_Recovery_Update(const control_frame_t *frame)
     taskEXIT_CRITICAL();
 }
 
-/* 仅生成本拍模型缓存；是否把补偿加到候选力矩仍由后续控制路径决定。 */
-static void Control_Model_Prepare(control_frame_t *frame, uint8_t lqr_running)
+/* 公共选路完成后，按本拍输出路径只请求一种重力引用。
+ * AIR在自身估力内部计算实体项，不再向输出模型追加普通重力请求。 */
+void Control_Model_Prepare(control_frame_t *frame)
 {
     uint8_t enabled = 0u;
     ctrl_strategy_t strategy = frame->rc.mode.strategy;
@@ -55,8 +57,16 @@ static void Control_Model_Prepare(control_frame_t *frame, uint8_t lqr_running)
     {
         if (strategy == CTRL_STRATEGY_LQR)
         {
-            enabled = (uint8_t)((frame->nonfallen_drive_permit ? LEG_COMP_GRAVITY : 0u) | (fallen_process_control.lifecycle.enabled ? LEG_COMP_GRAVITY_WORLD : 0u));
-            if (GAS_SPRING_COMP_ENABLE || (air_param.enabled && lqr_running && frame->nonfallen_drive_permit && (!fallen_process_control.lifecycle.enabled || fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE)))
+            if (control_condition.valid && control_condition.condition == CONTROL_FALLEN &&
+                fallen_process_control.lifecycle.enabled)
+            {
+                enabled = LEG_COMP_GRAVITY_WORLD;
+            }
+            else if (control_condition.valid && control_condition.condition != CONTROL_FALLEN)
+            {
+                enabled = LEG_COMP_GRAVITY;
+            }
+            if (GAS_SPRING_COMP_ENABLE)
             {
                 enabled |= LEG_COMP_SPRING;
             }
@@ -66,20 +76,16 @@ static void Control_Model_Prepare(control_frame_t *frame, uint8_t lqr_running)
             enabled = LEG_COMP_SPRING | LEG_COMP_GRAVITY_WORLD;
         }
     }
-    /* 公共观察器需要实体模型，不等待LQR投入或自起完成；命令补偿接入保持原样。 */
-    if (air_param.enabled && frame->imu.online && frame->left.output.valid && frame->right.output.valid && frame->joint_ready)
-    {
-        enabled |= LEG_COMP_SPRING | LEG_COMP_GRAVITY;
-    }
     Leg_Compensation_Prepare(&frame->compensation, &frame->left, &frame->right, &frame->imu, enabled);
 }
 
+/* 执行拍计算前依次更新RL状态、公共选路和所选输出补偿。
+ * 返回使能后的策略，entered_fallen输出本拍首次转入FALLEN的事件，供控制器复位。 */
 ctrl_strategy_t Control_Strategy_Prepare(control_frame_t *frame,
-                                         uint8_t lqr_running,
                                          uint8_t *entered_fallen)
 {
     Control_RL_Recovery_Update(frame);
-    Control_Model_Prepare(frame, lqr_running);
     *entered_fallen = Control_Detection_Update(frame);
+    Control_Model_Prepare(frame);
     return frame->rc.mode.rc_enable ? frame->rc.mode.strategy : CTRL_STRATEGY_DISABLE;
 }

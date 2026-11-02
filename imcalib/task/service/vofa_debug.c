@@ -1,9 +1,6 @@
 /*
- * 文件职责：固定48通道赋值与VOFA发送（vofa_debug.c）。
- * 输入/来源：共享反馈/控制/离地/补偿诊断及驱动记录。
- * 输出/去向：后台每次调用固定赋值后提交一帧；改通道时手动注释旧赋值、启用新赋值。
- * 关键边界：只读观测，不推进检测或修改目标；异步来源同帧不等于同一物理采样时刻，通道表见md/file-guide.md#vofa。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 在短临界区复制控制诊断到浮点通道数组，退出临界区后交给Vofa_Send。
+ * 有效通道赋值以当前编译分支为准；注释掉的旧布局保留作人工切换参考。
  */
 
 #include "vofa_debug.h"
@@ -84,15 +81,15 @@ void Vofa_Debug_Send(void)
 
 //     /* 离地—落地交接诊断布局：只读执行拍已发布状态，不增加控制采样或发布接口。 */
 //     taskENTER_CRITICAL();
-//     dbg[3] = air_debug.mean_force;
-//     dbg[4] = (float)air_debug.flight;
-//     dbg[5] = (float)air_debug.valid;
-//     dbg[6] = (float)air_debug.initialized;
-//     dbg[7] = (float)air_debug.fault;
-//     dbg[8] = air_debug.elapsed;
-//     dbg[9] = air_debug.initial_unload_elapsed;
-//     dbg[10] = air_debug.compression[0];
-//     dbg[11] = air_debug.compression[1];
+//     dbg[3] = air_detection.mean_force;
+//     dbg[4] = (float)air_detection.flight;
+//     dbg[5] = (float)air_detection.valid;
+//     dbg[6] = (float)air_detection.initialized;
+//     dbg[7] = (float)air_detection.fault;
+//     dbg[8] = air_detection.elapsed;
+//     dbg[9] = air_detection.initial_unload_elapsed;
+//     dbg[10] = air_detection.landing[0].compression;
+//     dbg[11] = air_detection.landing[1].compression;
 //     /* 落地腿长闭环：实际速度、显式P/D、总PD与roll项用于区分给定和出力。 */
 //     dbg[12] = leg_l.output.d_virtual_leg_length;
 //     dbg[13] = leg_r.output.d_virtual_leg_length;
@@ -127,7 +124,7 @@ void Vofa_Debug_Send(void)
 //     dbg[42] = leg_balance.Tp[1];
 //     dbg[43] = lqr_state.leg_length_target[0];
 //     dbg[44] = lqr_state.leg_length_target[1];
-//     dbg[45] = (float)(air_debug.flight && air_param.compression_enabled && (air_debug.landing_elapsed[0] > 0.0f || air_debug.landing_elapsed[1] > 0.0f));
+//     dbg[45] = (float)(air_detection.flight && air_param.compression_enabled && (air_detection.landing[0].elapsed > 0.0f || air_detection.landing[1].elapsed > 0.0f));
 //     dbg[46] = (float)leg_balance.air_release;
 //     dbg[47] = (float)robot_state.fallen;
 //     taskEXIT_CRITICAL();

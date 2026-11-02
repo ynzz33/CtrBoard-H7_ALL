@@ -1,9 +1,6 @@
 /*
- * 文件职责：串口DMA环形接收与IDLE缓存交接（uart_idle.c）。
- * 输入/来源：UART/DMA句柄、环形DMA位置、IDLE中断和接收时刻。
- * 输出/去向：复制本次新字节及时间戳，由任务侧Take后交给协议解析。
- * 关键边界：ISR负责取新字节与发布缓存，不做控制求解；跨环尾分两段复制，M7缓存由dma_cache维护。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * UART DMA环形缓冲在IDLE中断时提取新字节，携带接收时刻交给任务解析。
+ * 跨环尾分段复制；Take返回本次取走字节数，缓冲/缓存维护不等同协议帧校验。
  */
 
 #include "uart_idle.h"
@@ -69,7 +66,7 @@ void UART_Idle_Isr(UART_HandleTypeDef *huart, UART_Rx_t *rx)
     rx->flag    = 1;
 }
 
-/* 在短临界区内取完整快照，避免 ISR 覆盖任务正在解析的缓冲区。 */
+/* 取走已由IDLE中断发布的新字节并返回长度，同时输出这批字节的接收时刻ns。 */
 uint16_t UART_Rx_Take_Timed(UART_Rx_t *rx, uint8_t *dst, uint16_t capacity,
                            uint64_t *received_ns)
 {

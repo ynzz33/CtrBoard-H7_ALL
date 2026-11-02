@@ -1,10 +1,8 @@
 /* USER CODE BEGIN Header */
 /*
- * 文件职责：RTOS任务创建与循环节拍（freertos.c）。
- * 输入/来源：main启动和控制信号量。
- * 输出/去向：创建default/comm/imu/policy/actuation任务并调用各单周期函数。
- * 关键边界：本文件只管任务入口/等待/节拍；不要把协议、控制器或报文逻辑放进循环。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 创建后台、通信、IMU、策略推理、执行五个任务，并规定各自等待方式。
+ * 执行任务优先级最高，等TIM6基础节拍；推理等分频节拍；其他任务轮询后osDelay。
+ * 实际协议/控制代码在imcalib/task，入口循环只负责初始化、等待和调用。
  */
 /**
   ******************************************************************************
@@ -121,6 +119,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* 先创建TIM6要释放的两个信号量并清算法状态，之后才创建会启动TIM6的执行任务。 */
   Robot_Control_Init();
   /* USER CODE END RTOS_SEMAPHORES */
 
@@ -174,6 +173,7 @@ void StartDefaultTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
+    /* 后台诊断和灯效，每轮完成后让出5个OS tick；并非严格5ms周期调度。 */
     background_task_body();
     osDelay(5);
   }
@@ -192,6 +192,7 @@ void commTask_Entry(void const * argument)
   /* USER CODE BEGIN commTask_Entry */
   for(;;)
   {
+    /* 整理接收反馈、腿解算、故障和使能；让出1个OS tick后再轮询。 */
     comm_task_body();
     osDelay(1);
   }
@@ -211,6 +212,7 @@ void imuTask_Entry(void const * argument)
   imu_task_init();
   for(;;)
   {
+    /* 只处理HI229新样本；模块时间戳相同会直接返回，循环不代表新采样到达。 */
     imu_task_body();
     osDelay(1);
   }
@@ -230,7 +232,8 @@ void policyTask_Entry(void const * argument)
   ctrl_task_init();
   for(;;)
   {
-    osSemaphoreWait(policy_tick_sem_handle, osWaitForever);   /* TIM6 分频节拍 */
+    /* 等待TIM6每MACHINE_POLICY_DIV拍释放一次，再运行一帧网络推理。 */
+    osSemaphoreWait(policy_tick_sem_handle, osWaitForever);
     ctrl_task_body();
     // osDelay(10);
   }
@@ -250,6 +253,7 @@ void actuationTask_Entry(void const * argument)
   output_task_init();
   for(;;)
   {
+    /* 每个TIM6基础节拍执行一次反馈→选路→算力矩→发送；不叠加osDelay。 */
     osSemaphoreWait(ctrl_tick_sem_handle, osWaitForever);
     output_task_body();
     // osDelay(1);

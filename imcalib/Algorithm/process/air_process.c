@@ -1,13 +1,13 @@
 /*
- * 文件职责：原AIR后处理的独立执行层实现。
- * 消费本拍三态与落地沿，保留原公共腿长写回临界区、位移/偏航复位及AIR赋值。
- * 不修改检测历史或处理公式；临界区和共享命令写回留在任务层，不进入算法层。
+ * 把公共FLIGHT结果接入LQR：选择空中腿摆控制、轴向释放及轮矩处理。
+ * 落地时处理腿长目标与控制历史；检测本体在air_detection，本文件执行控制响应。
  */
 #include "air_process.h"
 #include "robot_state.h"
 #include "air_detection.h"
 #include "control_condition.h"
 
+/* 把公共FLIGHT接入LQR空中控制/释放标志，并在落地交接时处理腿长目标和控制历史。 */
 void Air_Process_Update(control_frame_t *frame)
 {
     uint8_t active;

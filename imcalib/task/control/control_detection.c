@@ -1,7 +1,6 @@
 /*
- * 文件职责：组装检测输入并按原顺序调用AIR观测、触地观测和三态选择。
- * 输入为执行拍快照及现有公共上下文；输出为判断、真实落地沿和进入FALLEN事件。
- * 数学算法归air_detection/control_condition；后处理超时在此统一等待和重判，不求解力矩。
+ * 将本拍IMU、双腿、反馈力矩和模型值交给检测器，再选择NORMAL/FALLEN/FLIGHT。
+ * 超时后先撤力等待再重判；动作超时不是姿态已经倒地的证据。
  */
 #include "control_detection.h"
 #include "air_detection.h"
@@ -12,6 +11,8 @@
 
 control_postprocess_t control_postprocess;
 
+/* 锁存撤力等待请求并保存重试预算；recovery_timeout仅地面恢复超时时为1。
+ * 不直接把姿态标为倒地，等待结束后重新判断实际状态。 */
 void Control_Postprocess_Request(uint8_t recovery_timeout)
 {
     if (control_postprocess.phase != CONTROL_POSTPROCESS_RUN)
@@ -42,6 +43,7 @@ void Control_Postprocess_Request(uint8_t recovery_timeout)
     control_condition.normal_ready = 0u;
 }
 
+/* 仅对实际应用且有效的FLIGHT控制计时，连续5s触发撤力等待；中断条件立即停止计时。 */
 void Control_Postprocess_Flight_Update(uint8_t active)
 {
     if (!active || control_postprocess.phase != CONTROL_POSTPROCESS_RUN)
@@ -60,11 +62,14 @@ void Control_Postprocess_Flight_Update(uint8_t active)
     }
 }
 
+/* 返回是否处于撤力等待/重判阶段，调用方据此清候选力矩。 */
 uint8_t Control_Postprocess_Inhibited(void)
 {
     return (uint8_t)(control_postprocess.phase != CONTROL_POSTPROCESS_RUN);
 }
 
+/* 组装AIR输入并独立更新倒地/AIR观测，再按原优先级选择公共控制状态。
+ * 更新frame及robot_state的FALLEN归属，返回新进入FALLEN事件；撤力等待期间不重新出力。 */
 uint8_t Control_Detection_Update(control_frame_t *frame)
 {
     air_input_t input;
@@ -98,7 +103,6 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     input.imu = &frame->imu;
     input.leg[0] = &frame->left;
     input.leg[1] = &frame->right;
-    input.compensation = &frame->compensation;
     input.joint_ready = frame->joint_ready;
     for (uint8_t side = 0u; side < 2u; side++)
     {

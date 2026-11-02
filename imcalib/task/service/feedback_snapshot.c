@@ -1,9 +1,6 @@
 /*
- * 文件职责：跨任务反馈发布/读取（feedback_snapshot.c）。
- * 输入/来源：imu/comm任务更新后的IMU、电机/腿和遥控结果。
- * 输出/去向：临界区发布，执行/策略任务一次读取同批结构。
- * 关键边界：不同设备仍是异步采样；DM原始接收时刻随电机反馈保留。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * IMU任务发布姿态，通信任务成批发布电机/双腿/投影高度并发布遥控命令。
+ * 读取时在临界区复制这些最新结构，防止半更新；设备实际采样时刻仍然不同。
  */
 
 #include "feedback_snapshot.h"
@@ -12,10 +9,8 @@
 
 static feedback_meta_t imu_meta;
 static feedback_meta_t motor_meta;
-/*
- * 在同一临界区复制IMU、电机、双腿和遥控。
- * 避免读到半更新结构；不同设备仍是异步采样。
- */
+/* 在一个临界区复制最新IMU、电机、左右腿、遥控和高度，返回1。
+ * captured_ns是复制时刻；各设备采样异步，published_ns是软件发布时间。 */
 uint8_t Robot_Feedback_Read(robot_feedback_t *out)
 {
     taskENTER_CRITICAL();
@@ -33,6 +28,7 @@ uint8_t Robot_Feedback_Read(robot_feedback_t *out)
     return 1u;
 }
 
+/* 原子替换IMU共享状态并记录发布时间ns；seen表示已有发布，不保证姿态有效。 */
 void Robot_Feedback_Publish_Imu(const imu_state_t *next)
 {
     taskENTER_CRITICAL();
@@ -42,10 +38,7 @@ void Robot_Feedback_Publish_Imu(const imu_state_t *next)
     taskEXIT_CRITICAL();
 }
 
-/*
- * 把电机状态和由同一批数据解算的左右腿一起发布。
- * 每台电机的CAN接收时刻随motor_state.dm.parsed_rx_ns一起发布，此处不再另存样本。
- */
+/* 先由双腿计算投影高度，再在同一临界区发布电机、双腿和高度及其有效性。 */
 void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     const leg_state_t *left, const leg_state_t *right)
 {
@@ -64,6 +57,7 @@ void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     taskEXIT_CRITICAL();
 }
 
+/* 在临界区整体发布遥控目标，避免使能/策略/数值来自不同次更新。 */
 void Robot_Feedback_Publish_Rc(const rc_command_t *next)
 {
     taskENTER_CRITICAL();

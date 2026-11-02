@@ -1,4 +1,7 @@
-/* 正常LQR路径：1kHz四态/偏置观测，轴向下限协调保持差模，最终电机限矩保持。 */
+/*
+ * 用平均腿长/长度速度、横滚角/角速度四个状态生成NORMAL左右轴向力。
+ * 可选偏置观察器只使用上一拍确认提交且未饱和的力请求；本模块不发送电机命令。
+ */
 #ifndef ROLL_HEIGHT_BALANCE_H
 #define ROLL_HEIGHT_BALANCE_H
 #include "roll_height_model.h"

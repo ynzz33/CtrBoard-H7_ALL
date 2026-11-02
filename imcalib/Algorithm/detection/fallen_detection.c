@@ -1,3 +1,7 @@
+/*
+ * 根据双腿角、世界俯仰和四元数重力朝向，发布valid、abnormal、inverted。
+ * abnormal是瞬时异常候选；连续确认和公共FALLEN归属由control_condition及执行层维护。
+ */
 /* 公共倒地检测；判据参数由本模块维护，不依赖恢复动作模块。 */
 #include "fallen_detection.h"
 #include "machine_config.h"
@@ -18,6 +22,8 @@ void Fallen_Detection_Reset(fallen_detection_t *state)
     memset(state, 0, sizeof(*state));
 }
 
+/* 校验IMU和双腿，计算重力朝向upright、倒置inverted及腿角/俯仰瞬时异常abnormal。
+ * 本函数不累计trigger_time，不决定何时撤力或启动自起。 */
 void Fallen_Detection_Update(fallen_detection_t *state, const imu_state_t *imu,
                              const leg_state_t *left, const leg_state_t *right)
 {

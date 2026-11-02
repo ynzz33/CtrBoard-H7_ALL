@@ -1,9 +1,6 @@
 /*
- * 文件职责：整条腿自重模型查询与摆矩补偿（gravity_comp.c）。
- * 输入/来源：机器自重表、实测腿长和世界腿角。
- * 输出/去向：准备质心半径/偏角、重力摆矩和四髋增量，供消费端直接复用。
- * 关键边界：只负责重力，不叠加弹簧或最终限幅；超出表域夹到边界并记录clamped。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 按腿长插值腿部质心半径和偏角，用相对重力的腿角求自重摆矩，再映射为两髋力矩。
+ * 超出表域取边界并记录clamped；缓存复用只减少查表，不叠加弹簧或发送命令。
  */
 
 #include "gravity_comp.h"
@@ -11,7 +8,7 @@
 #include <math.h>
 #include <string.h>
 
-/* 有效节点插值 */
+/* 按length(m)夹到表域并在线性相邻节点间插值，输出质心偏角rad和半径m。 */
 static uint8_t Gravity_Comp_Lookup(const machine_gravity_cfg_t *cfg,
     float length, float *offset, float *radius, uint8_t *clamped)
 {
@@ -34,11 +31,7 @@ static uint8_t Gravity_Comp_Lookup(const machine_gravity_cfg_t *cfg,
     return 0u;
 }
 
-/* 完整自重摆矩 */
-/*
- * 由腿长查询/插值质心半径和偏角，按世界腿角计算自重摆矩。
- * 超表域取边界并标记clamped；结果是摆矩，不是额外支撑轴向力。
- */
+/* 查腿长对应质心，再用mass*g*radius*sin(world_angle-offset)求自重摆矩N·m。 */
 uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     float length, float world_angle, gravity_leg_result_t *result)
 {
@@ -61,8 +54,8 @@ uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     return 1u;
 }
 
-/* 本拍查表与映射 */
-/* 两种角度引用共用同腿查表结果；相同角度直接复用摆矩和映射值。 */
+/* 分别计算两腿自重摆矩并映射到四髋；可复用cached_result的质心查表结果。
+ * 相同角度直接复用力矩；全部成功才置result.valid。 */
 void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], const gravity_comp_result_t *cached_result, gravity_comp_result_t *result)
 {
     const leg_state_t *leg[2] = {left, right};

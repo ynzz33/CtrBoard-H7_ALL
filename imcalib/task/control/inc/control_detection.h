@@ -1,6 +1,6 @@
 /*
- * 执行层检测调度：消费同拍快照，推进公共离地观测和三态判断。
- * 不生成控制目标/力矩；超时撤力后复位旧历史并重新初判，返回进入FALLEN事件。
+ * 将本拍IMU、双腿、反馈力矩和模型值交给检测器，再选择NORMAL/FALLEN/FLIGHT。
+ * 超时后先撤力等待再重判；动作超时不是姿态已经倒地的证据。
  */
 #ifndef CONTROL_DETECTION_H
 #define CONTROL_DETECTION_H

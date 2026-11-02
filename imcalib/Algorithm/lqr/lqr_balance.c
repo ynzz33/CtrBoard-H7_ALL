@@ -1,9 +1,6 @@
 /*
- * 文件职责：LQR状态构建、遥控目标和状态反馈（lqr_balance.c）。
- * 输入/来源：IMU、双腿几何、轮速及执行层融合速度/空中控制选择。
- * 输出/去向：形成10维状态/目标；按实测腿长求K，输出双轮和左右腿摆矩。
- * 关键边界：轴向力由leg_balance选择NORMAL四态/非NORMAL PD；AIR只使用腿角/角速度四列、轮矩为零；本文件不发报文。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 组装十维平衡状态和目标，按左右实测腿长求K，计算双轮力矩与双腿摆矩。
+ * 位移积分、速度/偏航目标在此维护；轴向腿力由leg_balance选择四态控制或非NORMAL PD。
  */
 
 #include "lqr_balance.h"
@@ -20,7 +17,7 @@
 /*
  * IMU 轴索引 — 台架第一步必须确认
  * 手法: 手把机头缓慢抬起/压下, 看 pitch 与角速度哪个分量响应最大、符号是否符合
- * 若 pitch 实际落在滚转槽, 只改这两行
+ * 下列索引属于现有安装映射；发现疑点先由作者台架确认，不依据注释直接改轴或符号。
  */
 #define LQR_IMU_PITCH_IDX    ATTITUDE_ROLL
 #define LQR_IMU_ROLL_IDX     ATTITUDE_PITCH
@@ -97,8 +94,6 @@ static float LQR_Accel_Forward(const imu_state_t *imu)
     return (wx * r00 + wy * r10) / norm * LQR_GRAVITY;
 }
 
-/* 使能边沿: 腿长读取公共目标, 位移积分清零 (滤波器常跑不复位)
- * 同 Leg2: 不查实测腿长, 趴地也投入, 靠腿长 PID 撑起 (倒地自起状态机后做) */
 /*
  * 投入时建立位置/朝向基准并读取公共腿长；腿几何由执行层检查。
  * 允许从较短实测腿长撑起；目标只按现有机械范围裁剪，K求值仍在表范围取边界，不伪造实测长度。
@@ -116,7 +111,6 @@ uint8_t LQR_Enable_Latch(lqr_state_t *st, const rc_command_t *cmd)
     return 1u;
 }
 
-/* 指令 → 目标 */
 /*
  * 将统一遥控命令变成速度/偏航及最终腿长目标。
  * RC只限制公共拨轮范围；LQR在此按现有机械范围裁剪腿长，不回写公共命令。
@@ -150,7 +144,6 @@ uint8_t LQR_Target_Update(lqr_state_t *st, const rc_command_t *cmd)
     return 1u;
 }
 
-/* 速度入状态；低速、腿姿态到位后启动位置保持。 */
 /*
  * 将融合速度写入LQR状态，并按低速/腿姿态条件建立停车位置积分。
  * AIR保留真实速度状态但冻结停车积分；恢复地面时是否使用轮速观测由执行层决定。
@@ -208,7 +201,6 @@ void LQR_Velocity_Apply(lqr_state_t *st, float velocity, float dt)
     }
 }
 
-/* 组装姿态和运动学观测；任务随后赋入融合速度。 */
 /*
  * 从IMU和双腿几何构建10维状态及原始轮速运动学观测。
  * 输入数值已由IMU/腿发布端验证，这里读取可用标志；融合速度随后由执行层回填。
@@ -265,11 +257,7 @@ uint8_t LQR_State_Update(lqr_state_t *st, const imu_state_t *imu,const leg_state
     return st->valid;
 }
 
-/* 增益求值 + 状态反馈求和 */
-/*
- * 按两腿实测长度求K，逐输出累加各状态列反馈并限幅。
- * AIR只保留左右腿角/角速度四列，双轮贡献清零；地面使用完整反馈和既有偏置。
- */
+/* 按腿长更新K，计算目标与状态的反馈力矩；NORMAL可约束偏航参考，AIR按专用列选择输出。 */
 void LQR_Control_Update(lqr_state_t *st, uint8_t guard_permit)
 {
     float K_sym[40];

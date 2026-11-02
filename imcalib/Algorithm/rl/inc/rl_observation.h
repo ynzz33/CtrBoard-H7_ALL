@@ -1,10 +1,13 @@
-/* RL35输入接口：模型原生反馈和最新样本；采样归执行任务，观测/原始动作历史归策略任务。 */
+/*
+ * 将执行任务采样的物理反馈转成模型坐标、投影重力并组装当前网络观测。
+ * 同时维护RL启动保持/连续异常失败计时；last_action保存网络原始动作，不保存最终力矩。
+ */
 #ifndef RL_OBSERVATION_H
 #define RL_OBSERVATION_H
 #include "rl_types.h"
 #include "machine_config.h"
 #include "rc_types.h"
-/* RL实际投入阶段；数值供Watch查看，不直接作为网络模式编号。 */
+/* RL执行许可阶段；当前状态机使用IDLE/HOLD/NORMAL/FAILED，RECOVER仅保留枚举，未主动进入。 */
 typedef enum {
     RL_RECOVERY_IDLE = 0, RL_RECOVERY_HOLD, RL_RECOVERY_RECOVER, RL_RECOVERY_NORMAL, RL_RECOVERY_FAILED
 } rl_recovery_phase_t;
@@ -12,7 +15,7 @@ typedef struct {
     rl_recovery_phase_t phase;
     uint8_t ground_start;          /* 实际投入时锁存，站起/中途倒地均不改写。 */
     uint16_t hold_ms;              /* 趴地启动零力矩保持200ms。 */
-    uint16_t stable_ms;            /* 连续非倒地500ms后完成恢复。 */
+    uint16_t stable_ms;            /* 连续非down时间ms；当前达到阈值会设NORMAL，无独立RECOVER阶段。 */
     uint16_t fallen_ms;            /* 连续倒地达到400ms终止本次投入。 */
 } rl_recovery_state_t;
 /* 每段起点对应训练actor拼接顺序；位置和速度均使用rl_types中的实体电机顺序。 */

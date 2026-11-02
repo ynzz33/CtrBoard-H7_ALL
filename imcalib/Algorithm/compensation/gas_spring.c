@@ -1,9 +1,6 @@
 /*
- * 文件职责：气弹簧伸腿力模型与电机侧抵消（gas_spring.c）。
- * 输入/来源：准备阶段读取实测腿长、机器表与力映射；输出阶段读取本拍缓存。
- * 输出/去向：准备实体弹簧力及电机抵消量，供观测和命令复用。
- * 关键边界：Gas_Spring_Apply只叠加准备值；实体力与输出抵消量含义不同。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 按实测虚拟腿长求实体气弹簧轴向力，并映射成四髋抵消力矩。
+ * 实体力供AIR估力；delta_dm供命令补偿，两者用途不同，计算模型不代表启用抵消。
  */
 
 #include "gas_spring.h"
@@ -31,7 +28,7 @@ float Gas_Spring_Force(float L0)
     return machine->compensation.spring != NULL ? Spring_Force(machine->compensation.spring, L0) : 0.0f;
 }
 
-/* 本拍实体力与抵消量 */
+/* 按左右实测腿长求实体伸腿力N；仅编译开启补偿时再映射四髋抵消力矩N·m。 */
 void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_spring_result_t *result)
 {
     const leg_state_t *leg[2] = {left, right};

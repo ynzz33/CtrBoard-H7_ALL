@@ -1,9 +1,6 @@
 /*
- * 文件职责：IMU任务的单周期测量处理（task_imu.c）。
- * 输入/来源：HI229接收缓存/协议快照与machine->imu轴映射。
- * 输出/去向：去重、取轴/乘符号、单位换算、姿态归一化/补角后发布IMU反馈。
- * 关键边界：断流发布online=0和补角无效；不在这里计算电机力矩或替控制器改姿态。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 从HI229取新样本，按机器配置映射轴和符号，换算单位并校验姿态。
+ * 计算供大角度恢复使用的pitch_world后发布；断流发布online=0、pitch_world_valid=0。
  */
 
 #include "robot_control.h"
@@ -13,18 +10,14 @@
 #include "machine_config.h"
 #include "pitch_world.h"
 
-#define IMU_PITCH_WORLD_IDX  ATTITUDE_ROLL /* 沿用原取轴 */
-
+#define IMU_PITCH_WORLD_IDX  ATTITUDE_ROLL /* 清姿态历史；后续首个有效HI229样本重新建立姿态状态。 */
 void imu_task_init(void)
 {
     Attitude_Init(&imu_state);
 }
 
-/* 读取 + 按机器表取轴/乘符号 + 单位换算 */
-/*
- * HI229解析/在线检查 → 模块时间戳去重 → 按机器表取轴/符号 → 角速度单位换算 → 姿态/补角 → 发布。
- * 离线或无效时发布对应有效性；四元数和欧拉角的原约定保持，不在此补偿控制误差。
- */
+/* 解析并去重HI229样本，按机器表取轴/符号，将角速度换为rad/s，计算pitch_world后发布。
+ * 离线时清online与pitch_world_valid；相同模块时间戳不重复发布。 */
 void imu_task_body(void)
 {
     hi229_data_t sample;

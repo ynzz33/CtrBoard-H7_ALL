@@ -1,7 +1,6 @@
 /*
- * model1999的RL35输入与恢复模式：原生电机反馈、限幅后的公共遥控命令、实际投入状态。
- * 位置/速度使用rad、rad/s；先裁剪再缩放。机器配置直接取固定表，不扫描配置合法性。
- * 执行任务保存最新反馈，策略任务复制后构建；不添加训练噪声或延迟，不调用网络或发送电机。
+ * 将执行任务采样的物理反馈转成模型坐标、投影重力并组装当前网络观测。
+ * 同时维护RL启动保持/连续异常失败计时；last_action保存网络原始动作，不保存最终力矩。
  */
 #include "rl_observation.h"
 #include "math_utils.h"
@@ -13,7 +12,9 @@ void RL_Recovery_Reset(rl_recovery_state_t *state)
 {
     memset(state, 0, sizeof(*state));
 }
-/* 每基础执行拍推进一次；FAILED必须退出投入才复位，避免姿态回正后自动重启。 */
+/* 每基础拍按固定dt累计RL启动保持和连续down时间；down由倾角或低高度构成。
+ * 首次down进入HOLD，保持结束转NORMAL；连续异常达超时转FAILED，退出请求才解除失败。
+ * 当前未设置RECOVER阶段；stable_ms仍累计，不能把枚举保留值当成已实现的恢复动作。 */
 void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t feedback_valid, uint8_t fallen, float height)
 {
     uint8_t down;
@@ -107,7 +108,8 @@ uint8_t RL_Observation_Read_Sample(const rl_observation_state_t *state, rl_obser
     *sample = state->sample;
     return 1u;
 }
-/* actor39：命令使用公共遥控，恢复标志来自执行任务；SDK就绪与policy_active含义不同。 */
+/* 按RL_OBS索引填命令、角速度、投影重力、电机位置/速度及上次原始action。
+ * 高度请求独立限幅/缩放，当前控制模式槽固定1；结果全部有限才置valid。 */
 uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg_t *config, const rl_observation_sample_t *sample, const rc_command_t *command, const rl_recovery_state_t *recovery, uint8_t source_valid)
 {
     memset(state->obs, 0, sizeof(state->obs));

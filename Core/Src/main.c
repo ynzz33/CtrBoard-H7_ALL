@@ -1,10 +1,8 @@
 /* USER CODE BEGIN Header */
 /*
- * 文件职责：上电初始化与主入口（main.c）。
- * 输入/来源：HAL复位、时钟/外设配置、机器选择。
- * 输出/去向：初始化通信/单调时钟/控制模块，创建RTOS并启动调度。
- * 关键边界：USB DMA存储和MPU适配在用户区；FDCAN启动先复位共享硬件，再统一应用机器时序。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 上电先准备USB专用DMA内存和MPU，再启用缓存、时钟及CubeMX外设。
+ * 用户初始化注册遥控/IMU/电机接收链，随后创建RTOS任务并启动调度。
+ * TIM6回调维护单调时钟并唤醒执行/策略任务；TIM23维护HAL毫秒时钟。
  */
 /**
   ******************************************************************************
@@ -79,6 +77,7 @@ void MX_FREERTOS_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* GCC启动代码之外的USB专用段：复制Flash初值到RAM并清零BSS；Keil由自身启动流程处理。 */
 static void USB_Dma_Memory_Init(void)
 {
 #if defined(__GNUC__) && !defined(__CC_ARM)
@@ -101,6 +100,7 @@ static void USB_Dma_Memory_Init(void)
 #endif
 }
 
+/* 将0x2404C000起16KB USB DMA区域设为不缓存，避免CPU缓存与DMA访问到不同数据。 */
 static void USB_Dma_MPU_Config(void)
 {
   MPU_Region_InitTypeDef region = {0};
@@ -121,6 +121,7 @@ static void USB_Dma_MPU_Config(void)
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
 
+/* 用当前机器配置覆盖FDCAN数据段时序；这里只改句柄，实际启动/失败恢复由can_bus处理。 */
 static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
 {
   if (handle->Init.DataPrescaler != MACHINE_FDCAN13_DATA_PRESCALER || handle->Init.DataTimeSeg1 != MACHINE_FDCAN13_DATA_SEG1 || handle->Init.DataTimeSeg2 != MACHINE_FDCAN13_DATA_SEG2)
@@ -132,6 +133,7 @@ static void Machine_Apply_Fdcan_Data_Timing(FDCAN_HandleTypeDef *handle)
   }
 }
 
+/* 将机器时序应用于DM所在FDCAN1/3，保持轮电机FDCAN2的现有时序。 */
 static void FDCAN_Config(void)
 {
   Machine_Apply_Fdcan_Data_Timing(&hfdcan1);
@@ -196,20 +198,22 @@ int main(void)
   MX_UART8_Init();
   MX_USART10_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* 外设句柄已生成：先更新机型时序，再启用各协议的接收缓存/回调。 */
   FDCAN_Config();
-  Mono_Ns_Init();   /* 单调 ns 时钟 */
-  Jetson_Uart_Init();
+  Mono_Ns_Init();   /* 接收/发布时间使用的上电相对ns计数，与HAL毫秒时钟分开。 */
+  Jetson_Uart_Init(); /* 编译开关为0时为空入口；为1才启动独立UART10探测接收。 */
   DR16_Init();
   HI229_Init();
   Can_Bus_Init();
   // IMU_Init();       // BMI088 板载IMU (SPI2) —— 暂不使用
   Dji_Init();       // DJI电机 CAN回调注册
   Dm_Init();        // DM电机 CAN回调注册
-  /* 机器: 见 machine_config.h 的 MACHINE_DEFAULT */
+  /* 设置这两路24V控制GPIO为现有初始电平；不以GPIO电平代替电机协议使能状态。 */
   HAL_GPIO_WritePin(GPIOC, POWER_24V_2_Pin|POWER_24V_1_Pin, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
+  /* 创建控制信号量、初始化算法状态并创建五个任务，随后启动调度。 */
   MX_FREERTOS_Init();
 
   /* Start scheduler */
@@ -309,9 +313,10 @@ void SystemClock_Config(void)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
+  /* 基础控制拍：中断只释放节拍，不在中断内运行LQR、推理或电机发送。 */
   if (htim->Instance == TIM6)
   {
-    Mono_Ns_Tick();   /* 周期扩展 */
+    Mono_Ns_Tick();   /* 累计DWT周期，避免32位计数回绕丢失时间。 */
     osSemaphoreRelease(ctrl_tick_sem_handle);   /* 按机型配置的 TIM6 周期唤醒输出任务 */
     Policy_Tick_Div();                          /* 分频唤醒策略任务 */
   }

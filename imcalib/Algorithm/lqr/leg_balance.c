@@ -1,9 +1,6 @@
 /*
- * 文件职责：NORMAL固定四态LQR、非NORMAL原PD及腿部输出组合（leg_balance.c）。
- * 输入/来源：LQR状态/最终腿长目标、双腿实测几何、显式运行配置和dt。
- * 输出/去向：生成左右轴向力/摆矩，经公共补偿与限幅后填torque_output_t。
- * 关键边界：AIR释放时轴向主动出力为零；非释放时用原轨迹斜坡；只求解，不发送CAN。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 生成腿长轨迹，NORMAL用四态腿长/横滚反馈求轴向力，其他路径按条件使用PD或释放。
+ * 组合轴向力、十态LQR摆矩和轮矩，映射四髋后加入选定补偿并限矩，填候选输出。
  */
 
 #include "leg_balance.h"
@@ -25,7 +22,6 @@ void Leg_Balance_Init(leg_balance_t *lb)
     Roll_Height_Reset(&lb->roll_height);
 }
 
-/* 清控制器历史与调试观测值 */
 /*
  * 清非NORMAL PD历史、四态观测/输出、力/摆矩、补偿和轨迹斜坡，保留配置。
  * 进入/退出轴向释放都会调用；退出时下一拍从实测重新播种给定。
@@ -75,7 +71,6 @@ static void Leg_PD_Update(pid_t *pd, float measured, float target, float velocit
     pd->last_position_mode_output = pd->position_mode_output;
 }
 
-/* 力域映射 + 限幅: (足端力, 髋扭矩) → 前后髋电机力矩 (虚功原理), 轮扭矩直接限幅 */
 /*
  * 先把本腿F/Tp用雅可比映射成两髋基础力矩，再统一组合弹簧/重力并限幅。
  * 补偿前F/Tp记录在lb，输出电机力矩已包含补偿；两种量不能直接混作同一受力值。
@@ -112,12 +107,6 @@ static uint8_t Leg_Balance_Output(leg_balance_t *lb, const leg_state_t *leg_l,
     return 1u;
 }
 
-/* NORMAL仅四状态反馈，非NORMAL保留原PD；统一映射为电机力矩。 */
-/*
- * NORMAL：加速度受限的长度位置/速度参考→四态反馈；非NORMAL沿用原斜坡/PD。
- * 释放：轴向F=0且不推进长度/roll PD与斜坡；摆角LQR和完整重力仍保留。
- * 轴向/摆矩映射和补偿在输出辅助函数中完成，本函数返回成功与否，发送由执行任务负责。
- */
 /* NORMAL参考：速度/加速度有界，离散制动距离避免到位时强行切断速度。
  * 目标中途反向时先减速；不拿实测噪声重置每拍参考，也不改公共Ramp函数。
  */
@@ -151,6 +140,7 @@ static float Normal_Length_Target_Update(ramp_t *ramp, float *velocity, float ta
     return ramp->out;
 }
 
+/* 先推进长度参考，再求轴向力并组合LQR摆矩/轮矩；映射髋力矩后叠加补偿和限幅。 */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             const leg_compensation_values_t *values,

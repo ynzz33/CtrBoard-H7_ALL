@@ -1,3 +1,7 @@
+/*
+ * 保存MATLAB导出的固定离散四态模型、反馈增益及观察器系数。
+ * 数组顺序由roll_height_model.h定义，运行控制在roll_height_balance.c；不手改生成系数。
+ */
 /* MATLAB固定维度契约；输入为补偿前虚拟轴向F请求，不是FN估计或电机力矩。 */
 #ifndef ROLL_HEIGHT_MODEL_H
 #define ROLL_HEIGHT_MODEL_H

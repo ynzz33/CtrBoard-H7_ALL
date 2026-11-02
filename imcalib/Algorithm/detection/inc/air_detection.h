@@ -1,10 +1,6 @@
 /*
- * 文件职责：离地/落地状态估计（air_detection.h）。
- * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩与IMU。
- * 输出/去向：发布支持力、initialized/valid/flight及压缩诊断，执行层决定是否切换控制。
- * 关键边界：按固定执行周期处理缓存反馈；无效观测保留flight。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 由四髋反馈反解腿力，加入实体弹簧、扣除自重摆矩并计入轮组惯性，估算支持力N。
+ * 支持力连续条件判离地，压缩/支持力判落地；valid与flight独立，无效观测不等于落地。
  */
 
 #ifndef AIR_DETECTION_H
@@ -12,7 +8,8 @@
 
 #include "leg_solver.h"
 #include "imu_state.h"
-#include "leg_compensation.h"
+#include "gravity_comp.h"
+#include "gas_spring.h"
 
 /* 参数数值初始化时检查；检测、控制接入和落地开关各自独立。 */
 typedef struct {
@@ -37,7 +34,6 @@ typedef struct {
 typedef struct {
     const imu_state_t *imu; /* 已映射/归一化的IMU测量，只读引用 */
     const leg_state_t *leg[2]; /* 左右腿几何/速度/雅可比，只读引用 */
-    const leg_compensation_values_t *compensation; /* 本拍模型值 */
     float torque[2][2]; /* 四髋物理反馈力矩N·m，已处理驱动极性 */
     uint8_t joint_ready; /* 四髋可用 */
 } air_input_t;
@@ -77,22 +73,8 @@ typedef struct {
     uint8_t applied; /* 执行层是否选中AIR控制，不证明实体执行 */
 } air_detection_t;
 
-/* VOFA所需的执行拍末尾诊断快照，不复制检测器的跨拍估计历史。 */
-typedef struct {
-    float mean_force;
-    float elapsed;
-    float initial_unload_elapsed;
-    float compression[2];
-    float landing_elapsed[2];
-    uint8_t flight;
-    uint8_t initialized;
-    uint8_t valid;
-    uint8_t fault;
-} air_debug_t;
-
 extern air_param_t air_param;
 extern air_detection_t air_detection;
-extern volatile air_debug_t air_debug;
 void Air_Detection_Reset(air_detection_t *state);
 void Air_Detection_Update(air_detection_t *state, const air_input_t *input);
 

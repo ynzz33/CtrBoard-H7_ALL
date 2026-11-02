@@ -1,3 +1,7 @@
+/*
+ * 初始化CubeAI网络并校验输入/输出尺寸，观测有效时运行一次网络，返回原始action。
+ * ready表示网络接口就绪，不表示遥控投入或允许电机出力；推理耗时单独记录。
+ */
 /* 单actor推理接口及SDK状态；网络仅输出请求动作，不包含PD、历史encoder或latent。 */
 #ifndef RL_POLICY_H
 #define RL_POLICY_H

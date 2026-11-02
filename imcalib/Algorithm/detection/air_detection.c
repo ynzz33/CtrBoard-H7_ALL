@@ -1,9 +1,6 @@
 /*
- * 文件职责：离地/落地状态估计（air_detection.c）。
- * 输入/来源：执行任务传入的双腿几何、四髋反馈力矩与IMU。
- * 输出/去向：发布支持力、initialized/valid/flight及压缩诊断，执行层决定是否切换控制。
- * 关键边界：按固定执行周期处理缓存反馈；无效观测保留flight。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 由四髋反馈反解腿力，加入实体弹簧、扣除自重摆矩并计入轮组惯性，估算支持力N。
+ * 支持力连续条件判离地，压缩/支持力判落地；valid与flight独立，无效观测不等于落地。
  */
 
 #include "air_detection.h"
@@ -30,9 +27,7 @@ air_param_t air_param = {
     .derivative_tau = 0.01f, .force_tau = 0.01f,
 };
 air_detection_t air_detection;
-volatile air_debug_t air_debug;
 
-/* 重新等待样本 */
 /*
  * 清空本次检测所有历史，包括initialized、flight和悬空峰值。
  * 初始化/关闭检测调用；LQR退出不清公共观测，清零不能当作真实落地事件。
@@ -51,7 +46,6 @@ static void Air_Timer_Reset(air_detection_t *state)
     state->landing[1].elapsed = 0.0f;
 }
 
-/* 失效不算接地 */
 /*
  * 观测失效时清连续条件计时并保留flight和悬空峰值。
  * fault记录本拍失败；恢复时重新播种差分，失败拍不累计连续条件时间。
@@ -64,9 +58,8 @@ static void Air_Invalid(air_detection_t *state)
     state->fault = 1u;
 }
 
-/* 单腿支持力 */
 /*
- * 由同侧前后髋反馈反解电机轴向力/摆矩，读取本拍实体弹簧力与原姿态引用的自重摆矩。
+ * 由同侧前后髋反馈反解电机轴向力/摆矩，按原欧拉俯仰计算估力所需的实体弹簧力和自重摆矩。
  * 将力投影到世界竖直方向，再用机体/腿投影加速度估计轮重动态项；滤波得到本腿FN。
  * 首帧没有可靠差分，必须先播种；这里计算的是支持力估计，不是长度PID给定或发送力矩。
  */
@@ -80,6 +73,7 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     float alpha;
     float force;
     float torque;
+    gravity_leg_result_t gravity; /* AIR固定使用欧拉俯仰，不随输出补偿路径改变。 */
 
     leg = input->leg[side];
     if (!Leg_Force_Map_Inverse(leg, input->torque[side], &next->motor_force, &next->motor_torque))
@@ -93,11 +87,18 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     {
         return 0u;
     }
-    next->spring_force = input->compensation->spring.force[side];
+    /* 实体弹簧和自重始终存在；只求估力所需标量，不请求输出抵消力矩。 */
+    next->spring_force = Gas_Spring_Force(length);
     next->gravity_torque = 0.0f;
     if (machine->compensation.gravity != NULL)
     {
-        next->gravity_torque = input->compensation->gravity.leg[side].torque;
+        if (!Gravity_Comp_Compute(machine->compensation.gravity, length,
+                                  leg->output.virtual_leg_angle - input->imu->euler_rad[ATTITUDE_ROLL],
+                                  &gravity))
+        {
+            return 0u;
+        }
+        next->gravity_torque = gravity.torque;
     }
     force = next->motor_force + next->spring_force;
     torque = next->motor_torque - next->gravity_torque;
@@ -116,7 +117,6 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     return (uint8_t)(isfinite(next->spring_force) && isfinite(next->pressure) && isfinite(next->height_velocity) && isfinite(next->height_acceleration) && isfinite(next->force_raw) && isfinite(next->force));
 }
 
-/* 均值迟滞计时 */
 /*
  * 首次高/低支持力分别连续确认，空中上电不要求已有支撑历史。
  * AIR每拍更新各腿峰值；压缩模式使用每腿独立计时，任一腿达时即可恢复整机接地。
@@ -215,7 +215,6 @@ static void Air_State_Update(air_detection_t *state, const air_input_t *input, u
     }
 }
 
-/* 固定执行周期 */
 /*
  * 公共反馈/四髋可用 → 双腿估力 → 状态机；缓存未更新也按MACHINE_LQR_DT处理。
  * 首次或失败恢复先播种差分，连续条件计时每个有效执行拍推进。
@@ -232,7 +231,7 @@ void Air_Detection_Update(air_detection_t *state, const air_input_t *input)
         Air_Detection_Reset(state);
         return;
     }
-    if (!input->imu->online || !input->imu->pitch_world_valid || !input->leg[0]->output.valid || !input->leg[1]->output.valid || !input->joint_ready || !input->compensation->spring.valid || (machine->compensation.gravity != NULL && !input->compensation->gravity.valid))
+    if (!input->imu->online || !input->imu->pitch_world_valid || !input->leg[0]->output.valid || !input->leg[1]->output.valid || !input->joint_ready)
     {
         Air_Invalid(state);
         return;

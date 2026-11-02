@@ -1,19 +1,19 @@
 /*
- * 50Hz策略：复制500Hz最新反馈及原始动作历史→组装obs35→推理→发布原始action6。
- * 同帧复制公共遥控与恢复标志；趴地启动保持由执行任务控制，不以SDK就绪替代模型激活。
- * 共享样本/动作只在短临界区读写，观测构建和网络调用均放在临界区之外。
+ * 每个策略节拍复制最新反馈、遥控、RL执行状态和上一原始动作，组装网络输入并推理。
+ * 发布六路原始action前重查模式和reset_count，防止旧控制段的推理覆盖新动作。
  */
 #include "robot_control.h"
 #include "robot_state.h"
 #include "rl_observation.h"
 #include "rl_policy.h"
 #include <string.h>
-/* 策略任务启动时初始化已编译网络；加载/接口检查由RL_Policy_Init完成。 */
+/* 初始化已编译CubeAI网络并检查观测/action尺寸；不在这里开启电机出力。 */
 void ctrl_task_init(void)
 {
     (void)RL_Policy_Init(&rl_control.policy);
 }
-/* 本地构造后完整发布；清零期间仍在途的推理不能覆盖新控制段的动作。 */
+/* 复制反馈和last_action→构建观测→推理→发布原始action。
+ * reset_count前后不一致或模式已退出则丢弃结果；遥控选择RL可推理，出力另由执行层许可。 */
 void ctrl_task_body(void)
 {
     rl_observation_state_t observation;
@@ -21,10 +21,10 @@ void ctrl_task_body(void)
     rl_recovery_state_t recovery;
     rc_command_t command;
     float action[RL_ACTION_SIZE] = {0.0f};
-    uint32_t reset_count;
+    uint32_t reset_count; /* 本次推理所属动作段编号；发布前不一致说明结果已过期。 */
     uint8_t selected;
-    uint8_t sampled;
-    uint8_t built;
+    uint8_t sampled; /* 是否成功复制执行任务的有效反馈样本。 */
+    uint8_t built; /* 本次网络观测是否成功构建且全部有限。 */
     /* 样本缓存由高优先级执行任务推进，先在临界区复制，避免读取半更新帧。 */
     taskENTER_CRITICAL();
     selected = (uint8_t)(rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL);
@@ -68,7 +68,7 @@ void ctrl_task_body(void)
         taskEXIT_CRITICAL();
         return;
     }
-    /* 1999请求动作保持四腿两轮顺序，不反号或全局裁剪；限幅归各自生成端。
+    /* 网络请求保持四髋两轮原始顺序，目标生成和力矩限幅在RL_Torque_Compute。
      * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
     taskENTER_CRITICAL();
     if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL)

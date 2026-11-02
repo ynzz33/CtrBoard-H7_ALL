@@ -1,9 +1,6 @@
 /*
- * 文件职责：地面恢复动作状态机（fallen_process.c）。
- * 输入/来源：IMU/pitch_world、双腿几何、执行许可和上一拍阶段。
- * 输出/去向：按阶段设置长度/摆角目标，运行独立PID，输出准备力矩及BALANCE/PREPARE/STOP路由。
- * 关键边界：阶段切换、目标生成、PID和映射分层；DONE才交给LQR；轮组准备输出保持零。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 根据倒地姿态规划普通前/后侧自起或倒置翻身，推进阶段并生成腿长/摆角目标。
+ * 独立长度/角度控制器输出准备力矩；返回PREPARE/BALANCE/STOP供执行层决定输出。
  */
 
 #include "fallen_process.h"
@@ -57,6 +54,7 @@ fallen_process_param_t fallen_process_param = {
     .recovery_retry_max      = 5u,                              /* 重试次数 */
 };
 
+/* 将有限角度按2pi折回[-pi,pi]；边界与本模块连续角累加配套。 */
 static float Fallen_Process_Wrap(float angle)
 {
     angle = fmodf(angle, LEG_2PI);
@@ -71,6 +69,7 @@ static float Fallen_Process_Wrap(float angle)
     return angle;
 }
 
+/* 切换动作阶段并清阶段时间、到位连续时间和触发时间，不清整段轨迹。 */
 static void Fallen_Process_Enter(fallen_process_ctx_t *st, uint8_t phase)
 {
     st->lifecycle.phase = phase;
@@ -91,6 +90,7 @@ static void Fallen_Process_PID_Init(fallen_process_ctx_t *st)
     }
 }
 
+/* 首次清状态、默认开启自起/翻身，并初始化独立长度及摆角串级PID。 */
 void Fallen_Process_Init(fallen_process_ctx_t *st)
 {
     memset(st, 0, sizeof(*st));
@@ -99,6 +99,7 @@ void Fallen_Process_Init(fallen_process_ctx_t *st)
     Fallen_Process_PID_Init(st);
 }
 
+/* 清本轮动作、轨迹和控制器历史，保留普通自起/倒置翻身两个功能开关。 */
 void Fallen_Process_Reset(fallen_process_ctx_t *st)
 {
     uint8_t enabled;
@@ -111,6 +112,7 @@ void Fallen_Process_Reset(fallen_process_ctx_t *st)
     st->lifecycle.recovery_enabled = recovery_enabled;
 }
 
+/* 首次失败时锁存FAILED和原因并开始本模块等待计时，避免每拍重置等待起点。 */
 void Fallen_Process_Fail(fallen_process_ctx_t *st, uint8_t fault)
 {
     if (st->lifecycle.phase != FALLEN_PROCESS_FAILED)
@@ -155,7 +157,7 @@ static uint8_t Fallen_Process_Preloaded(const leg_state_t *const leg[2])
     return (uint8_t)(leg[0]->output.virtual_leg_length >= minimum && leg[1]->output.virtual_leg_length >= minimum);
 }
 
-/* 连续角度反馈 */
+/* 将每拍包角变化累加成连续角，跨±pi时仍保持准备位路径方向。 */
 static void Fallen_Process_Rear_Path_Update(fallen_process_ctx_t *st,
                                      const leg_state_t *const leg[2])
 {
@@ -169,6 +171,7 @@ static void Fallen_Process_Rear_Path_Update(fallen_process_ctx_t *st,
     }
 }
 
+/* 按当前阶段检查双腿实际位置及指令是否到位，输出ready_block位用于定位未满足项。 */
 static uint8_t Fallen_Process_Ready(fallen_process_ctx_t *st,
                             const leg_state_t *const leg[2])
 {
@@ -227,7 +230,7 @@ static uint8_t Fallen_Process_Ready(fallen_process_ctx_t *st,
     return (uint8_t)(ready_block == 0u);
 }
 
-/* 预置PD历史 */
+/* 按当前测量和目标预置PID误差历史，避免开始新段时沿用上段差分。 */
 static void Fallen_Process_Prime(pid_t *pid, float measured, float target)
 {
     float error;
@@ -240,13 +243,13 @@ static void Fallen_Process_Prime(pid_t *pid, float measured, float target)
     PID_History_Set(pid, measured, target, error);
 }
 
-/* 恢复阶段 */
+/* 检查当前是否在倒置稳定/伸腿/前点对齐/翻身阶段，用来保持翻身路径归属。 */
 static uint8_t Fallen_Process_Recovering(const fallen_process_ctx_t *st)
 {
     return (uint8_t)((st->lifecycle.phase >= FALLEN_PROCESS_SETTLE && st->lifecycle.phase <= FALLEN_PROCESS_FLIP) || st->lifecycle.phase == FALLEN_PROCESS_ALIGN_FRONT);
 }
 
-/* 恢复转段与预置 */
+/* 进入指定倒置恢复阶段，按当前腿位初始化该阶段连续角与控制历史。 */
 static void Fallen_Process_Recovery_Enter(fallen_process_ctx_t *st, uint8_t phase,
                                     const leg_state_t *const leg[2])
 {
@@ -277,12 +280,13 @@ static void Fallen_Process_Recovery_Enter(fallen_process_ctx_t *st, uint8_t phas
     }
 }
 
-/* 回正窗口 */
+/* 检查世界俯仰是否落入给定回正窗口rad；持续确认时间由调用方累计。 */
 static uint8_t Fallen_Process_Recovery_Ready(const imu_state_t *imu, float pitch_limit)
 {
     return (uint8_t)(fallen_detection.upright > 0.0f && fabsf(imu->pitch_world) <= pitch_limit);
 }
 
+/* 记录动作超时并返回停止路由，任务层随后执行撤力等待和重新初判。 */
 static uint8_t Fallen_Process_Timeout(fallen_process_ctx_t *st)
 {
     /* 本轮耗尽只报告超时；任务层撤力等待并重新判断，不直接重做预压。 */
@@ -293,7 +297,8 @@ static uint8_t Fallen_Process_Timeout(fallen_process_ctx_t *st)
 static void Fallen_Process_Normal_Plan(fallen_process_ctx_t *st, const imu_state_t *imu,
                                        const leg_state_t *const leg[2]);
 
-/* 翻倒恢复阶段机 */
+/* 推进倒置SETTLE→PRELOAD→ALIGN_FRONT→FLIP，检查腿长、对齐、回正和卡滞。
+ * 翻身回正后调用Normal_Plan重新规划普通自起，不直接跳到平衡输出。 */
 static uint8_t Fallen_Process_Recovery_Stage(fallen_process_ctx_t *st, const imu_state_t *imu,
                                      const leg_state_t *const leg[2], float dt)
 {
@@ -411,7 +416,7 @@ static uint8_t Fallen_Process_Recovery_Stage(fallen_process_ctx_t *st, const imu
     return FALLEN_PROCESS_ROUTE_PREPARE;
 }
 
-/* 恢复目标限速 */
+/* 按倒置阶段生成腿长与连续摆角指令，按angle_rate*dt推进前点对齐或翻身扫角。 */
 static void Fallen_Process_Recovery_Target(fallen_process_ctx_t *st,
                                      const leg_state_t *const leg[2], float dt)
 {
@@ -449,7 +454,7 @@ static void Fallen_Process_Recovery_Target(fallen_process_ctx_t *st,
 
 }
 
-/* 普通自起选路；翻身进入时Reset清planned，回正后也从当前腿位规划。 */
+/* 检查普通摆正的实测腿角及指令角是否均处于normal_angle_tol窗口，不额外要求机身平衡。 */
 static uint8_t Fallen_Process_Normal_Pose_Ready(const fallen_process_ctx_t *st,
                                                 const leg_state_t *const leg[2])
 {
@@ -463,6 +468,7 @@ static uint8_t Fallen_Process_Normal_Pose_Ready(const fallen_process_ctx_t *st,
     return 1u;
 }
 
+/* 检查普通规划路径当前长度目标是否到位，为伸腿/收腿阶段切换提供条件。 */
 static uint8_t Fallen_Process_Normal_Length_Ready(const fallen_process_ctx_t *st,
                                                   const leg_state_t *const leg[2])
 {
@@ -476,6 +482,7 @@ static uint8_t Fallen_Process_Normal_Length_Ready(const fallen_process_ctx_t *st
     return 1u;
 }
 
+/* 按当前腿相对机身/世界的姿态锁定每腿前侧、后侧或身下路径，并建立连续角准备目标。 */
 static void Fallen_Process_Normal_Plan(fallen_process_ctx_t *st, const imu_state_t *imu,
                                        const leg_state_t *const leg[2])
 {
@@ -528,6 +535,7 @@ static void Fallen_Process_Normal_Plan(fallen_process_ctx_t *st, const imu_state
 }
 
 
+/* 按已锁定普通路径推进准备位、收腿和摆正目标；不在每拍重新选择前后路径。 */
 static void Fallen_Process_Normal_Target(fallen_process_ctx_t *st, const imu_state_t *imu,
                                           const leg_state_t *const leg[2], float dt)
 {
@@ -582,12 +590,7 @@ static void Fallen_Process_Normal_Target(fallen_process_ctx_t *st, const imu_sta
     }
 }
 
-/* 阶段判断与切换 */
-/*
- * 只决定当前阶段与BALANCE/PREPARE/STOP路由：许可、失败重试、倒置自救、到位/超时。
- * 普通准备按需要经历伸腿、后摆、收腿、摆腿；倒置走SETTLE/PRELOAD/FLIP恢复链。
- * 阶段跳转会清对应历史/计时，目标与PID计算在后续独立函数完成。
- */
+/* 根据许可、反馈、倒置状态和各阶段到位/超时条件推进动作，返回准备/平衡/停止路由。 */
 static uint8_t Fallen_Process_Stage_Update(fallen_process_ctx_t *st,
                                    const imu_state_t *imu,
                                    const leg_state_t *const leg[2],
@@ -739,11 +742,7 @@ static uint8_t Fallen_Process_Stage_Update(fallen_process_ctx_t *st,
     return FALLEN_PROCESS_ROUTE_PREPARE;
 }
 
-/* 按阶段赋目标 */
-/*
- * 按已经确定的阶段生成长度、摆角和角速度目标；恢复路径调用独立目标函数。
- * 长度仍用原轨迹斜坡，后摆角使用展开角路径，避免跨pi时突然选择另一方向。
- */
+/* 根据当前普通或倒置阶段生成本拍腿长/摆角目标，随后独立控制器跟踪这些目标。 */
 static void Fallen_Process_Target_Update(fallen_process_ctx_t *st,
                                   const imu_state_t *imu,
                                   const leg_state_t *const leg[2],
@@ -759,10 +758,7 @@ static void Fallen_Process_Target_Update(fallen_process_ctx_t *st,
     }
 }
 
-/*
- * 自起独立长度/摆角控制并直接准备力矩输出。
- * 首拍对齐测量/给定历史以避免初始化D冲击；不复用地面leg_balance的运行历史。
- */
+/* 由长度和串级摆角控制器求轴向力/摆矩，映射四髋后加补偿并限矩；准备阶段双轮为零。 */
 static uint8_t Fallen_Process_Compute_Output(fallen_process_ctx_t *st,
                                       const leg_state_t *const leg[2],
                                       const leg_compensation_values_t *values,
@@ -839,7 +835,7 @@ static uint8_t Fallen_Process_Compute_Output(fallen_process_ctx_t *st,
             return 0u;
         }
     }
-    if (!Leg_Compensation_Apply(&values->spring, &values->gravity_world, base, machine->hip.dm_trq_clamp, prepared.dm, &st->actuator.compensation))
+    if (!Leg_Compensation_Apply(&values->spring, &values->gravity, base, machine->hip.dm_trq_clamp, prepared.dm, &st->actuator.compensation))
     {
         return 0u;
     }
@@ -848,10 +844,8 @@ static uint8_t Fallen_Process_Compute_Output(fallen_process_ctx_t *st,
     return 1u;
 }
 
-/*
- * 总入口：输入检查 → 阶段路由 → 目标 → PID → 恢复力限幅 → 力映射/补偿。
- * PREPARE返回独立准备输出；BALANCE由执行层交给LQR，STOP清输出；本模块不直接下发。
- */
+/* 一拍自起入口：检查输入/许可→推进阶段→更新目标→计算准备力矩，返回输出路由。
+ * DONE路径可消费执行层预先生成的平衡候选；返回STOP时不能延用旧力矩。 */
 uint8_t Fallen_Process_Update(fallen_process_ctx_t *st, const imu_state_t *imu,
                        const leg_state_t *left, const leg_state_t *right,
                        const leg_compensation_values_t *values,

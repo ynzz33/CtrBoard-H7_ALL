@@ -1,9 +1,9 @@
 /*
- * 文件职责：按已确认策略运行原LQR、自起、AIR、RL或补偿计算。
- * 策略/检测、模型准备和最终输出分别由相邻执行层负责。
- * 原控制公式和限幅保持；后处理超时统一撤力等待、重新初判。
+ * 把执行拍输入转换为候选电机力矩：补偿测试、LQR平衡/自起/AIR或RL动作执行。
+ * 管理控制器投入历史和RL分频；torque有效性与dispatch分别表示候选可用和本拍需要发送。
  */
 #include "control_compute.h"
+#include "control_strategy.h"
 #include "robot_state.h"
 #include "machine_config.h"
 #include "fallen_process.h"
@@ -18,9 +18,8 @@ static slip_state_t slip_control;
 static uint8_t lqr_running;
 static uint8_t rl_engaged;
 static uint8_t rl_wait_ticks;
-static rl_motor_map_state_t rl_motor_map; /* 执行任务持有初始角分支，退出投入后重选。 */
-
-/* 公共检测已在策略层更新；此处构建LQR状态、接入原AIR响应和速度融合。 */
+static rl_motor_map_state_t rl_motor_map; /* 用本拍IMU/腿/轮速组装LQR状态，接入AIR控制选择，再融合轮速和IMU加速度。
+ * reset_velocity要求重新建立速度先验；任一步失败都撤销相应状态有效性。 */
 static void Control_State_Update(control_frame_t *frame, uint8_t reset_velocity)
 {
     if (!LQR_State_Update(&lqr_state, &frame->imu, &frame->left, &frame->right, frame->wheel_vel))
@@ -51,6 +50,8 @@ static void Control_State_Update(control_frame_t *frame, uint8_t reset_velocity)
     LQR_Velocity_Apply(&lqr_state, slip_control.velocity, MACHINE_LQR_DT);
 }
 
+/* 检查反馈/状态许可，首次投入时锁存LQR基准并清腿控制历史，返回本拍是否投入。
+ * 自起回正后的recovered只消费一次，用于重新初始化状态和速度历史。 */
 static uint8_t LQR_Engage_Update(control_frame_t *frame)
 {
     uint8_t ready;
@@ -80,7 +81,7 @@ static uint8_t LQR_Engage_Update(control_frame_t *frame)
     return lqr_running;
 }
 
-/* LQR退出只清私有历史；公共检测的历史由检测模块维护。 */
+/* 退出LQR投入，清防翻和腿控制历史并撤销AIR控制应用标志；不重置AIR检测器。 */
 static void LQR_Idle(void)
 {
     Motion_Guard_Reset(&motion_guard);
@@ -91,6 +92,8 @@ static void LQR_Idle(void)
     air_detection.applied = 0u;
 }
 
+/* 以四髋零基础力矩为输入，叠加选定弹簧/世界姿态重力补偿，轮候选保持零。
+ * 非倒地出力许可不成立时保留无效候选，最终输出层负责发零。 */
 static void Compute_Compensation(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     const float base_dm[4] = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -99,9 +102,11 @@ static void Compute_Compensation(const control_frame_t *frame, torque_output_t *
     {
         return;
     }
-    torque->valid = Leg_Compensation_Apply(&frame->compensation.spring, &frame->compensation.gravity_world, base_dm, machine->hip.dm_trq_clamp, torque->dm, debug);
+    torque->valid = Leg_Compensation_Apply(&frame->compensation.spring, &frame->compensation.gravity, base_dm, machine->hip.dm_trq_clamp, torque->dm, debug);
 }
 
+/* 更新遥控目标并计算十态LQR摆矩/轮矩，再交leg_balance生成腿轴向力和四髋输出。
+ * AIR时速度/偏航请求置零；只有全部计算成功才标记候选有效。 */
 static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     rc_command_t command;
@@ -132,6 +137,8 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     }
 }
 
+/* 推进地面自起，按返回路由选择准备力矩、LQR平衡或停止。
+ * 超时交任务层撤力等待；恢复交接需要AIR结果有效，不使用无效旧候选。 */
 static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     uint8_t permit;
@@ -163,6 +170,8 @@ static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *
             Torque_Output_Clear(torque);
             return;
         }
+        /* 同拍从自起交给平衡，更新为普通姿态输入，避免沿用自起补偿。 */
+        Control_Model_Prepare(frame);
         Air_Process_Update(frame);
         if (!was_done)
         {
@@ -194,6 +203,8 @@ static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *
     }
 }
 
+/* 按RL控制分频读取/映射反馈、保存观测样本，再用最新有效action求电机力矩。
+ * 非计算拍可令dispatch=0保持上一输出；退出/失败路径仍按代码要求清零处理。 */
 static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t *dispatch)
 {
     uint8_t tick;
@@ -221,6 +232,8 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
     }
 }
 
+/* 先更新控制反馈并清零候选，再按strategy计算LQR/自起/AIR、RL或补偿测试输出。
+ * torque.valid表示计算成功；dispatch可因RL分频为0，此时本拍不调用发送层。 */
 void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
                          uint8_t entered_fallen, torque_output_t *torque,
                          uint8_t *dispatch, compensation_debug_t *debug)

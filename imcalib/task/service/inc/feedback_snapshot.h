@@ -1,10 +1,6 @@
 /*
- * 文件职责：跨任务反馈发布/读取（feedback_snapshot.h）。
- * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：imu/comm任务更新后的IMU、电机/腿和遥控结果。
- * 输出/去向：临界区发布，执行/策略任务一次读取同批结构。
- * 关键边界：不同设备仍是异步采样；DM原始接收时刻仍随电机反馈发布。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * IMU任务发布姿态，通信任务成批发布电机/双腿/投影高度并发布遥控命令。
+ * 读取时在临界区复制这些最新结构，防止半更新；设备实际采样时刻仍然不同。
  */
 
 #ifndef FEEDBACK_SNAPSHOT_H
@@ -21,8 +17,8 @@ typedef struct {
     float pos_continuous_rad[DM_MOTOR_NUM]; /* RL连续标定角，rad */
     float vel_rad_s[DM_MOTOR_NUM];
     float trq_nm[DM_MOTOR_NUM];
-    uint32_t last_rx_tick[DM_MOTOR_NUM];
-    uint64_t parsed_rx_ns[DM_MOTOR_NUM];
+    uint32_t last_rx_tick[DM_MOTOR_NUM]; /* 各髋最新有效帧接收时刻ms，用于在线期限。 */
+    uint64_t parsed_rx_ns[DM_MOTOR_NUM]; /* 各髋有效反馈帧携带的接收时刻ns。 */
     uint8_t online[DM_MOTOR_NUM];
 } dm_motor_state_t;
 
@@ -38,15 +34,15 @@ typedef struct {
 typedef struct {
     dm_motor_state_t dm;
     dji_motor_state_t dji;
-    uint32_t timestamp_ms;
+    uint32_t timestamp_ms; /* 通信任务整理电机状态的HAL时刻ms。 */
     uint8_t updated;
     uint8_t valid; /* 在线且无故障 */
 } motor_state_t;
 
 /* 镜像使用发布完成时刻判断软件数据是否过期；不是传感器采样或CAN接收时刻。 */
 typedef struct {
-    uint64_t published_ns;
-    uint8_t seen;
+    uint64_t published_ns; /* 软件完整发布本组数据的上电相对时刻ns。 */
+    uint8_t seen; /* 已发布过数据，不等于该数据当前有效。 */
 } feedback_meta_t;
 
 typedef struct robot_feedback {

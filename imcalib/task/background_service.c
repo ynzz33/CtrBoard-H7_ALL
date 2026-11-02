@@ -1,9 +1,6 @@
 /*
- * 文件职责：默认任务后台入口（background_service.c）。
- * 输入/来源：FreeRTOS defaultTask周期调用。
- * 输出/去向：调用普通VOFA发送与WS2812灯效。
- * 关键边界：通信/控制计算不放在此低优先级后台；USB初始化仍由defaultTask入口执行。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * defaultTask每轮调用：发送VOFA诊断、尝试Jetson只读镜像、更新WS2812灯效。
+ * 此处运行于后台，控制任务通过共享快照提供观测数据。
  */
 
 #include "robot_control.h"
@@ -12,6 +9,7 @@
 #include "ws2812.h"
 #include "dm.h"
 
+/* 后台发送当前VOFA布局、尝试Jetson镜像并更新灯效；DMA忙时由发送函数跳过。 */
 void background_task_body(void)
 {
     Vofa_Debug_Send();

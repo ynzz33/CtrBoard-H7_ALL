@@ -1,10 +1,6 @@
 /*
- * 文件职责：五连杆运动学、速度和力映射（leg_solver.h）。
- * 本头文件声明本模块的数据结构、常量和调用接口；实现及实际流程见对应源文件。
- * 输入/来源：机器表几何与左右腿前/后髋角度、角速度。
- * 输出/去向：求虚拟腿长/腿角、关节速度、雅可比，并在轴向力/摆矩和两髋力矩间转换。
- * 关键边界：几何有效与力映射有效分开；奇异/非有限输入拒绝映射；实体极性和零点在驱动/配置层处理。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 由前后髋角rad、角速度rad/s和杆长m求五连杆几何、虚拟腿速度及力映射矩阵。
+ * Forward将轴向力N/摆矩N·m变成两髋力矩，Inverse反解；几何valid与force_valid分别检查。
  */
 
 #ifndef LEG_SOLVER_H
@@ -20,33 +16,33 @@
 
 /* 几何参数 */
 typedef struct {
-    float lu;           /* 上杆长 */
-    float lg;           /* 下杆长 */
-    float offset_phi0;  /* 摆角零位偏置 */
+    float lu; /* 上杆长度m。 */
+    float lg; /* 下杆长度m。 */
+    float offset_phi0; /* 几何腿角零位偏置rad。 */
 } leg_config_t;
 
 /* 髋关节输入 */
 typedef struct {
-    float hip_f;        /* 前髋角 */
-    float hip_b;        /* 后髋角 */
-    float d_hip_f;      /* 前髋速度 */
-    float d_hip_b;      /* 后髋速度 */
+    float hip_f; /* 解算坐标中的前髋角rad。 */
+    float hip_b; /* 解算坐标中的后髋角rad。 */
+    float d_hip_f; /* 前髋角速度rad/s。 */
+    float d_hip_b; /* 后髋角速度rad/s。 */
 } leg_input_t;
 
 /* 求解输出 */
 typedef struct {
     float thigh_angle;              /* 大腿角 (电机+偏置, 不经解算) */
-    float virtual_leg_length;       /* 虚拟腿长 |OP| */
-    float virtual_leg_angle;        /* 虚拟腿摆角 (相对竖直) */
+    float virtual_leg_length; /* 髋轴至轮轴虚拟腿长m。 */
+    float virtual_leg_angle; /* 按当前解算零位定义的虚拟腿角rad。 */
     float virtual_shank_angle;      /* 虚拟小腿角 (小腿相对大腿) */
-    float d_virtual_leg_length;     /* 虚拟腿长速度 */
-    float d_virtual_leg_angle;      /* 虚拟腿摆角速度 */
+    float d_virtual_leg_length; /* 虚拟腿伸缩速度m/s。 */
+    float d_virtual_leg_angle; /* 虚拟腿摆角速度rad/s。 */
     float d_virtual_shank_angle;    /* 虚拟小腿角速度 */
     float vshank_jac[2];            /* 虚拟小腿雅可比 [0]=b, [1]=a */
     float point_jac[2][2];          /* P点雅可比 */
     float leg_jac[2][2];            /* 腿雅可比 */
     float force_map[2][2];          /* 力矩映射 */
-    float force_det;
+    float force_det; /* 两髋力矩映射矩阵行列式，用于检查奇异性。 */
     uint8_t force_valid; /* 映射可用 */
     uint8_t valid;       /* 数值有效 */
 } leg_output_t;
@@ -57,11 +53,11 @@ typedef struct {
     float qb;           /* 后髋角 */
     float vf;           /* 前髋速度 */
     float vb;           /* 后髋速度 */
-    float lu;           /* 上杆长 */
-    float lg;           /* 下杆长 */
+    float lu; /* 上杆长度m。 */
+    float lg; /* 下杆长度m。 */
     float phi_a;        /* 前下杆AP角 */
     float phi_b;        /* 后下杆BP角 */
-    float virtual_leg_angle_abs;    /* 虚拟腿摆角绝对值 */
+    float virtual_leg_angle_abs; /* 几何计算得到的绝对腿角rad，不是fabs后的角度。 */
 } leg_solver_cache_t;
 
 /* 腿部状态 */

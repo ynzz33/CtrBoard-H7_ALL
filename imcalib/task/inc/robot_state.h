@@ -1,10 +1,6 @@
 /*
- * 文件职责：跨任务共享状态的声明集合（robot_state.h）。
- * 本头文件定义共享数据类型、常量或内联辅助，由引用方读取/调用，不单独创建任务或维护外设。
- * 输入/来源：robot_control.c中定义的IMU/电机/腿/RL/LQR和许可状态。
- * 输出/去向：给各任务提供统一extern声明、原始动作/机器人/RL运行状态类型。
- * 关键边界：该头包含共享对象，算法层应接收参数而不是包含这个任务头；同帧读写使用快照接口。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 声明跨任务共享的反馈、遥控、原始action、LQR/RL状态和输出诊断。
+ * 具体存储定义在robot_control.c；反馈批量读取使用feedback_snapshot接口，避免结构读到一半。
  */
 
 #ifndef ROBOT_STATE_H
@@ -33,15 +29,15 @@ typedef struct {
 } action_state_t;
 
 typedef struct {
-    int8_t dm_front;
-    int8_t dm_rear;
+    int8_t dm_front; /* 该腿前髋在DM数组中的索引。 */
+    int8_t dm_rear; /* 该腿后髋在DM数组中的索引。 */
 } leg_map_t;
 
 typedef struct {
-    uint8_t motor_enabled;
+    uint8_t motor_enabled; /* 通信任务维护的电机使能请求状态，不等于四髋反馈均已使能。 */
     uint8_t fallen; /* 公共FALLEN选路归属，恢复完成重新选路解除；非RL倾角判据。 */
     float height; /* 公共髋轮投影间距m；通信发布，RL与LQR触地判断共用。 */
-    uint8_t height_valid;
+    uint8_t height_valid; /* 公共投影高度是否有效。 */
 } robot_state_t;
 
 /* 最新采样/PD归执行任务，观测/原始action历史归策略任务；参数直接读机器表。 */

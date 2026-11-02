@@ -1,7 +1,6 @@
 /*
- * 文件职责：1kHz执行拍的固定编排。
- * 输入为反馈快照、遥控和策略任务发布的RL动作；输出经唯一输出层发送到电机。
- * 关键边界：本文件只安排“策略准备→控制运算→最终输出”，不保存控制公式。
+ * 每个基础执行拍读取反馈快照，依次做状态/模型准备、候选力矩计算和最终发送。
+ * control_frame保存本拍输入与许可；dispatch决定本拍是否调用输出层，不表示发送成功。
  */
 #include "robot_control.h"
 #include "robot_state.h"
@@ -18,6 +17,8 @@ static control_frame_t control_frame;
 volatile float output_dm_torque_nm[DM_MOTOR_NUM];
 volatile float output_wheel_torque_nm[DJI_MOTOR_NUM];
 
+/* 返回通信任务能否请求电机使能：遥控使能/在线、无故障且满足当前策略限制。
+ * LQR保留进入倒地检测/自起的入口；RL失败禁止使能，实际力矩还需最终输出检查。 */
 uint8_t Robot_Control_Enable_Allowed(void)
 {
     uint8_t recovery;
@@ -28,7 +29,8 @@ uint8_t Robot_Control_Enable_Allowed(void)
     return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (rc_command.mode.strategy == CTRL_STRATEGY_LQR || !robot_state.fallen || recovery));
 }
 
-/* 读取一次已发布反馈，形成整个执行拍唯一使用的快照。 */
+/* 复制最新反馈到本拍control_frame，计算基础、非倒地和自起三种出力许可。
+ * 电机位置rad、速度rad/s、反馈力矩N·m；joint_ready要求四髋在线且报告已使能。 */
 static void Control_Frame_Read(void)
 {
     static robot_feedback_t feedback;
@@ -69,6 +71,7 @@ static void Control_Frame_Read(void)
     taskEXIT_CRITICAL();
 }
 
+/* 启动TIM6中断，由定时器释放执行任务及分频策略任务的节拍；启动失败进入错误处理。 */
 void output_task_init(void)
 {
     if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK)
@@ -87,14 +90,15 @@ uint8_t output_task_rl_engaged(void)
     return Control_Compute_RL_Engaged();
 }
 
-/* 同一actuationTask内同步执行，候选力矩不会跨拍排队。 */
+/* 完成一个执行拍：读快照→准备状态/模型→算候选力矩→按dispatch发送。
+ * torque是待检查候选；pending_compensation随最终应用结果发布，尚未发送时不当作已执行。 */
 void output_task_body(void)
 {
-    ctrl_strategy_t strategy;
-    torque_output_t torque;
-    compensation_debug_t pending_compensation;
-    uint8_t entered_fallen;
-    uint8_t dispatch;
+    ctrl_strategy_t strategy; /* 本拍选中的控制策略。 */
+    torque_output_t torque; /* 计算得到的四髋/双轮候选力矩，尚未经过最终发送检查。 */
+    compensation_debug_t pending_compensation; /* 与候选配套的诊断，输出层按实际提交结果发布。 */
+    uint8_t entered_fallen; /* 本拍刚进入公共FALLEN，触发自起历史复位。 */
+    uint8_t dispatch; /* 1调用输出层，0本拍不发送；不是发送成功标志。 */
 #if CONTROL_TIME_VOFA_ENABLE
     static uint32_t previous_start_us;
     static uint32_t previous_output_us;
@@ -102,15 +106,18 @@ void output_task_body(void)
     uint32_t period_us;
     uint32_t run_us;
 
+    /* 可选时序诊断：记录函数起点，统计的是调用间隔，不是CAN物理发送间隔。 */
     start_us = (uint32_t)(Mono_Ns_Get() / 1000u);
     period_us = control_time_debug.sequence != 0u ? start_us - previous_start_us : 0u;
     previous_start_us = start_us;
 #endif
 
+    /* 1. 固定本拍反馈和基础出力许可，后续计算使用同一份输入。 */
     Control_Frame_Read();
-    strategy = Control_Strategy_Prepare(&control_frame, Control_Compute_LQR_Engaged(), &entered_fallen);
+    /* 2. 先更新恢复状态/补偿缓存/公共选路，再生成候选力矩。 */
+    strategy = Control_Strategy_Prepare(&control_frame, &entered_fallen);
     Control_Compute_Run(&control_frame, strategy, entered_fallen, &torque, &dispatch, &pending_compensation);
-    Control_Output_Publish_Air_Debug();
+    /* 3. RL分频可跳过发送；进入输出层后仍会复查即时故障并决定正常力矩或发零。 */
     if (dispatch)
     {
         Control_Output_Apply(&control_frame, strategy, &torque, &pending_compensation);

@@ -1,9 +1,6 @@
 /*
- * 文件职责：五连杆运动学、速度和力映射（leg_solver.c）。
- * 输入/来源：机器表几何与左右腿前/后髋角度、角速度。
- * 输出/去向：求虚拟腿长/腿角、关节速度、雅可比，并在轴向力/摆矩和两髋力矩间转换。
- * 关键边界：几何有效与力映射有效分开；奇异/非有限输入拒绝映射；实体极性和零点在驱动/配置层处理。
- * 阅读入口：md/file-guide.md；参数当前值以源码为准。
+ * 由前后髋角rad、角速度rad/s和杆长m求五连杆几何、虚拟腿速度及力映射矩阵。
+ * Forward将轴向力N/摆矩N·m变成两髋力矩，Inverse反解；几何valid与force_valid分别检查。
  */
 
 #include "leg_solver.h"
@@ -14,7 +11,7 @@
 #define LEG_EPS         1.0e-6f
 #define LEG_MIN_LENGTH  1.0e-3f
 
-/* 公共几何估计只发布数值，不决定LQR/RL的控制模式或触地状态。 */
+/* 求两腿length*cos(angle)的均值m；这是髋轮投影间距，不是实测机身离地高度。 */
 uint8_t Leg_Height_Estimate(const leg_state_t *left, const leg_state_t *right, float *height)
 {
     *height = 0.0f;
@@ -274,11 +271,7 @@ static void Leg_Solve_Force_Map(leg_state_t *leg)
     leg->output.force_valid = (uint8_t)(isfinite(leg->output.force_det) && fabsf(leg->output.force_det) >= LEG_EPS);
 }
 
-/* 虚拟力/力矩 → 电机力矩 */
-/*
- * 使用当前腿雅可比，把虚拟腿轴向力F和摆矩Tp映射成前/后髋力矩。
- * 输出顺序属于同一条腿前后髋；电机发送极性不在这里处理。
- */
+/* 用已解算force_map把轴向力N和虚拟摆矩N·m映射为同腿前/后髋力矩N·m。 */
 uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
                               float torque, float output[2])
 {
@@ -296,12 +289,7 @@ uint8_t Leg_Force_Map_Forward(const leg_state_t *leg, float force,
     return 1u;
 }
 
-/* 反馈力矩反解 */
-/*
- * 由同腿前/后髋反馈力矩反解轴向力和摆矩，供支持力观测使用。
- * 奇异/非有限输入在入口拒绝（奇异由 force_valid 门控），非有限结果由末次输出检查兜住；
- * 这是电机贡献，实体弹簧与自重由观测层按模型另行计入。
- */
+/* 用同腿前/后髋反馈力矩N·m反解轴向力N和虚拟摆矩N·m；奇异映射返回0。 */
 uint8_t Leg_Force_Map_Inverse(const leg_state_t *leg, const float input[2],
                               float *force, float *torque)
 {
@@ -341,11 +329,7 @@ void Leg_Init(leg_state_t *leg)
     memset(leg, 0, sizeof(*leg));
 }
 
-/* 三层求解: 几何 → 速度 → 力矩映射 */
-/*
- * 总入口依次计算几何、速度，统一验证反馈和雅可比，再生成力映射有效性。
- * 几何有效不保证力映射不奇异；控制力输出必须同时检查映射有效。
- */
+/* 校验输入后求几何、速度和力映射矩阵；失败清输出，成功分别保留valid/force_valid。 */
 uint8_t Leg_Solve(leg_state_t *leg)
 {
     leg_solver_cache_t cache;
