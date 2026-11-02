@@ -1,5 +1,9 @@
 ## 当前状态：主动防翻参考约束v1（2026-11-01）
 
+2026-11-02提交前现状核对：以作者当前工作区为准，大机防翻开启，budget_fraction=0.70、release_rate=3rad/s²，原turn_comp.gain=0.2；仅实际车速依据保持，Jetson镜像开关当前0。作者反馈防翻目前尚可、中低腿长几乎不再翻倒；此反馈仅覆盖已测试工况，不作为高速高腿或所有扰动的稳定性证明。下方0.6及更早参数均为历史。
+
+2026-11-02当前试用参数：按作者要求，MACHINE_MOTION_GUARD_ENABLE=1，大机budget_fraction由工作区已有0.5改0.6，同状态预算提高20%；原0.375为历史值。仅实际车速逻辑保持，release_rate仍3rad/s²，高度依据及原控制/向心补偿不改。此行覆盖下方旧参数状态，重新编译烧录后VOFA5应为1，NORMAL有效时6应为1，实机效果待验证。
+
 2026-11-01最新单变量调整：作者批准speed_guard仅使用实际融合速度绝对值，删除请求速度预限；预算系数仍0.375、解除速率3rad/s²、高度依据及K/向心补偿不改。MACHINE_MOTION_GUARD_ENABLE当前仍0，试验时改1重新编译烧录。下文“实际/请求车速取大”属于旧版，不作为现行计算；VOFA通道含义不变。
 
 2026-11-01最新诊断状态：作者反馈低速低腿至高速高腿均持续难转，已将MACHINE_MOTION_GUARD_ENABLE从1改0，先恢复原参考作同工况对照；本次不调预算/解除速率、不改K或物理参数。下面此前“当前1”为历史接入状态，以本行及源码宏为准。重新编译烧录后VOFA5应为0、17应为1，若关闭后仍难转，不能继续归因于防翻约束。
@@ -549,6 +553,8 @@ Watch查看can_bus[总线号-1]的state/recover_attempts/hardware_resets/failed_
 
 2026-10-20按训练仓`26_wheelleg`的`h7-jetson-kinematic-mirror-v1`接口在本地工程实现。与训练仓部署副本的差别：VOFA仍留在UART8发原LQR 48路布局，Jetson镜像改走独立UART10，两者不复用发送函数、缓冲或端口。
 
+2026-11-02按作者要求增加编译开关`MACHINE_JETSON_MIRROR_ENABLE`（`machine_config.h`顶部，与防翻等调试开关同处，当前0）。为0时`jetson_uart.c`把三个入口编成文件内既有空实现：不启动UART10接收DMA、不轮询探测包、不发送镜像；RX/TX静态缓冲、镜像组帧、CRC与探测解析都不参与编译。三个调用点（`main.c`、`task_comm.c`、`background_service.c`）保持原样，行为只看开关。为1时与原实现逐字节一致；改开关需重新编译烧录，VOFA、控制链、许可与物理标定均不受影响。
+
 [Jetson_Mirror_Send](../imcalib/drivers/jetson_uart.c)由`background_task_body`每拍调用，按`HAL_GetTick`经过至少10ms尝试一次，使用静态`Robot_Feedback_Read`快照；DMA忙时跳过，只有提交成功才增加发送序号。帧为48个小端float32加`00 00 80 7F`尾，共196字节；第47槽是前47个float（188字节）的CRC16/CCITT-FALSE数值，参数poly=0x1021、init=0xFFFF、不反射、xorout=0。
 
 | 通道 | 镜像v1定义 |
@@ -570,7 +576,7 @@ Watch查看can_bus[总线号-1]的state/recover_attempts/hardware_resets/failed_
 
 下行探测由`comm_task_body`每拍调用`Jetson_Uart_Process`轮询256字节环形RX DMA：只接受`J7P1`＋小端uint32序号＋uint32随机数＋uint16 CRC的14字节包，CRC校验前12字节；噪声和坏CRC逐字节重新找包头，跨环尾与分包保留解析状态。RX只关闭HT半满中断、保留TC完成中断，使HAL接收错误后的异步DMA终止能完成并解锁；`RxState`离开BUSY_RX时由comm重启DMA并清半包，计入`rx_restarts`。
 
-大机`MACHINE_JETSON_PORT=10`：USART10，PE3/TX、PE2/RX，1152000/8N1，RX用DMA1 Stream0环形、TX用DMA2 Stream0 NORMAL，ioc与生成代码都包含该外设；小机为0，三个入口为空实现。镜像只读，不接收动作、不改变RL/LQR许可、模式或物理标定，可与VOFA同时观察。
+大机`MACHINE_JETSON_PORT=10`：USART10，PE3/TX、PE2/RX，1152000/8N1，RX用DMA1 Stream0环形、TX用DMA2 Stream0 NORMAL，ioc与生成代码都包含该外设；小机为0。`MACHINE_JETSON_MIRROR_ENABLE`为0或端口条件不成立时，两机都走三个空实现入口。镜像只读，不接收动作、不改变RL/LQR许可、模式或物理标定，可与VOFA同时观察。
 
 发布年龄是软件快照时刻减发布时刻，不是传感器采样年龄；序号缺口只表示未观测到已提交帧，不等同CAN丢帧。接线、电平、实际频率、往返耗时与板端时序待台架。
 

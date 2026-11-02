@@ -1,5 +1,6 @@
 /*
  * UART10 Jetson链路：100Hz只读镜像和14字节CRC探测包。
+ * 编译开关 MACHINE_JETSON_MIRROR_ENABLE：0时三个入口为空实现，RX/TX缓冲与解析不参与编译。
  * 控制、VOFA、动作状态及物理标定均不在本文件修改。
  */
 #include "jetson_uart.h"
@@ -21,7 +22,7 @@
 
 jetson_uart_status_t jetson_uart_status;
 
-#if MACHINE_JETSON_PORT == 10u
+#if (MACHINE_JETSON_MIRROR_ENABLE == 1u) && (MACHINE_JETSON_PORT == 10u)
 #define JETSON_UART (&huart10)
 static uint8_t rx_dma[JETSON_UART_DMA_BYTES] __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
 static uint8_t tx_dma[JETSON_MIRROR_CH * sizeof(float) + 4u] __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
@@ -206,6 +207,7 @@ void Jetson_Mirror_Send(void)
     if (Jetson_Send(frame)) { sequence = candidate; }
 }
 #else
+/* 开关关闭或非UART10机型：三个入口空实现，调用点无需改。 */
 void Jetson_Uart_Init(void) {}
 void Jetson_Uart_Process(void) {}
 void Jetson_Mirror_Send(void) {}

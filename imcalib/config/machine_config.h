@@ -12,11 +12,12 @@
 
 #include <stdint.h>
 #include "motion_guard.h"
-#define MACHINE_MOTION_GUARD_ENABLE 0u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
-#define MACHINE_NORMAL_LEG_CONTROL 1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
-#define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE 0u /* 4态leso观测器 */
+#define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
+#define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
+#define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE         0u /* 4态leso观测器 */
+#define MACHINE_JETSON_MIRROR_ENABLE                0u /* 0：不初始化/不轮询/不发送UART10 Jetson镜像，且不占其DMA缓冲；1：原只读镜像+探测，改后重新编译烧录 */
 /* 轴向力补偿，*/
-#define MACHINE_HEIGHT_TRIM_ENABLE 1u
+#define MACHINE_HEIGHT_TRIM_ENABLE                  1u
 #define MACHINE_HEIGHT_TRIM_LOW_N (-70.0f)
 #define MACHINE_HEIGHT_TRIM_HIGH_N (-8.0f)
 

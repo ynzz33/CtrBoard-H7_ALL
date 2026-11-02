@@ -1,5 +1,21 @@
 # 工程历史修改记录
 
+## 2026-11-02 · 提交前保存防翻及向心补偿当前调参
+
+- 作者要求将当前全部更改区归档一次。核对大机budget_fraction已由此前试用0.6继续调整为0.70，turn_comp.gain为0.2（相对HEAD为0.3→0.2），开关1、release_rate=3rad/s²；本次保留现值，不由AI重新调参。Jetson镜像开关0及实现一并纳入。
+- 作者反馈防翻目前尚可、中低腿长几乎不再翻倒；仅记已测场景，不能推广为高腿高速/全扰动验证通过。
+- 本次提交快照按当前配置工程外GCC全量编译链接通过，仅既有BMI088 packed告警；差异空白检查通过。未代烧录，Jetson关闭/开启的板端时序及高腿高速防翻未作为本次验收结论。
+
+## 2026-11-02 · Jetson UART10镜像/探测改为编译开关
+
+- 作者要求把UART10三处入口做成0/1开关，并与其它开关一样放在machine_config。新增`MACHINE_JETSON_MIRROR_ENABLE`（当前0），置于`machine_config.h`顶部；`jetson_uart.c`编译条件由`MACHINE_JETSON_PORT == 10u`改为`MACHINE_JETSON_MIRROR_ENABLE == 1u && MACHINE_JETSON_PORT == 10u`。
+- 为0时`Jetson_Uart_Init/Jetson_Uart_Process/Jetson_Mirror_Send`沿用文件内既有空实现：UART10接收DMA不启动、探测包不轮询、镜像不发送；RX/TX静态缓冲、镜像组帧、CRC与探测解析不参与编译。为1时与原实现一致。三个调用点（`main.c`、`task_comm.c`、`background_service.c`）未改，控制链、许可、VOFA、AIR、自起与物理标定未改。
+- 验证：按`build/CtrBoard-H7_ALL/compile_commands.json`中该源的真实参数用ARM GCC单独编译，开关0与1均退出码0、无告警；0时对象4944 B（仅三个空入口与状态变量，无DMA/镜像缓冲），1时29040 B（含-g调试信息，镜像/CRC/探测实现齐全）；三个调用点文件同样单独编译通过。未完整链接、未烧录、未上机。
+
+## 2026-11-02 · 开启防翻并试调预算系数0.6
+
+- 作者要求开启并设0.6。实际核对工作区大机budget_fraction已为0.5，本次0.5→0.6、宏0→1；预算放宽20%。release_rate=3rad/s²、实际车速依据、高度依据及原LQR/向心补偿/VOFA均保持，小机关闭配置不改。未改物理标定，实机效果待测。
+
 ## 2026-11-01 · 防翻仅使用实际车速，取消请求速度预限
 
 - 作者批准单变量修正：Motion_Guard_Update的speed_guard由max(|velocity|,|velocity_request|)改为|velocity|，避免实际低速时因速度请求较大提前限转。

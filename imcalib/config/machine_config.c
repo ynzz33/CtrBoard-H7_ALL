@@ -65,8 +65,8 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         /* 十态平衡及腿长/roll控制 */
         .lqr = {
             /* 向心前馈：mass kg、track/height_offset m、gain倍率 */
-            .turn_comp = {25.544f, 0.42551f , 0.07113f, 0.3f},
-            .motion_guard = {MACHINE_MOTION_GUARD_ENABLE, 0.5f, 3.0f}, /* 试用包线；放宽rad/s² */
+            .turn_comp = {25.544f, 0.42551f , 0.07113f, 0.2f},
+            .motion_guard = {MACHINE_MOTION_GUARD_ENABLE, 0.70f, 3.0f}, /* 试用包线；放宽rad/s² */
             /* 十态姿态参考rad及yaw反馈开关 */
             .reference = {
                 .leg_trim = {-0.0f, -0.0f},
