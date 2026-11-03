@@ -304,7 +304,8 @@ typedef struct {
     float recovery_settle_time; /* 倒置稳定等待时间s。 */
     float recovery_len; /* 翻身准备/扫腿目标长度m。 */
     float recovery_front_angle; /* 倒置专用前点rad，与普通front_angle独立 */
-    float angle_rate; /* 准备位及翻身目标扫角速率rad/s。 */
+    float angle_rate; /* 普通自起准备位及摆正角目标速率rad/s。 */
+    float recovery_angle_rate; /* 倒置前点对齐及翻身扫角速率rad/s。 */
     float recovery_pitch_tol; /* 翻身回正俯仰窗口rad。 */
     float recovery_stall_time; /* 翻身卡滞允许持续时间s。 */
     uint8_t recovery_retry_max; /* 允许消耗的地面恢复重试次数上限。 */
@@ -315,9 +316,8 @@ typedef struct {
     float length_timeout; /* 伸/收腿阶段最长时间s。 */
     float front_angle; /* 普通自起前侧准备角rad，几何角表示 */
     float normal_swing_window; /* 普通入口可直接收短/摆正的角区间rad，不是最终到位容差 */
-    float normal_angle_tol; /* 仅planned普通摆正到位容差rad */
     float rear_angle; /* 普通后侧准备位几何角rad。 */
-    float prepare_angle_tol; /* 前/后准备位与倒置前点的到位容差rad */
+    float angle_tol; /* 普通准备位/摆正及倒置前点对齐共用到位容差rad */
     float angle_timeout; /* 准备位对齐/普通摆正阶段最长时间s。 */
     float retract_len; /* 普通起立收腿目标m。 */
     float angle_pos_kp; /* 摆角外环比例系数，具体离散用法见PID初始化。 */
@@ -339,6 +339,8 @@ enum {
 
 typedef struct {
     uint8_t confirmed; /* 本机确认后允许AUTO消费事件；不阻止OBSERVE计算试用候选 */
+    float minimum_length; /* 双腿实测长度均不小于此值m才允许检测 */
+    float minimum_forward_speed; /* 最近有效LQR融合前向速度严格大于此值m/s才允许检测 */
     float angle_threshold; /* 两腿世界角偏差都小于此负阈值rad */
     float acceleration_threshold; /* 任一侧世界角加速度不大于此负阈值rad/s² */
     float acceleration_tau; /* 角速度差分的一阶低通时间常数s */
@@ -347,6 +349,7 @@ typedef struct {
 
 typedef struct {
     uint8_t confirmed; /* 作者允许试用动作后置1，不代表实机越阶已验收 */
+    float angle_rate; /* 台阶后摆及委托摆正角目标速率rad/s */
     float angle_tolerance; /* 后摆到位容差rad；收腿/摆正容差归普通自起 */
     float confirm_time; /* 双腿实际/指令到位连续确认时间s */
     float stall_angle_progress; /* 后摆卡滞窗口内最小角进度rad */

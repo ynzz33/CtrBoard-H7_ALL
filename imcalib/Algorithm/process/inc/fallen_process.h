@@ -102,11 +102,11 @@ void Fallen_Process_Reset(fallen_process_ctx_t *st);
 /* 已在准备位：独立上下文从普通收腿接入，不重新选路、不启动倒置翻身。 */
 uint8_t Fallen_Process_Begin_Retract(fallen_process_ctx_t *st, const imu_state_t *imu, const leg_state_t *left, const leg_state_t *right);
 void Fallen_Process_Fail(fallen_process_ctx_t *st, uint8_t fault);
-/* DONE输入平衡候选 */
+/* DONE输入平衡候选；angle_rate为调用方普通路径角速率，倒置阶段使用独立recovery_angle_rate。 */
 uint8_t Fallen_Process_Update(fallen_process_ctx_t *st, const imu_state_t *imu,
                        const leg_state_t *left, const leg_state_t *right,
                        const leg_compensation_values_t *values,
-                       uint8_t permit, float dt, torque_output_t *torque);
+                       uint8_t permit, float angle_rate, float dt, torque_output_t *torque);
 
 #endif
 

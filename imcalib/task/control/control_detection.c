@@ -1,5 +1,5 @@
 /*
- * 台阶接管时暂停公共判定；其他执行拍选择NORMAL/FALLEN/FLIGHT后检测台阶入口。
+ * 台阶后摆暂停观测，委托自起只观测不抢占；普通拍选路后检测台阶入口。
  * 超时后先撤力等待再重判；动作超时不是姿态已经倒地的证据。
  */
 #include "control_detection.h"
@@ -110,7 +110,10 @@ static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t reque
     input.rate[1] = frame->right.output.d_virtual_leg_angle - frame->imu.gyro_rad_s[1];
     input.reference[0] = machine->lqr.reference.leg_trim[0];
     input.reference[1] = machine->lqr.reference.leg_trim[1];
-    input.permit = (uint8_t)(request && frame->drive_permit && frame->joint_ready && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready && output_task_lqr_engaged() && !Control_Postprocess_Inhibited());
+    /* 检测先于本拍LQR更新：复用最近有效普通控制拍的融合速度，不重复推进估计器。 */
+    input.permit = (uint8_t)(frame->left.output.virtual_leg_length >= machine->stair.detection.minimum_length &&
+        frame->right.output.virtual_leg_length >= machine->stair.detection.minimum_length &&
+        lqr_state.valid && lqr_state.ds_kf > machine->stair.detection.minimum_forward_speed && request && frame->drive_permit && frame->joint_ready && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready && output_task_lqr_engaged() && !Control_Postprocess_Inhibited());
     Stair_Detection_Update(&stair_detection, &machine->stair.detection, &input, MACHINE_LQR_DT);
     if (machine->stair.mode != STAIR_MODE_AUTO || !machine->stair.detection.confirmed || !stair_detection.trigger) { return; }
     memset(&process_input, 0, sizeof(process_input));
@@ -125,16 +128,41 @@ static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t reque
     }
 }
 
+/* 普通选路及台阶委托自起共用本拍姿态/AIR观测；调用方决定是否允许切换归属。 */
+static void Control_Detection_Observe(control_frame_t *frame, uint8_t request)
+{
+    air_input_t input;
+    uint8_t was_flight;
+    uint8_t normal_running;
+    uint8_t zero_effort;
+    memset(&input, 0, sizeof(input));
+    input.imu = &frame->imu;
+    input.leg[0] = &frame->left;
+    input.leg[1] = &frame->right;
+    input.joint_ready = frame->joint_ready;
+    for (uint8_t side = 0u; side < 2u; side++)
+    {
+        for (uint8_t i = 0u; i < 2u; i++)
+        {
+            input.torque[side][i] = frame->joint_torque[side * 2u + i];
+        }
+    }
+    normal_running = (uint8_t)(request && frame->drive_permit && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready);
+    /* 先观察FALLEN；AIR是否初始化不能阻止该观测或后续FALLEN选路。 */
+    zero_effort = (uint8_t)(!request || !frame->drive_permit || !control_condition.started);
+    Control_Condition_Observe(&control_condition, &frame->imu, &frame->left, &frame->right, frame->height, frame->height_valid, zero_effort, normal_running);
+    was_flight = air_detection.flight;
+    Air_Detection_Update(&air_detection, &input);
+    frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
+
+}
+
 /* 台阶期间只管理退出；其他执行拍按原优先级选路，再判断NORMAL内台阶触发。
  * 返回新进入FALLEN事件；台阶/公共撤力等待均不能隐式恢复普通出力。 */
 uint8_t Control_Detection_Update(control_frame_t *frame)
 {
-    air_input_t input;
-    uint8_t was_flight;
     control_condition_type_t previous;
     uint8_t request;
-    uint8_t zero_effort;
-    uint8_t normal_running;
     uint8_t stair_rechecking = 0u;
 
     request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage);
@@ -165,7 +193,19 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
             }
             if (stair_process.phase != STAIR_PROCESS_RECHECK)
             {
-                Control_Detection_Stair_Pause(frame);
+                if (stair_process.phase == STAIR_PROCESS_RETRACT || stair_process.phase == STAIR_PROCESS_ALIGN)
+                {
+                    /* 与普通自起一样持续观察，仍由台阶锁存归属，不发布落地/倒地切换。 */
+                    Control_Detection_Observe(frame, request);
+                    control_condition.valid = control_condition.normal_ready = 0u;
+                    frame->landed = 0u;
+                    stair_detection.trigger = 0u;
+                    stair_detection.flags = STAIR_DETECT_PAUSED;
+                }
+                else
+                {
+                    Control_Detection_Stair_Pause(frame);
+                }
                 return 0u;
             }
             stair_rechecking = 1u;
@@ -185,36 +225,10 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
         }
         return 0u;
     }
-    memset(&input, 0, sizeof(input));
-    input.imu = &frame->imu;
-    input.leg[0] = &frame->left;
-    input.leg[1] = &frame->right;
-    input.joint_ready = frame->joint_ready;
-    for (uint8_t side = 0u; side < 2u; side++)
-    {
-        for (uint8_t i = 0u; i < 2u; i++)
-        {
-            input.torque[side][i] = frame->joint_torque[side * 2u + i];
-        }
-    }
-    normal_running = (uint8_t)(request && frame->drive_permit && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready);
-    /* 先观察FALLEN；AIR是否初始化不能阻止该观测或后续FALLEN选路。 */
     previous = control_condition.condition;
-    zero_effort = (uint8_t)(!request || !frame->drive_permit || !control_condition.started);
-    Control_Condition_Observe(&control_condition, &frame->imu, &frame->left, &frame->right, frame->height, frame->height_valid, zero_effort, normal_running);
-    was_flight = air_detection.flight;
-    Air_Detection_Update(&air_detection, &input);
-    frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
+    Control_Detection_Observe(frame, request);
 
-    if (stair_rechecking && stair_process.result == STAIR_RESULT_DONE && request && frame->drive_permit && fallen_detection.valid && !fallen_detection.inverted)
-    {
-        /* 普通摆正已完成：复用自起交接，不把0.15m短腿重新当初始贴地自起。 */
-        Control_Condition_Recovery_Ready(&control_condition);
-    }
-    else
-    {
-        Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
-    }
+    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
     frame->fallen = (uint8_t)(control_condition.started && control_condition.condition == CONTROL_FALLEN);
     robot_state.fallen = frame->fallen;
     frame->nonfallen_drive_permit = (uint8_t)(frame->drive_permit && !frame->fallen);

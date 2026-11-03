@@ -58,7 +58,7 @@ void Control_Model_Prepare(control_frame_t *frame)
     {
         if (strategy == CTRL_STRATEGY_LQR)
         {
-            if (Stair_Process_Owns_Output(&stair_process))
+            if (Stair_Process_Owns_Output(&stair_process) && !control_condition.valid)
             {
                 enabled = LEG_COMP_GRAVITY_WORLD;
             }

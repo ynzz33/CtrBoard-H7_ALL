@@ -5,18 +5,19 @@
 #include "machine_config.h"
 fallen_process_param_t fallen_process_param = {
     /* 普通起立腿长 */
-    .length_rate             = 0.7f,                            /* 腿长 m/s */
-    .extend_len              = 0.28f,                           /* 目标 m */
+    .length_rate             = 0.5f,                            /* 腿长 m/s */
+    .angle_rate              = 15.0f,                            /* 普通自起准备位及摆正 rad/s */
+    .recovery_angle_rate     = 2.0f,                            /* 倒置前点对齐及翻身 rad/s */
     .length_tol              = 0.02f,                           /* 伸/收腿到位容差 m */
+    .angle_tol               = 0.2f,                            /* 准备位/摆正及倒置前点共用容差 rad */
+
+    .extend_len              = 0.28f,                           /* 目标 m */
     .length_timeout          = 1.5f,                            /* 伸/收腿超时 s */
 
     /* 普通起立摆角 */
-    .front_angle             = 1.75f,                           /* 普通前侧，CSV初姿约1.73~1.76 rad */
+    .front_angle             = 1.20f,                           /* 普通前侧，CSV初姿约1.73~1.76 rad */
     .normal_swing_window     = 1.0f,                            /* 普通身下入口，不绕前/后准备位 rad */
-    .normal_angle_tol        = 0.2f,                            /* 仅普通摆正到位 rad */
-    .rear_angle              = -1.42f,                           /* 后点 rad */
-    .prepare_angle_tol       = 0.1f,                            /* 前/后准备位和倒置前点容差 rad */
-    .angle_rate              = 4.0f,                            /* 后摆与翻身扫腿目标 rad/s */
+    .rear_angle              = -1.42f,                          /* 后点 rad */
     .angle_timeout           = 1.5f,                            /* 后摆/摆正超时 s */
 
     /* 收腿与站立 */
@@ -27,7 +28,7 @@ fallen_process_param_t fallen_process_param = {
     .angle_pos_kd            = 15.0f,                           /* 位置 D */
     .angle_speed_kp          = 5.0f,                            /* 速度 P */
     .angle_speed_kd          = 5.0f,                            /* 速度 D */
-    .angle_speed_max         = 8.0f,                           /* 目标 rad/s */
+    .angle_speed_max         = 10.0f,                           /* 目标 rad/s */
 
     /* 翻倒恢复 */
     .recovery_settle_time    = 0.05f,                            /* 缓冲 s */
@@ -85,11 +86,13 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .mode = STAIR_MODE_AUTO,
             .detection = {
                 .confirmed = 1u,
-                .angle_threshold = -0.15f, .acceleration_threshold = -150.0f,
-                .acceleration_tau = 0.01f, .confirm_time = 0.03f,
+                .minimum_length = 0.3f, .minimum_forward_speed = 0.0f,
+                .angle_threshold = -0.01f, .acceleration_threshold = -60.0f,
+                .acceleration_tau = 0.01f, .confirm_time = 0.005f,
             },
             .process = {
                 .confirmed = 1u,
+                .angle_rate = 4.0f,
                 .stall_angle_progress = 0.01f,
                 .angle_tolerance = 0.1f, .confirm_time = 0.05f,
                 .swing_timeout_ms = 1500u,

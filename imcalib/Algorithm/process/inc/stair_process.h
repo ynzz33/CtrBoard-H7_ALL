@@ -64,6 +64,7 @@ void Stair_Process_Reset(stair_process_t *state);
 uint8_t Stair_Process_Owns_Output(const stair_process_t *state);
 uint8_t Stair_Process_Begin(stair_process_t *state, const stair_process_param_t *param, const stair_process_input_t *input);
 void Stair_Process_Abort(stair_process_t *state, uint8_t reason, uint32_t now_ms);
+/* 仅在普通自起共用交接已生成有效LQR候选后记录完成并释放归属。 */
 void Stair_Process_Complete(stair_process_t *state, uint32_t now_ms);
 /* WAIT到RECHECK/完成到RECHECK只返回一次1，调用者据此复位公共检测历史。 */
 uint8_t Stair_Process_Advance_Exit(stair_process_t *state, const stair_process_param_t *param, uint32_t now_ms);

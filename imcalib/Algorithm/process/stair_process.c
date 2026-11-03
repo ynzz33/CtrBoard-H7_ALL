@@ -125,9 +125,9 @@ static uint8_t Stair_Process_Stalled(stair_process_t *state, const stair_process
 void Stair_Process_Complete(stair_process_t *state, uint32_t now_ms)
 {
     state->total_elapsed = (float)(uint32_t)(now_ms - state->begin_ms) * 0.001f;
-    state->phase = STAIR_PROCESS_RECHECK;
+    state->phase = STAIR_PROCESS_IDLE;
     state->phase_begin_ms = now_ms;
-    state->recheck_pending = 1u;
+    state->recheck_pending = 0u;
     state->result = STAIR_RESULT_DONE;
     state->exit_reason = STAIR_EXIT_COMPLETE;
     memset(state->force, 0, sizeof(state->force));
@@ -166,7 +166,7 @@ void Stair_Process_Update(stair_process_t *state, const stair_process_param_t *p
         if (!isfinite(state->length_target[i])) { Stair_Process_Abort(state, STAIR_EXIT_MAPPING, input->now_ms); return; }
         if (!state->controllers_ready) { PID_History_Set(&state->length_pid[i], leg->virtual_leg_length, state->length_target[i], state->length_target[i] - leg->virtual_leg_length); }
         state->force[i] = pid_calc(&state->length_pid[i], leg->virtual_leg_length, state->length_target[i], dt);
-        state->angle_ramp[i].rate = fallen_process_param.angle_rate;
+        state->angle_ramp[i].rate = param->angle_rate;
         Ramp_Update(&state->angle_ramp[i], fallen_process_param.rear_angle, dt);
         if (!state->controllers_ready) { PID_History_Set(&state->angle_pos_pid[i], state->position[i], state->angle_ramp[i].out, Angle_Wrap_Pi(state->angle_ramp[i].out - state->position[i])); }
         speed_target = pid_calc(&state->angle_pos_pid[i], state->position[i], state->angle_ramp[i].out, dt);

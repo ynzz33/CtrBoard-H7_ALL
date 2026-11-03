@@ -16,6 +16,7 @@
 #include "air_process.h"
 #include "control_detection.h"
 #include "stair_process.h"
+#include "stair_detection.h"
 #include <string.h>
 
 static slip_state_t slip_control;
@@ -110,8 +111,11 @@ static void Control_Stair_Balance_Reset(void)
     Fallen_Process_Init(&stair_normal_control);
 }
 
+static uint8_t Compute_LQR_Recovery_Handoff(control_frame_t *frame, fallen_process_ctx_t *state,
+    uint8_t was_done, uint8_t refresh_state, torque_output_t *torque, compensation_debug_t *debug);
+
 /* 台阶只有独立F/Tp候选；WAIT/RECHECK不运行普通估计或控制。 */
-static void Compute_Stair(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
+static void Compute_Stair(control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     const stair_process_input_t input = {
         .leg = {&frame->left, &frame->right},
@@ -129,12 +133,18 @@ static void Compute_Stair(const control_frame_t *frame, torque_output_t *torque,
             Stair_Process_Abort(&stair_process, input.permit ? STAIR_EXIT_TOTAL_TIMEOUT : STAIR_EXIT_INPUT, input.now_ms);
             return;
         }
-        if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_IDLE && !Fallen_Process_Begin_Retract(&stair_normal_control, &frame->imu, &frame->left, &frame->right))
+        if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_IDLE)
         {
-            Stair_Process_Abort(&stair_process, STAIR_EXIT_INPUT, input.now_ms);
-            return;
+            /* 后摆曾暂停观测；从委托自起入口重新播种，后续持续观察直到交接。 */
+            Air_Detection_Reset(&air_detection);
+            Fallen_Detection_Reset(&fallen_detection);
+            if (!Fallen_Process_Begin_Retract(&stair_normal_control, &frame->imu, &frame->left, &frame->right))
+            {
+                Stair_Process_Abort(&stair_process, STAIR_EXIT_INPUT, input.now_ms);
+                return;
+            }
         }
-        route = Fallen_Process_Update(&stair_normal_control, &frame->imu, &frame->left, &frame->right, &frame->compensation, input.permit, MACHINE_LQR_DT, torque);
+        route = stair_normal_control.lifecycle.phase == FALLEN_PROCESS_DONE ? FALLEN_PROCESS_ROUTE_BALANCE : Fallen_Process_Update(&stair_normal_control, &frame->imu, &frame->left, &frame->right, &frame->compensation, input.permit, machine->stair.process.angle_rate, MACHINE_LQR_DT, torque);
         stair_process.elapsed = stair_normal_control.lifecycle.elapsed;
         for (uint8_t i = 0u; i < 2u; i++)
         {
@@ -143,8 +153,17 @@ static void Compute_Stair(const control_frame_t *frame, torque_output_t *torque,
         }
         if (route == FALLEN_PROCESS_ROUTE_BALANCE)
         {
-            Torque_Output_Clear(torque);
-            Stair_Process_Complete(&stair_process, input.now_ms);
+            if (Compute_LQR_Recovery_Handoff(frame, &stair_normal_control, 0u, 1u, torque, debug))
+            {
+                Stair_Process_Complete(&stair_process, input.now_ms);
+                Stair_Detection_Disarm(&stair_detection);
+                /* 已在同拍重建并投入LQR，下一拍不能再次做退出复位。 */
+                stair_owned_previous = 0u;
+            }
+            else if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_FAILED)
+            {
+                Stair_Process_Abort(&stair_process, STAIR_EXIT_MAPPING, input.now_ms);
+            }
         }
         else if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_FAILED || route != FALLEN_PROCESS_ROUTE_PREPARE || !torque->valid)
         {
@@ -211,6 +230,49 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     }
 }
 
+/* 普通自起与台阶委托共用完整交接：有效姿态选路、普通补偿、LQR投入/计算及失败撤力。 */
+static uint8_t Compute_LQR_Recovery_Handoff(control_frame_t *frame, fallen_process_ctx_t *state,
+    uint8_t was_done, uint8_t refresh_state, torque_output_t *torque, compensation_debug_t *debug)
+{
+    Control_Condition_Recovery_Ready(&control_condition);
+    if (!control_condition.valid)
+    {
+        Torque_Output_Clear(torque);
+        return 0u;
+    }
+    if (refresh_state)
+    {
+        frame->fallen = 0u;
+        robot_state.fallen = 0u;
+        frame->nonfallen_drive_permit = frame->drive_permit;
+        Control_State_Update(frame, 1u);
+    }
+    /* 同拍从自起交给平衡，更新为普通姿态输入，避免沿用自起补偿。 */
+    Control_Model_Prepare(frame);
+    Air_Process_Update(frame);
+    if (!was_done)
+    {
+        if (LQR_Engage_Update(frame))
+        {
+            Compute_LQR(frame, torque, debug);
+        }
+        else
+        {
+            Fallen_Process_Fail(state, FALLEN_PROCESS_GATED);
+        }
+    }
+    if (!torque->valid)
+    {
+        Fallen_Process_Fail(state, FALLEN_PROCESS_BAD_INPUT);
+        Torque_Output_Clear(torque);
+        LQR_Idle();
+        control_condition.condition = CONTROL_FALLEN;
+        control_condition.normal_ready = 0u;
+    }
+    control_condition.normal_ready = (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL && torque->valid);
+    return torque->valid;
+}
+
 /* 推进地面自起，按返回路由选择准备力矩、LQR平衡或停止。
  * 超时交任务层撤力等待；恢复交接需要AIR结果有效，不使用无效旧候选。 */
 static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
@@ -231,41 +293,14 @@ static void Compute_LQR_Fallen_Process(control_frame_t *frame, torque_output_t *
     }
     route = Fallen_Process_Update(&fallen_process_control, &frame->imu, &frame->left,
                                    &frame->right, &frame->compensation, permit,
-                                   MACHINE_LQR_DT, torque);
+                                   fallen_process_param.angle_rate, MACHINE_LQR_DT, torque);
     if (fallen_process_control.lifecycle.phase == FALLEN_PROCESS_FAILED && fallen_process_control.lifecycle.fault == FALLEN_PROCESS_TIMEOUT)
     {
         Control_Postprocess_Request(1u);
     }
     if (route == FALLEN_PROCESS_ROUTE_BALANCE)
     {
-        Control_Condition_Recovery_Ready(&control_condition);
-        if (!control_condition.valid)
-        {
-            Torque_Output_Clear(torque);
-            return;
-        }
-        /* 同拍从自起交给平衡，更新为普通姿态输入，避免沿用自起补偿。 */
-        Control_Model_Prepare(frame);
-        Air_Process_Update(frame);
-        if (!was_done)
-        {
-            if (LQR_Engage_Update(frame))
-            {
-                Compute_LQR(frame, torque, debug);
-            }
-            else
-            {
-                Fallen_Process_Fail(&fallen_process_control, FALLEN_PROCESS_GATED);
-            }
-        }
-        if (!torque->valid)
-        {
-            Fallen_Process_Fail(&fallen_process_control, FALLEN_PROCESS_BAD_INPUT);
-            Torque_Output_Clear(torque);
-            LQR_Idle();
-            control_condition.condition = CONTROL_FALLEN;
-            control_condition.normal_ready = 0u;
-        }
+        (void)Compute_LQR_Recovery_Handoff(frame, &fallen_process_control, was_done, 0u, torque, debug);
     }
     else
     {

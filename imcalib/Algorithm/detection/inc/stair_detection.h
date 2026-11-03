@@ -1,4 +1,4 @@
-/* 世界腿角/负向角加速度联合确认；不推进动作、不访问自起状态。 */
+/* 世界腿角/负向角加速度联合连续确认；不推进动作、不访问自起状态。 */
 #ifndef STAIR_DETECTION_H
 #define STAIR_DETECTION_H
 
