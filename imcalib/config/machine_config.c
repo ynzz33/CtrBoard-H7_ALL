@@ -38,6 +38,27 @@ static const machine_gravity_cfg_t gravity_big = {
 const machine_cfg_t machine_table[MACHINE_NUM] = {
     [MACHINE_ID_BIG_WHEELLEG] = {
         .name = "big_wheelleg",
+        /* 作者批准AUTO首轮：LHX目标，控制参数与自起同源，实机越阶待验证。 */
+        .stair = {
+            .mode = STAIR_MODE_AUTO,
+            .detection = {
+                .confirmed = 1u,
+                .request_min = 0.1f,
+                .yaw_request_max = 0.3f, .yaw_rate_max = 1.2f,
+                .length_min = 0.27f, /* 两腿实际长度均达到门槛，无上限/轮速限制 */
+                .angle_min = 0.1f, .acceleration_min = 80.0f, /* CSV试用值，尚非验收门槛 */
+                .acceleration_tau = 0.02f, .confirm_time = 0.02f, .impact_window = 0.35f,
+            },
+            .process = {
+                .confirmed = 1u,
+                .swing_angle = {1.3f, 1.3f}, /* 作者选择的首轮连续几何角rad */
+                .retract_length = {0.17f, 0.17f},
+                .stall_angle_progress = 0.01f, .stall_length_progress = 0.002f,
+                .angle_tolerance = 0.1f, .length_tolerance = 0.02f, .confirm_time = 0.05f,
+                .swing_timeout_ms = 1500u, .retract_timeout_ms = 1500u,
+                .total_timeout_ms = 3000u, .stall_timeout_ms = 300u, .wait_ms = 300u,
+            },
+        },
         /* 遥控：死区为DR16计数，速度m/s、偏航rad/s、腿长m */
         .rc = {
             .deadband_vel = 10u,
@@ -176,6 +197,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
     },
     [MACHINE_ID_SMALL_WHEELLEG] = {
         .name = "small_wheelleg",
+        .stair = { .mode = STAIR_MODE_OFF }, /* 小机不开放台阶入口 */
         /* 遥控：死区为DR16计数，速度m/s、偏航rad/s、腿长m */
         .rc = {
             .deadband_vel = 10u,

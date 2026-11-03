@@ -1,3 +1,19 @@
+## 2026-11-03 删除Jetson独立镜像与探测
+
+按作者要求删除jetson_uart.c/h、main初始化、comm轮询、后台镜像发送、专用宏及Keil源/浏览登记。eIDE扫描drivers目录，无独立Jetson登记。USB完整时序采集和VOFA独立发送保留，UART10的CubeMX外设配置及生成初始化保留；不调整控制参数、反馈快照或物理映射。旧Jetson接口说明归档到sysid-change-map，不再作为当前功能。当前配置（采集关闭）工程外GCC全量编译链接通过，未覆盖IDE构建目录；未烧录验证。
+
+## 2026-11-03 自动磕台阶：大机AUTO试用
+
+最新作者授权：取消轮速限制及检测腿长上限，两腿实际长度均>=0.27m才允许开窗；大机AUTO，两组confirmed=1，小机OFF。识别后真实进入stair_process，摆腿1.3rad/保持进入腿长，收腿0.17m，目标参考LHX。控制改为与自起同源串级PID、角速度限幅、斜坡rate和支撑渐入，实例/历史独立。VOFA仍48路，5号应2、6号会推进动作阶段；完整现状见[当前AUTO试用](stair-control.md)。本节以下OBSERVE及confirmed=0为历史；未做实机越阶验收。
+
+当前[台阶观察v3](stair-control.md)进一步将长度范围移到开窗条件，已有窗口在原350ms内继续确认，不被检测长度边界短暂越界立即抹掉。8号bit13～15新增锁存的最近一次结束原因，bit4/9号/46号仍分别为本拍窗口、确认计时、累计事件。模式/confirmed与原机械工作区不改；当前新版未烧录，识别改善待实测。
+
+当前判据已升级[台阶观察v2](stair-control.md)：冲击上升沿开350ms窗口，其后双腿姿态连续20ms确认；检测入口范围按CSV试调，OBSERVE可累计候选事件。检测及动作confirmed仍0，AUTO接管禁止；下段“不武装”是v1状态。VOFA编号不变，8号bit4为窗口有效，9号为姿态确认计时。
+
+新增独立stair_detection/stair_process及台阶WAIT/RECHECK，不借用Fallen_Process状态、控制器、参数和自起重试预算。大机默认OBSERVE、小机OFF，检测和动作confirmed均0：记录原始特征，不武装、不接管；阈值和路径待本机CSV/台架确认，不能只切AUTO试动作。当前VOFA固定48路已切为[台阶v1通道及采集步骤](stair-control.md#当前vofa台阶v1固定48通道)，原停车积分布局#if 0保留。此节覆盖下方旧VOFA布局描述，时序采集仍独立走USB。
+
+AUTO仅从有效NORMAL普通平衡进入，触发后锁存摆腿/收腿；期间暂停AIR/FALLEN判定、普通融合及高度观察器，底层故障和最终输出许可保留。动作完成或失败后清旧检测历史重新初判，失败独立撤力等待，不认定已倒地，不自动重复同一次动作。模块、参数归属和验证边界见[台阶说明](stair-control.md)。当前未烧录、未做实机越阶验证。
+
 ## 2026-11-03 时序采集固定使用USB
 
 按作者要求删除MACHINE_LATENCY_TRANSPORT及UART采集分支；完整事件、输出和START/STOP固定走板载USB CDC，VOFA始终保持原发送。MACHINE_LATENCY_CAPTURE_ENABLE直接定义，保留作者当前值0u，不再用ifndef允许命令行覆盖；需要采集时在machine_config.h改为1u并重新编译烧录。保留采集开关的#if条件编译及头文件保护，0时仍编译移除测点、队列和新增IRQ。下文USB/UART选择及默认1的描述属于历史状态，以本节为准。本次完成源码检查，未重新构建或烧录。
@@ -652,37 +668,6 @@ Watch查看can_bus[总线号-1]的state/recover_attempts/hardware_resets/failed_
 3的bit0十态有效、1增益有效、2四态有效、3三态判断有效、4 AIR反馈、5轴向释放、6flight、7四髋限矩、8偏置学习许可、9偏置本拍更新、10偏置触限、11偏置已播种；bit12～13三态编号；bit14/15上次DM/DJI提交成功。HAL_OK不代表电机实际执行。
 
 先按1的LQR投入位和3的四态有效/正常状态筛选。未投入或无效时可能保留缓存。4/5/6区分最终目标、斜坡与实际跟随；H是投影高度而非单腿长度。32～35是力分项共模/差模，不能不计支撑前馈、偏置、向心项就直接相加当30/31。实际相对腿角为22+20、23+20。后台来源异步，不按单纯相位认定物理因果。旧CSV按录制时布局解释。
-
-## Jetson只读镜像与串口探测（UART10）
-
-2026-10-20按训练仓`26_wheelleg`的`h7-jetson-kinematic-mirror-v1`接口在本地工程实现。与训练仓部署副本的差别：VOFA仍留在UART8发原LQR 48路布局，Jetson镜像改走独立UART10，两者不复用发送函数、缓冲或端口。
-
-2026-11-02按作者要求增加编译开关`MACHINE_JETSON_MIRROR_ENABLE`（`machine_config.h`顶部，与防翻等调试开关同处，当前0）。为0时`jetson_uart.c`把三个入口编成文件内既有空实现：不启动UART10接收DMA、不轮询探测包、不发送镜像；RX/TX静态缓冲、镜像组帧、CRC与探测解析都不参与编译。三个调用点（`main.c`、`task_comm.c`、`background_service.c`）保持原样，行为只看开关。为1时与原实现逐字节一致；改开关需重新编译烧录，VOFA、控制链、许可与物理标定均不受影响。
-
-[Jetson_Mirror_Send](../imcalib/drivers/jetson_uart.c)由`background_task_body`每拍调用，按`HAL_GetTick`经过至少10ms尝试一次，使用静态`Robot_Feedback_Read`快照；DMA忙时跳过，只有提交成功才增加发送序号。帧为48个小端float32加`00 00 80 7F`尾，共196字节；第47槽是前47个float（188字节）的CRC16/CCITT-FALSE数值，参数poly=0x1021、init=0xFFFF、不反射、xorout=0。
-
-| 通道 | 镜像v1定义 |
-| --- | --- |
-| 0～2 | 在线掩码（IMU/DR16/四髋/两轮原0～7位）、状态位（0使能、1跌倒、2左腿有效、3右腿有效、4～7四髋使能、8 LQR投入、9 RL投入）、`ctrl_fault` |
-| 3～5 | 标识7101、版本1、编译机型（0大机／1小机，Jetson首期只接受0） |
-| 6～7 | uint32发送序号的低／高16位；仅DMA提交成功增加，按uint32回绕 |
-| 8～9 | `captured_ns/1000000`的低32位毫秒，拆低／高16位 |
-| 10～13 | 四髋`pos_zero_rad`，左前／左后／右前／右后 |
-| 14～17 | 同顺序`vel_rad_s` |
-| 18～21 | 左右轮`angle_total_rad`两路、`vel_rad_s`两路 |
-| 22～28 | 公共IMU四元数wxyz、角速度xyz |
-| 29 | 数据有效位：0=IMU，1～4=四髋，5～6=两轮；无效来源填0 |
-| 30～31 | IMU／电机的软件发布年龄ms；-1未发布，超过60000饱和 |
-| 32 | 串口探测扩展版本1；旧固件为0 |
-| 33～38 | 最近合法探测序号、主机随机数、合法包数的低／高16位 |
-| 39～46 | 保留为0 |
-| 47 | CRC16/CCITT-FALSE数值 |
-
-下行探测由`comm_task_body`每拍调用`Jetson_Uart_Process`轮询256字节环形RX DMA：只接受`J7P1`＋小端uint32序号＋uint32随机数＋uint16 CRC的14字节包，CRC校验前12字节；噪声和坏CRC逐字节重新找包头，跨环尾与分包保留解析状态。RX只关闭HT半满中断、保留TC完成中断，使HAL接收错误后的异步DMA终止能完成并解锁；`RxState`离开BUSY_RX时由comm重启DMA并清半包，计入`rx_restarts`。
-
-大机`MACHINE_JETSON_PORT=10`：USART10，PE3/TX、PE2/RX，1152000/8N1，RX用DMA1 Stream0环形、TX用DMA2 Stream0 NORMAL，ioc与生成代码都包含该外设；小机为0。`MACHINE_JETSON_MIRROR_ENABLE`为0或端口条件不成立时，两机都走三个空实现入口。镜像只读，不接收动作、不改变RL/LQR许可、模式或物理标定，可与VOFA同时观察。
-
-发布年龄是软件快照时刻减发布时刻，不是传感器采样年龄；序号缺口只表示未观测到已提交帧，不等同CAN丢帧。接线、电平、实际频率、往返耗时与板端时序待台架。
 
 <a id="matlab-gain"></a>
 ## MATLAB增益表与模型

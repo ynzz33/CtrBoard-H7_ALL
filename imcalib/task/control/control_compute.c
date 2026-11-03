@@ -1,5 +1,5 @@
 /*
- * 把执行拍输入转换为候选电机力矩：补偿测试、LQR平衡/自起/AIR或RL动作执行。
+ * 把执行拍输入转换为候选电机力矩：独立台阶、补偿测试、LQR平衡/自起/AIR或RL动作。
  * 管理控制器投入历史和RL分频；torque有效性与dispatch分别表示候选可用和本拍需要发送。
  */
 #include "control_compute.h"
@@ -15,12 +15,14 @@
 #include "control_condition.h"
 #include "air_process.h"
 #include "control_detection.h"
+#include "stair_process.h"
 #include <string.h>
 
 static slip_state_t slip_control;
 static uint8_t lqr_running;
 static uint8_t rl_engaged;
 static uint8_t rl_wait_ticks;
+static uint8_t stair_owned_previous; /* 只记录进入/退出边沿，用于重建普通平衡历史 */
 static rl_motor_map_state_t rl_motor_map; /* 用本拍IMU/腿/轮速组装LQR状态，接入AIR控制选择，再融合轮速和IMU加速度。
  * reset_velocity要求重新建立速度先验；任一步失败都撤销相应状态有效性。 */
 static void Control_State_Update(control_frame_t *frame, uint8_t reset_velocity)
@@ -93,6 +95,43 @@ static void LQR_Idle(void)
     lqr_state.air_control = 0u;
     lqr_state.air_release = 0u;
     air_detection.applied = 0u;
+}
+
+/* 台阶进入/退出各一次：清普通融合/位移/航向/腿控历史，不清任何自起预算。 */
+static void Control_Stair_Balance_Reset(void)
+{
+    lqr_debug_t saved = lqr_debug;
+    LQR_Idle();
+    Slip_Reset(&slip_control);
+    LQR_Init(&lqr_state);
+    lqr_debug = saved;
+    lqr_state.valid = 0u;
+}
+
+/* 台阶只有独立F/Tp候选；WAIT/RECHECK不运行普通估计或控制。 */
+static void Compute_Stair(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
+{
+    const stair_control_param_t control = {
+        .length_pd = machine->lqr.pd.leg_len,
+        .angle_pos = { .kp = fallen_process_param.angle_pos_kp, .kd = fallen_process_param.angle_pos_kd, .max_output = fallen_process_param.angle_speed_max },
+        .angle_speed = { .kp = fallen_process_param.angle_speed_kp, .kd = fallen_process_param.angle_speed_kd, .max_output = machine->hip.dm_trq_clamp },
+        .length_rate = fallen_process_param.length_rate,
+        .angle_rate = fallen_process_param.angle_rate,
+        .support_time = fallen_process_param.support_time,
+        .support_angle_range = machine->recovery.fallen_support_angle_range,
+        .leg_trim = machine->lqr.reference.leg_trim,
+        .support_force = machine->lqr.roll_height.support_force,
+    };
+    const stair_process_input_t input = {
+        .leg = {&frame->left, &frame->right},
+        .control = &control,
+        .compensation = &frame->compensation,
+        .hip_limit = machine->hip.dm_trq_clamp,
+        .now_ms = HAL_GetTick(),
+        .permit = (uint8_t)(frame->drive_permit && frame->joint_ready && frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage),
+    };
+    Stair_Process_Update(&stair_process, &machine->stair.process, &input, MACHINE_LQR_DT, torque);
+    if (torque->valid) { *debug = stair_process.compensation; }
 }
 
 /* 以四髋零基础力矩为输入，叠加选定弹簧/世界姿态重力补偿，轮候选保持零。
@@ -276,6 +315,25 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
 {
     uint8_t observer_permit;
 
+    if (Stair_Process_Owns_Output(&stair_process))
+    {
+        if (!stair_owned_previous) { Control_Stair_Balance_Reset(); }
+        stair_owned_previous = 1u;
+        Torque_Output_Clear(torque);
+        memset(debug, 0, sizeof(*debug));
+        ctrl_strategy = strategy;
+        rl_engaged = 0u;
+        rl_wait_ticks = 0u;
+        rl_motor_map.initialized = 0u;
+        *dispatch = 1u;
+        Compute_Stair(frame, torque, debug);
+        return;
+    }
+    if (stair_owned_previous)
+    {
+        Control_Stair_Balance_Reset();
+        stair_owned_previous = 0u;
+    }
     leg_balance.turn_ff = 0.0f;
     if (entered_fallen)
     {

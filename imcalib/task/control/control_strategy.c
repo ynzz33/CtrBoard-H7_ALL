@@ -8,6 +8,7 @@
 #include "control_detection.h"
 #include "control_condition.h"
 #include "fallen_process.h"
+#include "stair_process.h"
 #include <string.h>
 #include <math.h>
 
@@ -57,7 +58,11 @@ void Control_Model_Prepare(control_frame_t *frame)
     {
         if (strategy == CTRL_STRATEGY_LQR)
         {
-            if (control_condition.valid && control_condition.condition == CONTROL_FALLEN &&
+            if (Stair_Process_Owns_Output(&stair_process))
+            {
+                enabled = LEG_COMP_GRAVITY_WORLD;
+            }
+            else if (control_condition.valid && control_condition.condition == CONTROL_FALLEN &&
                 fallen_process_control.lifecycle.enabled)
             {
                 enabled = LEG_COMP_GRAVITY_WORLD;

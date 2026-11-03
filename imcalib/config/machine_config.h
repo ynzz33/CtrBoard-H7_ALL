@@ -12,7 +12,6 @@
 #define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
 #define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
 #define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE         0u /* 4态leso观测器 */
-#define MACHINE_JETSON_MIRROR_ENABLE                0u /* 0：不初始化/不轮询/不发送UART10 Jetson镜像，且不占其DMA缓冲；1：原只读镜像+探测，改后重新编译烧录 */
 /* 轴向力补偿，*/
 #define MACHINE_HEIGHT_TRIM_ENABLE                  1u
 #define MACHINE_HEIGHT_TRIM_LOW_N (-70.0f)
@@ -48,7 +47,6 @@
 #define MACHINE_POLICY_DIV        20u     /* model1999单帧35维，50Hz策略/500Hz PD */
 #define MACHINE_DM_OFFLINE_MS     50u
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
-#define MACHINE_JETSON_PORT       10u     /* UART10：Jetson只读镜像/探测，独立于VOFA。 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u
 #define MACHINE_FDCAN13_DATA_SEG2       1u
@@ -59,7 +57,6 @@
 #define MACHINE_DM_OFFLINE_MS     10u
 #define MACHINE_POLICY_DIV        10u     /* 策略节拍 1000/10 = 100 Hz */
 #define MACHINE_VOFA_PORT         1u      /* UART1 */
-#define MACHINE_JETSON_PORT       0u      /* 小机未接Jetson。 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  3u
 #define MACHINE_FDCAN13_DATA_SEG1       5u
 #define MACHINE_FDCAN13_DATA_SEG2       2u
@@ -302,12 +299,48 @@ typedef struct {
     float fallen_support_angle_range; /* 起立支撑权重角范围rad */
 } machine_recovery_cfg_t;
 
+enum {
+    STAIR_MODE_OFF = 0, /* 不检测、不接管 */
+    STAIR_MODE_OBSERVE, /* 记录特征/确认后的候选，不接管 */
+    STAIR_MODE_AUTO, /* 本机参数确认后允许自动接管 */
+};
+
+typedef struct {
+    uint8_t confirmed; /* 本机确认后允许AUTO消费事件；不阻止OBSERVE计算试用候选 */
+    float request_min; /* 最小向前请求m/s */
+    float yaw_request_max, yaw_rate_max; /* 转向请求上限、冲击入口实测偏航上限rad/s */
+    float length_min; /* 开窗要求两腿实际长度均不小于此值m，不限制轮速 */
+    float angle_min; /* 双腿相对站立参考的角偏差绝对值下限rad */
+    float acceleration_min; /* 至少一侧滤波角加速度绝对值下限rad/s² */
+    float acceleration_tau; /* 角速度差分的一阶低通时间常数s */
+    float confirm_time; /* 冲击后双腿姿态连续确认时间s */
+    float impact_window; /* 冲击候选有效窗口s，后续尖峰不延长 */
+} stair_detection_param_t;
+
+typedef struct {
+    uint8_t confirmed; /* 作者允许试用动作后置1，不代表实机越阶已验收 */
+    float swing_angle[2]; /* 沿本机连续几何角分支的摆腿终点rad，待实测 */
+    float retract_length[2]; /* 收腿终点m，待实测 */
+    float angle_tolerance, length_tolerance; /* 到位容差rad、m */
+    float confirm_time; /* 双腿实际/指令到位连续确认时间s */
+    float stall_angle_progress, stall_length_progress; /* 卡滞窗口内最小进度rad、m */
+    uint32_t swing_timeout_ms, retract_timeout_ms; /* 各阶段真实期限ms */
+    uint32_t total_timeout_ms, stall_timeout_ms, wait_ms; /* 总期限、卡滞窗口及失败撤力等待ms */
+} stair_process_param_t;
+
+typedef struct {
+    uint8_t mode; /* STAIR_MODE_* */
+    stair_detection_param_t detection;
+    stair_process_param_t process;
+} machine_stair_cfg_t;
+
 typedef struct {
 
     const char *name;
 
     machine_rc_cfg_t rc;        /* 公共量程 */
     machine_lqr_cfg_t lqr;
+    machine_stair_cfg_t stair; /* 台阶检测/动作，参数及状态不归自起 */
 
     /* 轮: 型号(0=M2006, 1=M3508) + 总传动比 + 满限幅力矩(Nm) */
 

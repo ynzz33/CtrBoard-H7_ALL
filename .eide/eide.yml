@@ -137,6 +137,8 @@ virtualFolder:
       folders: []
     - name: ControlModules
       files:
+        - path: imcalib/Algorithm/detection/stair_detection.c
+        - path: imcalib/Algorithm/process/stair_process.c
         - path: imcalib/Algorithm/lqr/motion_guard.c
         - path: imcalib/task/control/control_detection.c
         - path: imcalib/Algorithm/process/air_process.c
@@ -200,6 +202,8 @@ targets:
         - Drivers/CMSIS/DSP/Include
       libList: []
     excludeList:
+      - imcalib/Algorithm/detection/stair_detection.c
+      - imcalib/Algorithm/process/stair_process.c
       - imcalib/Algorithm/lqr/motion_guard.c
       - imcalib/task/control/control_detection.c
       - imcalib/Algorithm/process/air_process.c

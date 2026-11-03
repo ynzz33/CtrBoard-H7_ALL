@@ -1162,11 +1162,6 @@
               <FilePath>../imcalib/drivers/hi229.c</FilePath>
             </File>
             <File>
-              <FileName>jetson_uart.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/drivers/jetson_uart.c</FilePath>
-            </File>
-            <File>
               <FileName>ws2812.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/drivers/ws2812.c</FilePath>
@@ -1382,6 +1377,11 @@
               <FilePath>../imcalib/Algorithm/detection/air_detection.c</FilePath>
             </File>
             <File>
+              <FileName>stair_detection.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/detection/stair_detection.c</FilePath>
+            </File>
+            <File>
               <FileName>control_condition.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/detection/control_condition.c</FilePath>
@@ -1400,6 +1400,11 @@
               <FileName>fallen_process.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/process/fallen_process.c</FilePath>
+            </File>
+            <File>
+              <FileName>stair_process.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/Algorithm/process/stair_process.c</FilePath>
             </File>
             <File>
               <FileName>air_process.c</FileName>

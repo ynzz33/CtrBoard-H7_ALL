@@ -45,7 +45,6 @@
 #include "dm.h"
 #include "robot_control.h"
 #include "machine_config.h"
-#include "jetson_uart.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -202,7 +201,6 @@ int main(void)
   /* 外设句柄已生成：先更新机型时序，再启用各协议的接收缓存/回调。 */
   FDCAN_Config();
   Mono_Ns_Init();   /* 接收/发布时间使用的上电相对ns计数，与HAL毫秒时钟分开。 */
-  Jetson_Uart_Init(); /* 编译开关为0时为空入口；为1才启动独立UART10探测接收。 */
   DR16_Init();
   HI229_Init();
   Can_Bus_Init();

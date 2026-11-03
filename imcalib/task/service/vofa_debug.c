@@ -14,6 +14,8 @@
 #include "fallen_detection.h"
 #include "math_utils.h"
 #include "machine_config.h"
+#include "stair_detection.h"
+#include "stair_process.h"
 #include "Vofa_send.h"
 #include "dr16.h"
 #include "FreeRTOS.h"
@@ -27,10 +29,10 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
-    float turn_scale;
-    float contribution;
-    uint8_t row;
-    uint8_t col;
+    // float turn_scale;
+    // float contribution;
+    // uint8_t row;
+    // uint8_t col;
     // const lqr_gain_desc_t *gain;
     // float term;
     // uint8_t group;
@@ -874,6 +876,7 @@ void Vofa_Debug_Send(void)
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
 #endif
+#if 0 /* 上一版停车积分布局，人工切换时恢复相应局部变量声明。 */
     /* 固定48路：停车积分是否激起转向退出后的低频摆动。 */
     taskENTER_CRITICAL();
     turn_scale = motion_guard.reference_scale;
@@ -930,6 +933,53 @@ void Vofa_Debug_Send(void)
     dbg[44] = (float)((fabsf(lqr_state.u[LQR_U_WL]) >= lqr_debug.trq_max_wheel ? 1u : 0u) | (fabsf(lqr_state.u[LQR_U_WR]) >= lqr_debug.trq_max_wheel ? 2u : 0u) | (fabsf(lqr_state.u[LQR_U_BL]) >= lqr_debug.trq_max_hip ? 4u : 0u) | (fabsf(lqr_state.u[LQR_U_BR]) >= lqr_debug.trq_max_hip ? 8u : 0u));
     dbg[45] = (float)leg_balance.compensation.saturated;
     dbg[46] = (float)control_condition.condition;
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+#endif
+    /* 台阶v1固定48路：暂停时22/23只是最后一次检测值，8的PAUSED位明确标记。 */
+    taskENTER_CRITICAL();
+    dbg[1] = (float)(state_bits | (Stair_Process_Owns_Output(&stair_process) ? 0x400u : 0u) | (torque_output_enabled ? 0x800u : 0u));
+    dbg[3] = (float)control_condition.condition;
+    dbg[4] = (float)control_condition.valid;
+    dbg[5] = (float)machine->stair.mode;
+    dbg[6] = (float)stair_process.phase;
+    dbg[7] = (float)stair_process.exit_reason;
+    dbg[8] = (float)(stair_detection.flags | ((uint16_t)stair_process.result << 8u) | (machine->stair.process.confirmed ? 0x1000u : 0u));
+    dbg[9] = stair_detection.elapsed;
+    dbg[10] = stair_process.elapsed;
+    dbg[11] = stair_process.total_elapsed;
+    dbg[12] = rc_command.velocity_target;
+    dbg[13] = rc_command.yaw_rate_target;
+    dbg[14] = motor_state.dji.vel_rad_s[0];
+    dbg[15] = motor_state.dji.vel_rad_s[1];
+    dbg[16] = (motor_state.dji.vel_rad_s[0] + motor_state.dji.vel_rad_s[1]) * 0.5f * machine->wheel.wheel_r;
+    dbg[17] = imu_state.gyro_rad_s[2];
+    dbg[18] = leg_l.output.virtual_leg_angle;
+    dbg[19] = leg_r.output.virtual_leg_angle;
+    dbg[20] = leg_l.output.d_virtual_leg_angle;
+    dbg[21] = leg_r.output.d_virtual_leg_angle;
+    dbg[22] = stair_detection.acceleration[0];
+    dbg[23] = stair_detection.acceleration[1];
+    dbg[24] = leg_l.output.virtual_leg_length;
+    dbg[25] = leg_r.output.virtual_leg_length;
+    dbg[26] = stair_process.length_target[0];
+    dbg[27] = stair_process.length_target[1];
+    dbg[28] = stair_process.angle_target[0];
+    dbg[29] = stair_process.angle_target[1];
+    dbg[30] = stair_process.force[0];
+    dbg[31] = stair_process.force[1];
+    dbg[32] = stair_process.torque[0];
+    dbg[33] = stair_process.torque[1];
+    dbg[34] = imu_state.pitch_world;
+    dbg[35] = imu_state.gyro_rad_s[1];
+    for (uint8_t i = 0u; i < 4u; i++)
+    {
+        dbg[36u + i] = output_dm_torque_nm[i];
+        dbg[40u + i] = motor_state.dm.trq_nm[i];
+    }
+    dbg[44] = output_wheel_torque_nm[0];
+    dbg[45] = output_wheel_torque_nm[1];
+    dbg[46] = (float)stair_detection.events;
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
     Vofa_Send(dbg, VOFA_MAX_CH);

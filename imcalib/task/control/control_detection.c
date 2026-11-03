@@ -1,5 +1,5 @@
 /*
- * 将本拍IMU、双腿、反馈力矩和模型值交给检测器，再选择NORMAL/FALLEN/FLIGHT。
+ * 台阶接管时暂停公共判定；其他执行拍选择NORMAL/FALLEN/FLIGHT后检测台阶入口。
  * 超时后先撤力等待再重判；动作超时不是姿态已经倒地的证据。
  */
 #include "control_detection.h"
@@ -7,6 +7,8 @@
 #include "control_condition.h"
 #include "fallen_process.h"
 #include "robot_state.h"
+#include "stair_detection.h"
+#include "stair_process.h"
 #include <string.h>
 
 control_postprocess_t control_postprocess;
@@ -68,8 +70,67 @@ uint8_t Control_Postprocess_Inhibited(void)
     return (uint8_t)(control_postprocess.phase != CONTROL_POSTPROCESS_RUN);
 }
 
-/* 组装AIR输入并独立更新倒地/AIR观测，再按原优先级选择公共控制状态。
- * 更新frame及robot_state的FALLEN归属，返回新进入FALLEN事件；撤力等待期间不重新出力。 */
+/* 只清公共检测历史；不读取或修改任何动作的等待、重试预算。 */
+static void Control_Detection_Recheck_Begin(control_frame_t *frame)
+{
+    Air_Detection_Reset(&air_detection);
+    Fallen_Detection_Reset(&fallen_detection);
+    Control_Condition_Reset(&control_condition);
+    frame->landed = 0u;
+}
+
+/* 台阶期间旧NORMAL只表示来源，撤销实时有效性及普通平衡就绪。 */
+static void Control_Detection_Stair_Pause(control_frame_t *frame)
+{
+    control_condition.valid = 0u;
+    control_condition.normal_ready = 0u;
+    air_detection.valid = 0u;
+    air_detection.applied = 0u;
+    fallen_detection.valid = 0u;
+    frame->landed = 0u;
+    stair_detection.trigger = 0u;
+    stair_detection.flags = (uint16_t)(STAIR_DETECT_PAUSED | (machine->stair.detection.confirmed ? STAIR_DETECT_CONFIRMED : 0u) | ((uint16_t)stair_detection.clear_reason << STAIR_CLEAR_SHIFT));
+}
+
+/* 当前公共选路完成后才检测；双腿实际长度达标后允许开窗，不消费轮速。 */
+static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t request)
+{
+    stair_detection_input_t input;
+    stair_process_input_t process_input;
+    if (machine->stair.mode == STAIR_MODE_OFF || MACHINE_DEFAULT != MACHINE_ID_BIG_WHEELLEG)
+    {
+        Stair_Detection_Reset(&stair_detection);
+        return;
+    }
+    memset(&input, 0, sizeof(input));
+    input.angle[0] = frame->left.output.virtual_leg_angle;
+    input.angle[1] = frame->right.output.virtual_leg_angle;
+    input.rate[0] = frame->left.output.d_virtual_leg_angle;
+    input.rate[1] = frame->right.output.d_virtual_leg_angle;
+    input.length[0] = frame->left.output.virtual_leg_length;
+    input.length[1] = frame->right.output.virtual_leg_length;
+    input.reference[0] = machine->lqr.reference.leg_trim[0];
+    input.reference[1] = machine->lqr.reference.leg_trim[1];
+    input.velocity_request = frame->rc.velocity_target;
+    input.yaw_request = frame->rc.yaw_rate_target;
+    input.yaw_rate = frame->imu.gyro_rad_s[2];
+    input.permit = (uint8_t)(request && frame->drive_permit && frame->joint_ready && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready && output_task_lqr_engaged() && !Control_Postprocess_Inhibited());
+    Stair_Detection_Update(&stair_detection, &machine->stair.detection, &input, MACHINE_LQR_DT);
+    if (machine->stair.mode != STAIR_MODE_AUTO || !machine->stair.detection.confirmed || !stair_detection.trigger) { return; }
+    memset(&process_input, 0, sizeof(process_input));
+    process_input.leg[0] = &frame->left;
+    process_input.leg[1] = &frame->right;
+    process_input.permit = input.permit;
+    process_input.now_ms = HAL_GetTick();
+    if (Stair_Process_Begin(&stair_process, &machine->stair.process, &process_input))
+    {
+        Stair_Detection_Disarm(&stair_detection);
+        Control_Detection_Stair_Pause(frame);
+    }
+}
+
+/* 台阶期间只管理退出；其他执行拍按原优先级选路，再判断NORMAL内台阶触发。
+ * 返回新进入FALLEN事件；台阶/公共撤力等待均不能隐式恢复普通出力。 */
 uint8_t Control_Detection_Update(control_frame_t *frame)
 {
     air_input_t input;
@@ -78,6 +139,7 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     uint8_t request;
     uint8_t zero_effort;
     uint8_t normal_running;
+    uint8_t stair_rechecking = 0u;
 
     request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage);
     if (!request)
@@ -85,6 +147,34 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
         memset(&control_postprocess, 0, sizeof(control_postprocess));
     }
     frame->landed = 0u;
+    if (Stair_Process_Owns_Output(&stair_process))
+    {
+        if (!request || machine->stair.mode != STAIR_MODE_AUTO)
+        {
+            /* 退出投入即作废动作；再次投入从新反馈初判，不续跑旧阶段。 */
+            Stair_Process_Abort(&stair_process, STAIR_EXIT_CANCELLED, HAL_GetTick());
+            Control_Detection_Recheck_Begin(frame);
+            Stair_Process_Reset(&stair_process);
+            Stair_Detection_Disarm(&stair_detection);
+        }
+        else
+        {
+            if (!frame->drive_permit || !frame->joint_ready)
+            {
+                Stair_Process_Abort(&stair_process, STAIR_EXIT_INPUT, HAL_GetTick());
+            }
+            if (Stair_Process_Advance_Exit(&stair_process, &machine->stair.process, HAL_GetTick()))
+            {
+                Control_Detection_Recheck_Begin(frame);
+            }
+            if (stair_process.phase != STAIR_PROCESS_RECHECK)
+            {
+                Control_Detection_Stair_Pause(frame);
+                return 0u;
+            }
+            stair_rechecking = 1u;
+        }
+    }
     if (control_postprocess.phase == CONTROL_POSTPROCESS_WITHDRAW_WAIT)
     {
         control_condition.valid = 0u;
@@ -136,6 +226,19 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
         {
             control_postprocess.phase = CONTROL_POSTPROCESS_RUN;
         }
+    }
+    if (stair_rechecking)
+    {
+        frame->landed = 0u;
+        if (control_condition.valid)
+        {
+            Stair_Process_Reset(&stair_process);
+            Stair_Detection_Disarm(&stair_detection);
+        }
+    }
+    else
+    {
+        Control_Detection_Stair_Update(frame, request);
     }
     return (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_FALLEN && previous != CONTROL_FALLEN);
 }

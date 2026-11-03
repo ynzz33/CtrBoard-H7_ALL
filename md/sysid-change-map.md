@@ -1,3 +1,40 @@
+## 2026-11-03 删除Jetson独立镜像与探测
+
+按作者要求删除jetson_uart.c/h、main初始化、comm轮询、后台镜像发送、专用宏及Keil源/浏览登记。eIDE扫描drivers目录，无独立Jetson登记。USB完整时序采集和VOFA独立发送保留，UART10的CubeMX外设配置及生成初始化保留；不调整控制参数、反馈快照或物理映射。旧Jetson接口说明归档到sysid-change-map，不再作为当前功能。当前配置（采集关闭）工程外GCC全量编译链接通过，未覆盖IDE构建目录；未烧录验证。
+
+### 已删除的Jetson接口历史说明
+
+## Jetson只读镜像与串口探测（UART10）
+
+2026-10-20按训练仓`26_wheelleg`的`h7-jetson-kinematic-mirror-v1`接口在本地工程实现。与训练仓部署副本的差别：VOFA仍留在UART8发原LQR 48路布局，Jetson镜像改走独立UART10，两者不复用发送函数、缓冲或端口。
+
+2026-11-02按作者要求增加编译开关`MACHINE_JETSON_MIRROR_ENABLE`（`machine_config.h`顶部，与防翻等调试开关同处，当前0）。为0时`jetson_uart.c`把三个入口编成文件内既有空实现：不启动UART10接收DMA、不轮询探测包、不发送镜像；RX/TX静态缓冲、镜像组帧、CRC与探测解析都不参与编译。三个调用点（`main.c`、`task_comm.c`、`background_service.c`）保持原样，行为只看开关。为1时与原实现逐字节一致；改开关需重新编译烧录，VOFA、控制链、许可与物理标定均不受影响。
+
+[Jetson_Mirror_Send](../imcalib/drivers/jetson_uart.c)由`background_task_body`每拍调用，按`HAL_GetTick`经过至少10ms尝试一次，使用静态`Robot_Feedback_Read`快照；DMA忙时跳过，只有提交成功才增加发送序号。帧为48个小端float32加`00 00 80 7F`尾，共196字节；第47槽是前47个float（188字节）的CRC16/CCITT-FALSE数值，参数poly=0x1021、init=0xFFFF、不反射、xorout=0。
+
+| 通道 | 镜像v1定义 |
+| --- | --- |
+| 0～2 | 在线掩码（IMU/DR16/四髋/两轮原0～7位）、状态位（0使能、1跌倒、2左腿有效、3右腿有效、4～7四髋使能、8 LQR投入、9 RL投入）、`ctrl_fault` |
+| 3～5 | 标识7101、版本1、编译机型（0大机／1小机，Jetson首期只接受0） |
+| 6～7 | uint32发送序号的低／高16位；仅DMA提交成功增加，按uint32回绕 |
+| 8～9 | `captured_ns/1000000`的低32位毫秒，拆低／高16位 |
+| 10～13 | 四髋`pos_zero_rad`，左前／左后／右前／右后 |
+| 14～17 | 同顺序`vel_rad_s` |
+| 18～21 | 左右轮`angle_total_rad`两路、`vel_rad_s`两路 |
+| 22～28 | 公共IMU四元数wxyz、角速度xyz |
+| 29 | 数据有效位：0=IMU，1～4=四髋，5～6=两轮；无效来源填0 |
+| 30～31 | IMU／电机的软件发布年龄ms；-1未发布，超过60000饱和 |
+| 32 | 串口探测扩展版本1；旧固件为0 |
+| 33～38 | 最近合法探测序号、主机随机数、合法包数的低／高16位 |
+| 39～46 | 保留为0 |
+| 47 | CRC16/CCITT-FALSE数值 |
+
+下行探测由`comm_task_body`每拍调用`Jetson_Uart_Process`轮询256字节环形RX DMA：只接受`J7P1`＋小端uint32序号＋uint32随机数＋uint16 CRC的14字节包，CRC校验前12字节；噪声和坏CRC逐字节重新找包头，跨环尾与分包保留解析状态。RX只关闭HT半满中断、保留TC完成中断，使HAL接收错误后的异步DMA终止能完成并解锁；`RxState`离开BUSY_RX时由comm重启DMA并清半包，计入`rx_restarts`。
+
+大机`MACHINE_JETSON_PORT=10`：USART10，PE3/TX、PE2/RX，1152000/8N1，RX用DMA1 Stream0环形、TX用DMA2 Stream0 NORMAL，ioc与生成代码都包含该外设；小机为0。`MACHINE_JETSON_MIRROR_ENABLE`为0或端口条件不成立时，两机都走三个空实现入口。镜像只读，不接收动作、不改变RL/LQR许可、模式或物理标定，可与VOFA同时观察。
+
+发布年龄是软件快照时刻减发布时刻，不是传感器采样年龄；序号缺口只表示未观测到已提交帧，不等同CAN丢帧。接线、电平、实际频率、往返耗时与板端时序待台架。
+
 ## 2026-11-03 时序采集固定使用USB
 
 按作者要求删除MACHINE_LATENCY_TRANSPORT及UART采集分支；完整事件、输出和START/STOP固定走板载USB CDC，VOFA始终保持原发送。MACHINE_LATENCY_CAPTURE_ENABLE直接定义，保留作者当前值0u，不再用ifndef允许命令行覆盖；需要采集时在machine_config.h改为1u并重新编译烧录。保留采集开关的#if条件编译及头文件保护，0时仍编译移除测点、队列和新增IRQ。下文USB/UART选择及默认1的描述属于历史状态，以本节为准。本次完成源码检查，未重新构建或烧录。
@@ -10786,3 +10823,27 @@ MATLAB前后十态生成、模型核对和四态生成均通过；四态13组模
 - 删除Control_Output_Publish_Air_Debug调用、实现/声明，以及air_debug对象、air_debug_t类型。检测和控制继续使用air_detection，未改其算法和判据。
 - 当前VOFA布局不变；保留的旧离地诊断布局已改为在原临界区直接读取air_detection。compression[i]对应landing[i].compression，landing_elapsed[i]对应landing[i].elapsed；其余字段同名。重新启用旧布局仍可观测，无需恢复镜像。
 - 源码检索无旧标识残留，核对AIR检测源仅删除镜像全局定义、执行入口仅删除发布调用及对应注释，最终输出函数保持；差异检查通过，未构建/烧录。
+
+### 2026-11-03 自动磕台阶独立接入，首批观察交付
+
+- 按作者确认的计划新增stair_detection.c/.h、stair_process.c/.h。检测只发布候选和重新武装，动作独立持有连续角/腿长轨迹、显式速度阻尼PD、阶段/总期限、各腿卡滞窗口、WAIT/RECHECK和退出原因，不包含或调用Fallen_Process，不复用自起PID、目标或重试预算。
+- 任务层先原三态选路，再从有效NORMAL普通平衡触发。台阶接管期间暂停AIR/FALLEN检测及原状态/速度融合/高度观察器计算，保留基础故障和唯一Control_Output_Apply。触发后摇杆回中不取消，退出LQR投入或故障作废旧动作；完成重判、失败独立等待后重判，不强制NORMAL/FALLEN。
+- machine.stair集中配置，大机OBSERVE、小机OFF。检测和动作confirmed均0，记录原始特征但不武装；本机角度/加速度门槛、路径、支撑、轨迹速率和控制增益留待CSV/台架确认，没有填入LHX或自起数值。门槛确认后先在OBSERVE验证误触，路径/控制参数确认后才能AUTO。现有物理标定、AIR、自起、防翻公式及参数未改。
+- VOFA固定48路切为台阶v1，旧停车积分布局#if 0保留，不新增自动选帧。逐通道单位、状态位和采集/开放步骤见stair-control.md。Keil显式新增两源；eIDE沿现有Algorithm物理目录扫描各纳入一次，无需额外虚拟条目。
+- 软件验证：大小机GCC完整编译/链接通过；8个新增/改动源分别通过大小机AC5对象编译。实际新增模块及任务路由C宿主验证1131断言通过（核心962、路由169；传感器/旧控制器/硬件驱动边界使用替身，不是机械模型验证）；OBSERVE与改前100拍公共选路/控制调用/候选输出轨迹逐项一致。源清单核对新增源均编译一次，只有原BMI088 packed告警。
+- 临时验证脚本、日志、源码测试及大小机产物在C:/Users/ynz/.codex/tmp/stair-20261103。未烧录，未完成本机阈值/路径标定和真实越阶试验，不宣称可通过指定高度台阶。用户已有Jetson删除等未提交改动保持，不提交/推送。
+
+### 2026-11-03 台阶观察判据v2：冲击窗口及独立入口范围
+
+- 作者要求结合stair测试.csv并参考LHX修改。核对LHX为双腿角>0.15、指定腿长档、任一侧角加速度正向阈值150同拍触发；本机未照搬其角度/符号/阈值，摆腿与收腿处理不动。
+- Stair_Detection_Update改为冲击上升沿开350ms窗口，再对双腿角偏差连续20ms确认，后续尖峰不续期；失去NORMAL许可、松杆、后退或转向请求超范围清窗口。轮速/实测偏航只限开窗，不让碰撞后突变抹掉已开的窗口。
+- 观察试用值angle_min=0.10rad、acceleration_min=80rad/s²；轮速开窗上限0.6→1.5m/s，转向请求0.3rad/s保持，实测偏航开窗独立为1.2rad/s；检测腿长范围0.14～0.33→0.135～0.345m，仅改变识别容差，没有改机械工作区或动作目标。
+- OBSERVE现在可计算并记录试用候选；检测confirmed=0仍禁止AUTO消费事件，动作confirmed=0仍禁止开始动作。大机OBSERVE、小机OFF保持。VOFA编号不变，8号bit4为冲击窗口，9号为后验姿态连续确认。
+- 验证：实际C确认函数消费CSV已记录特征，对>10ms导出空档丢弃窗口，29107行产生124.955s单次观察事件，0～110s对照段无事件；不是1kHz固件逐拍复现，不代表检出全部真实碰撞。C宿主核心970、路由169断言通过，原100拍OBSERVE控制轨迹一致；大小机GCC完整链接及8个相关源的大小机AC5编译通过。未烧录、未实测新版识别效果，AUTO保持关闭。
+
+### 2026-11-03 台阶观察v3：长度只限开窗、锁存结束原因
+
+- 作者确认按前述三项修正：Stair_Detection_Confirm将长度范围移到eligible，不再参与已开窗口hold；保持前进/转向请求、实时许可及原350ms期限。没有扩大任何配置上限，没有增加无限卡阶保持或自动重试。
+- stair_detection.c/.h新增Stair_Detection_Clear及独立STAIR_CLEAR原因，真实候选结束时锁存，空闲拍不覆盖；任务暂停保留编码。VOFA原ch8的bit13～15发送最近原因，0无/1请求/2转向/3许可/4超时/5确认成功/6取消武装/7新计算无效；48通道及其余位保持。
+- 实际IDE builder.params检查两台阶源各一次，大机按该原始清单完整Rebuild通过；小机GCC和相关源大小机AC5通过。核心970、路由169、新增保持/原因43项C断言通过；100拍OBSERVE输出轨迹与改前一致。
+- 两份CSV记录特征回放前后计数均为1/2，不能据此宣称漏检改善或证明原退出原因；导出空档保守清窗，缺失的1kHz中间样本不补造。临时用例及日志仍在.codex/tmp/stair-20261103；本次只修改检测保持和诊断，AUTO/confirmed仍关闭，未烧录和实机验证。

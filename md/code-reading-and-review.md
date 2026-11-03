@@ -12,7 +12,7 @@ main.c 上电初始化 → freertos.c 创建五个任务
   IMU任务：HI229字节 → 取轴/单位/姿态校验 → 发布IMU
   执行任务：读快照 → 恢复/模型/选路 → 力矩计算 → 最终检查 → 电机发送
   策略任务：读执行任务采样 → 网络观测 → 推理 → 发布原始action
-  后台任务：读诊断 → VOFA/Jetson发送 → 灯效
+  后台任务：读诊断 → VOFA发送 → 灯效
 ```
 
 TIM6每个基础拍释放执行任务信号量，每MACHINE_POLICY_DIV拍释放策略信号量。TIM23维护HAL毫秒时钟。通信和IMU是处理后osDelay轮询，不能把循环次数当作传感器新帧数。
@@ -25,7 +25,7 @@ TIM6每个基础拍释放执行任务信号量，每MACHINE_POLICY_DIV拍释放�
 | Core/Src/freertos.c | 创建后台/通信/IMU/推理/执行任务并等待对应节拍 | 信号量或轮询 → task单拍入口 |
 | imcalib/config | 机型、周期、几何、物理映射及控制参数 | machine_table → 各模块只读配置 |
 | imcalib/bsp | CAN/UART DMA、缓存维护、单调时钟、VOFA打包 | HAL收发 → 带时间的字节或提交状态 |
-| imcalib/drivers | DM/DJI/DR16/HI229协议及设备状态，Jetson镜像和灯效 | 字节 → 设备反馈；物理命令 → 报文 |
+| imcalib/drivers | DM/DJI/DR16/HI229协议及设备状态，灯效 | 字节 → 设备反馈；物理命令 → 报文 |
 | imcalib/common | 电机/遥控/RL/力矩公共类型，PID、斜坡、滤波、数学工具 | 标量/结构 → 数学结果 |
 | imcalib/task | 各任务单拍入口、共享对象初始化 | 反馈/命令/动作 → 调度各算法 |
 | task/service | 反馈快照、遥控目标转换、VOFA布局 | 多任务共享数据 → 统一输入/诊断 |

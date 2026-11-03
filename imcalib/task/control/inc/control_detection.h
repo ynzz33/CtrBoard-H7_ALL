@@ -1,5 +1,5 @@
 /*
- * 将本拍IMU、双腿、反馈力矩和模型值交给检测器，再选择NORMAL/FALLEN/FLIGHT。
+ * 公共三态选路、NORMAL内台阶检测，以及独立台阶退出时的公共重新初判。
  * 超时后先撤力等待再重判；动作超时不是姿态已经倒地的证据。
  */
 #ifndef CONTROL_DETECTION_H
@@ -15,7 +15,7 @@ typedef enum {
     CONTROL_POSTPROCESS_RECHECK
 } control_postprocess_phase_t;
 
-/* 任务层后处理期限与撤力状态；HAL毫秒时钟，不按调用次数累计。供Watch观察。 */
+/* 自起/AIR后处理期限与撤力状态；台阶退出独立管理，不借用此处预算。 */
 typedef struct {
     control_postprocess_phase_t phase;
     uint32_t wait_start_ms;

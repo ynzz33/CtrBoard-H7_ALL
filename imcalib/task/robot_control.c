@@ -13,6 +13,8 @@
 #include "air_detection.h"
 #include "control_condition.h"
 #include "fallen_detection.h"
+#include "stair_detection.h"
+#include "stair_process.h"
 
 #include <string.h>
 
@@ -70,7 +72,7 @@ void Action_State_Clear(void)
     __set_PRIMASK(primask);
 }
 
-/* 创建节拍信号量，按机器表初始化双腿几何/索引，清检测、自起及LQR/RL历史。
+/* 创建节拍信号量，按机器表初始化双腿几何/索引，清检测、台阶、自起及LQR/RL历史。
  * 这里只准备运行状态，CubeAI网络初始化由策略任务ctrl_task_init执行。 */
 void Robot_Control_Init(void)
 {
@@ -88,6 +90,8 @@ void Robot_Control_Init(void)
     rc_command.leg_length_target = machine->rc.len_init;
     rc_command.mode.strategy = CTRL_STRATEGY_DISABLE;
     Fallen_Process_Init(&fallen_process_control);
+    Stair_Detection_Reset(&stair_detection);
+    Stair_Process_Init(&stair_process);
     Air_Detection_Reset(&air_detection); /* 参数直接使用固定配置，初始化只清检测历史。 */
     Fallen_Detection_Reset(&fallen_detection);
     Control_Condition_Reset(&control_condition);

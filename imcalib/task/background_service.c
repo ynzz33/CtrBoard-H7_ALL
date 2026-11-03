@@ -1,5 +1,5 @@
 /*
- * defaultTask每轮调用：发送VOFA诊断、尝试Jetson只读镜像、更新WS2812灯效。
+ * defaultTask每轮调用：发送VOFA诊断、更新WS2812灯效。
  * 此处运行于后台，控制任务通过共享快照提供观测数据。
  */
 
@@ -7,15 +7,13 @@
 #include "latency_usb.h"
 #include "machine_config.h"
 #include "vofa_debug.h"
-#include "jetson_uart.h"
 #include "ws2812.h"
 #include "dm.h"
 
-/* 后台发送当前VOFA布局、尝试Jetson镜像并更新灯效；DMA忙时由发送函数跳过。 */
+/* 后台发送当前VOFA布局并更新灯效；DMA忙时由发送函数跳过。 */
 void background_task_body(void)
 {
     Vofa_Debug_Send();
-    Jetson_Mirror_Send();
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     Latency_Usb_Pump();
 #endif
