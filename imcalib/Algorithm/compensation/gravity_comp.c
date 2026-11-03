@@ -1,6 +1,6 @@
 /*
  * 按腿长插值腿部质心半径和偏角，用相对重力的腿角求自重摆矩，再映射为两髋力矩。
- * 超出表域取边界并记录clamped；缓存复用只减少查表，不叠加弹簧或发送命令。
+ * 超出表域取边界并记录clamped；只准备本拍模型结果，不叠加弹簧或发送命令。
  */
 
 #include "gravity_comp.h"
@@ -54,44 +54,16 @@ uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     return 1u;
 }
 
-/* 分别计算两腿自重摆矩并映射到四髋；可复用cached_result的质心查表结果。
- * 相同角度直接复用力矩；全部成功才置result.valid。 */
-void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], const gravity_comp_result_t *cached_result, gravity_comp_result_t *result)
+/* 分别计算两腿自重摆矩并映射到四髋，全部成功才置valid。 */
+void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], gravity_comp_result_t *result)
 {
     const leg_state_t *leg[2] = {left, right};
-    float angle;
-
     memset(result, 0, sizeof(*result));
-    if (machine->compensation.gravity == NULL)
-    {
-        return;
-    }
+    if (machine->compensation.gravity == NULL) { return; }
     for (uint8_t side = 0u; side < 2u; side++)
     {
-        if (cached_result != NULL && cached_result->valid)
-        {
-            result->leg[side] = cached_result->leg[side];
-            angle = remainderf(world_angle[side], LEG_2PI);
-            if (memcmp(&angle, &cached_result->leg[side].world_angle, sizeof(angle)) == 0)
-            {
-                memcpy(&result->delta_dm[side * 2u], &cached_result->delta_dm[side * 2u], 2u * sizeof(float));
-                continue;
-            }
-            result->leg[side].world_angle = angle;
-            result->leg[side].torque = machine->compensation.gravity->mass * machine->compensation.gravity->gravity * result->leg[side].radius * sinf(angle - result->leg[side].offset);
-            if (!isfinite(result->leg[side].torque))
-            {
-                return;
-            }
-        }
-        else if (!Gravity_Comp_Compute(machine->compensation.gravity, leg[side]->output.virtual_leg_length, world_angle[side], &result->leg[side]))
-        {
-            return;
-        }
-        if (!Leg_Force_Map_Forward(leg[side], 0.0f, result->leg[side].torque, &result->delta_dm[side * 2u]))
-        {
-            return;
-        }
+        if (!Gravity_Comp_Compute(machine->compensation.gravity, leg[side]->output.virtual_leg_length, world_angle[side], &result->leg[side])) { return; }
+        if (!Leg_Force_Map_Forward(leg[side], 0.0f, result->leg[side].torque, &result->delta_dm[side * 2u])) { return; }
     }
     result->valid = 1u;
 }

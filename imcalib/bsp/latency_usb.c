@@ -16,12 +16,7 @@ static uint8_t command[14],command_size,state;
 static volatile uint8_t request;
 static volatile uint32_t requested_token;
 static uint32_t token;
-static uint16_t crc16(const uint8_t *p,uint16_t n)
-{
-    uint16_t crc=0xffffu;
-    for(uint16_t i=0u;i<n;i++) { crc^=(uint16_t)p[i]<<8;for(uint8_t b=0u;b<8u;b++) { crc=crc&0x8000u?(uint16_t)((crc<<1)^0x1021u):(uint16_t)(crc<<1); } }
-    return crc;
-}
+
 void Latency_Usb_Receive(const uint8_t *data,uint32_t size)
 {
     for(uint32_t i=0u;i<size;i++)
@@ -31,7 +26,7 @@ void Latency_Usb_Receive(const uint8_t *data,uint32_t size)
         if(command_size==14u)
         {
             uint16_t expected;memcpy(&expected,command+12u,2u);
-            if(command[5]==1u && command[6]==0u && command[7]==0u && (command[4]==1u || command[4]==2u) && expected==crc16(command,12u))
+            if(command[5]==1u && command[6]==0u && command[7]==0u && (command[4]==1u || command[4]==2u) && expected==Latency_Crc16(command,12u))
             { memcpy((void*)&requested_token,command+8u,4u);__DMB();request=command[4];command_size=0u; }
             else { memmove(command,command+1u,--command_size); }
         }
@@ -57,7 +52,7 @@ void Latency_Usb_Pump(void)
     memcpy(tx+length+16u,&queued_a,4u);memcpy(tx+length+20u,&queued_b,4u);memcpy(tx+length+24u,&pending,4u);
     stamp=Mono_Ns_Get(); /* 状态末字段为板端低32位微秒，绝不与主机时间相减。 */
     { uint32_t us=(uint32_t)(stamp/1000u);memcpy(tx+length+28u,&us,4u); }
-    crc=crc16(tx+length,32u);memcpy(tx+length+32u,&crc,2u);length+=34u;
+    crc=Latency_Crc16(tx+length,32u);memcpy(tx+length+32u,&crc,2u);length+=34u;
     if(CDC_Transmit_HS(tx,length)!=USBD_OK) { return; }
     Output_Capture_Commit();Latency_Capture_Commit();state=next_state;
 }

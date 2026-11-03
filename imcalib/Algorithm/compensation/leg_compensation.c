@@ -46,7 +46,7 @@ void Leg_Compensation_Prepare(leg_compensation_values_t *values, const leg_state
     {
         return; /* 本拍只需弹簧模型或没有补偿请求。 */
     }
-    Gravity_Comp_Prepare(left, right, angle, NULL, &values->gravity);
+    Gravity_Comp_Prepare(left, right, angle, &values->gravity);
 }
 
 /* 按默认允许弹簧的路径调用Apply_Mode；是否真正叠加仍受总开关和模型配置限制。 */

@@ -8,7 +8,6 @@
 #include "machine_config.h"
 #include "torque_output.h"
 typedef struct {
-    torque_output_t last_torque;    /* 固件坐标力矩请求，尚未经过启动/故障门控 */
     float motor_torque[RL_ACTION_SIZE]; /* 模型坐标限幅力矩，Nm */
     float target[RL_ACTION_SIZE];   /* 本次使用的四个角度(rad)/两个轮速(rad/s)目标 */
     float pos[RL_LEG_MOTOR_NUM];    /* 本次PD当前模型角度，rad */

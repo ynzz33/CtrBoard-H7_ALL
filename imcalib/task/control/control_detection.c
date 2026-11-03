@@ -9,6 +9,7 @@
 #include "robot_state.h"
 #include "stair_detection.h"
 #include "stair_process.h"
+#include "math_utils.h"
 #include <string.h>
 
 control_postprocess_t control_postprocess;
@@ -89,10 +90,10 @@ static void Control_Detection_Stair_Pause(control_frame_t *frame)
     fallen_detection.valid = 0u;
     frame->landed = 0u;
     stair_detection.trigger = 0u;
-    stair_detection.flags = (uint16_t)(STAIR_DETECT_PAUSED | (machine->stair.detection.confirmed ? STAIR_DETECT_CONFIRMED : 0u) | ((uint16_t)stair_detection.clear_reason << STAIR_CLEAR_SHIFT));
+    stair_detection.flags = (uint16_t)(STAIR_DETECT_PAUSED | (machine->stair.detection.confirmed ? STAIR_DETECT_CONFIRMED : 0u));
 }
 
-/* 当前公共选路完成后才检测；双腿实际长度达标后允许开窗，不消费轮速。 */
+/* 公共选路后检测；沿用本机世界腿角定义，角度/角速度同时扣除机身俯仰运动。 */
 static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t request)
 {
     stair_detection_input_t input;
@@ -103,17 +104,12 @@ static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t reque
         return;
     }
     memset(&input, 0, sizeof(input));
-    input.angle[0] = frame->left.output.virtual_leg_angle;
-    input.angle[1] = frame->right.output.virtual_leg_angle;
-    input.rate[0] = frame->left.output.d_virtual_leg_angle;
-    input.rate[1] = frame->right.output.d_virtual_leg_angle;
-    input.length[0] = frame->left.output.virtual_leg_length;
-    input.length[1] = frame->right.output.virtual_leg_length;
+    input.angle[0] = Angle_Wrap_Pi(frame->left.output.virtual_leg_angle - frame->imu.pitch_world);
+    input.angle[1] = Angle_Wrap_Pi(frame->right.output.virtual_leg_angle - frame->imu.pitch_world);
+    input.rate[0] = frame->left.output.d_virtual_leg_angle - frame->imu.gyro_rad_s[1];
+    input.rate[1] = frame->right.output.d_virtual_leg_angle - frame->imu.gyro_rad_s[1];
     input.reference[0] = machine->lqr.reference.leg_trim[0];
     input.reference[1] = machine->lqr.reference.leg_trim[1];
-    input.velocity_request = frame->rc.velocity_target;
-    input.yaw_request = frame->rc.yaw_rate_target;
-    input.yaw_rate = frame->imu.gyro_rad_s[2];
     input.permit = (uint8_t)(request && frame->drive_permit && frame->joint_ready && control_condition.valid && control_condition.condition == CONTROL_NORMAL && control_condition.normal_ready && output_task_lqr_engaged() && !Control_Postprocess_Inhibited());
     Stair_Detection_Update(&stair_detection, &machine->stair.detection, &input, MACHINE_LQR_DT);
     if (machine->stair.mode != STAIR_MODE_AUTO || !machine->stair.detection.confirmed || !stair_detection.trigger) { return; }
@@ -210,7 +206,15 @@ uint8_t Control_Detection_Update(control_frame_t *frame)
     Air_Detection_Update(&air_detection, &input);
     frame->landed = (uint8_t)(was_flight && !air_detection.flight && air_detection.valid);
 
-    Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
+    if (stair_rechecking && stair_process.result == STAIR_RESULT_DONE && request && frame->drive_permit && fallen_detection.valid && !fallen_detection.inverted)
+    {
+        /* 普通摆正已完成：复用自起交接，不把0.15m短腿重新当初始贴地自起。 */
+        Control_Condition_Recovery_Ready(&control_condition);
+    }
+    else
+    {
+        Control_Condition_Select(&control_condition, &air_detection, request, frame->drive_permit, (uint8_t)(fallen_process_control.lifecycle.phase == FALLEN_PROCESS_DONE));
+    }
     frame->fallen = (uint8_t)(control_condition.started && control_condition.condition == CONTROL_FALLEN);
     robot_state.fallen = frame->fallen;
     frame->nonfallen_drive_permit = (uint8_t)(frame->drive_permit && !frame->fallen);

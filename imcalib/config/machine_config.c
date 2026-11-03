@@ -3,6 +3,48 @@
  * 编译机型及节拍/功能开关在头文件，具体数值在machine_table；物理标定值须由作者台架确认。
  */
 #include "machine_config.h"
+fallen_process_param_t fallen_process_param = {
+    /* 普通起立腿长 */
+    .length_rate             = 0.7f,                            /* 腿长 m/s */
+    .extend_len              = 0.28f,                           /* 目标 m */
+    .length_tol              = 0.02f,                           /* 伸/收腿到位容差 m */
+    .length_timeout          = 1.5f,                            /* 伸/收腿超时 s */
+
+    /* 普通起立摆角 */
+    .front_angle             = 1.75f,                           /* 普通前侧，CSV初姿约1.73~1.76 rad */
+    .normal_swing_window     = 1.0f,                            /* 普通身下入口，不绕前/后准备位 rad */
+    .normal_angle_tol        = 0.2f,                            /* 仅普通摆正到位 rad */
+    .rear_angle              = -1.42f,                           /* 后点 rad */
+    .prepare_angle_tol       = 0.1f,                            /* 前/后准备位和倒置前点容差 rad */
+    .angle_rate              = 4.0f,                            /* 后摆与翻身扫腿目标 rad/s */
+    .angle_timeout           = 1.5f,                            /* 后摆/摆正超时 s */
+
+    /* 收腿与站立 */
+    .retract_len             = 0.15f,                           /* 目标 m */
+
+    /* 摆角串级PD */
+    .angle_pos_kp            = 45.0f,                           /* 位置 P */
+    .angle_pos_kd            = 15.0f,                           /* 位置 D */
+    .angle_speed_kp          = 5.0f,                            /* 速度 P */
+    .angle_speed_kd          = 5.0f,                            /* 速度 D */
+    .angle_speed_max         = 8.0f,                           /* 目标 rad/s */
+
+    /* 翻倒恢复 */
+    .recovery_settle_time    = 0.05f,                            /* 缓冲 s */
+    .recovery_len            = 0.28f,                           /* 扫腿长 m */
+    .recovery_front_angle    = 1.45f,                           /* 作者确认的倒置前点 rad */
+    .recovery_pitch_tol      = 0.6f,                            /* 回正窗口 rad */
+    .recovery_stall_time     = 0.3f,                            /* 卡住 s */
+
+    /* 持稳与交接 */
+    .stable_time             = 0.05f,                           /* 持稳 s */
+    .support_time            = 0.4f,                            /* 支撑渐入 s */
+
+    /* 失败重试 */
+    .retry_wait              = 0.3f,                            /* 撤力等待 s */
+    .recovery_retry_max      = 5u,                              /* 重试次数 */
+};
+
 /* Leg3 原模型常量 */
 const machine_spring_cfg_t machine_spring_leg3 = {
     0.05F, 0.45F, 0.1066F, 0.105F, 0.0473512858F,
@@ -43,19 +85,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .mode = STAIR_MODE_AUTO,
             .detection = {
                 .confirmed = 1u,
-                .request_min = 0.1f,
-                .yaw_request_max = 0.3f, .yaw_rate_max = 1.2f,
-                .length_min = 0.27f, /* 两腿实际长度均达到门槛，无上限/轮速限制 */
-                .angle_min = 0.1f, .acceleration_min = 80.0f, /* CSV试用值，尚非验收门槛 */
-                .acceleration_tau = 0.02f, .confirm_time = 0.02f, .impact_window = 0.35f,
+                .angle_threshold = -0.15f, .acceleration_threshold = -150.0f,
+                .acceleration_tau = 0.01f, .confirm_time = 0.03f,
             },
             .process = {
                 .confirmed = 1u,
-                .swing_angle = {1.3f, 1.3f}, /* 作者选择的首轮连续几何角rad */
-                .retract_length = {0.17f, 0.17f},
-                .stall_angle_progress = 0.01f, .stall_length_progress = 0.002f,
-                .angle_tolerance = 0.1f, .length_tolerance = 0.02f, .confirm_time = 0.05f,
-                .swing_timeout_ms = 1500u, .retract_timeout_ms = 1500u,
+                .stall_angle_progress = 0.01f,
+                .angle_tolerance = 0.1f, .confirm_time = 0.05f,
+                .swing_timeout_ms = 1500u,
                 .total_timeout_ms = 3000u, .stall_timeout_ms = 300u, .wait_ms = 300u,
             },
         },

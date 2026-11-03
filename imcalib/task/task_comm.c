@@ -14,7 +14,7 @@
 #include <math.h>
 #include <string.h>
 
-/* 将DM/DJI驱动反馈复制为统一电机状态，汇总在线/故障并记录本次整理时刻ms。 */
+/* 将DM/DJI驱动反馈复制为统一电机状态，汇总在线/故障。 */
 static void Motor_State_Update(motor_state_t *next)
 {
     next->valid = 1u;
@@ -47,8 +47,6 @@ static void Motor_State_Update(motor_state_t *next)
         next->dji.online[i] = (uint8_t)Dji_Is_Online(i);
         next->valid &= next->dji.online[i];
     }
-    next->timestamp_ms = HAL_GetTick();
-    next->updated = 1u;
 }
 
 /* 把绑定的前后髋反馈角rad和速度rad/s送入五连杆求解；任一离线则清输出有效性。 */

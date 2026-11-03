@@ -41,34 +41,7 @@ enum {
     FALLEN_PROCESS_ROUTE_STOP, /* 执行层清输出，不能继续旧力矩 */
 };
 
-typedef struct {
-    float recovery_settle_time; /* 倒置稳定等待时间s。 */
-    float recovery_len; /* 翻身准备/扫腿目标长度m。 */
-    float recovery_front_angle; /* 倒置专用前点rad，与普通front_angle独立 */
-    float angle_rate; /* 准备位及翻身目标扫角速率rad/s。 */
-    float recovery_pitch_tol; /* 翻身回正俯仰窗口rad。 */
-    float recovery_stall_time; /* 翻身卡滞允许持续时间s。 */
-    uint8_t recovery_retry_max; /* 允许消耗的地面恢复重试次数上限。 */
-    float retry_wait; /* 任务层撤力后重新初判前等待时间s。 */
-    float length_rate; /* 腿长m/s */
-    float extend_len; /* 普通起立伸腿准备长度m。 */
-    float length_tol; /* 伸/收腿到位容差m。 */
-    float length_timeout; /* 伸/收腿阶段最长时间s。 */
-    float front_angle; /* 普通自起前侧准备角rad，几何角表示 */
-    float normal_swing_window; /* 普通入口可直接收短/摆正的角区间rad，不是最终到位容差 */
-    float normal_angle_tol; /* 仅planned普通摆正到位容差rad */
-    float rear_angle; /* 普通后侧准备位几何角rad。 */
-    float prepare_angle_tol; /* 前/后准备位与倒置前点的到位容差rad */
-    float angle_timeout; /* 准备位对齐/普通摆正阶段最长时间s。 */
-    float retract_len; /* 普通起立收腿目标m。 */
-    float angle_pos_kp; /* 摆角外环比例系数，具体离散用法见PID初始化。 */
-    float angle_pos_kd; /* 摆角外环误差差分系数，不等于物理速度阻尼Kd。 */
-    float angle_speed_kp; /* 角速度内环比例系数。 */
-    float angle_speed_kd; /* 角速度内环误差差分系数。 */
-    float angle_speed_max; /* 摆角外环输出的角速度目标上限rad/s。 */
-    float stable_time; /* 到位条件连续确认时间s。 */
-    float support_time; /* 支撑前馈从0渐入到1的时间s。 */
-} fallen_process_param_t;
+
 
 typedef struct {
     uint8_t enabled; /* 允许普通地面自起功能，不表示正在执行。 */
@@ -123,10 +96,11 @@ typedef struct {
 } fallen_process_ctx_t;
 
 extern fallen_process_ctx_t fallen_process_control;
-extern fallen_process_param_t fallen_process_param;
 
 void Fallen_Process_Init(fallen_process_ctx_t *st);
 void Fallen_Process_Reset(fallen_process_ctx_t *st);
+/* 已在准备位：独立上下文从普通收腿接入，不重新选路、不启动倒置翻身。 */
+uint8_t Fallen_Process_Begin_Retract(fallen_process_ctx_t *st, const imu_state_t *imu, const leg_state_t *left, const leg_state_t *right);
 void Fallen_Process_Fail(fallen_process_ctx_t *st, uint8_t fault);
 /* DONE输入平衡候选 */
 uint8_t Fallen_Process_Update(fallen_process_ctx_t *st, const imu_state_t *imu,

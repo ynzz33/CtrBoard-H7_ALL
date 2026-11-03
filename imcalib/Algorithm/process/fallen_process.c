@@ -12,47 +12,7 @@
 
 
 fallen_process_ctx_t fallen_process_control;
-fallen_process_param_t fallen_process_param = {
-    /* 普通起立腿长 */
-    .length_rate             = 0.7f,                            /* 腿长 m/s */
-    .extend_len              = 0.28f,                           /* 目标 m */
-    .length_tol              = 0.02f,                           /* 伸/收腿到位容差 m */
-    .length_timeout          = 1.5f,                            /* 伸/收腿超时 s */
 
-    /* 普通起立摆角 */
-    .front_angle             = 1.75f,                           /* 普通前侧，CSV初姿约1.73~1.76 rad */
-    .normal_swing_window     = 1.0f,                            /* 普通身下入口，不绕前/后准备位 rad */
-    .normal_angle_tol        = 0.2f,                            /* 仅普通摆正到位 rad */
-    .rear_angle              = -1.42f,                           /* 后点 rad */
-    .prepare_angle_tol       = 0.1f,                            /* 前/后准备位和倒置前点容差 rad */
-    .angle_rate              = 4.0f,                            /* 后摆与翻身扫腿目标 rad/s */
-    .angle_timeout           = 1.5f,                            /* 后摆/摆正超时 s */
-
-    /* 收腿与站立 */
-    .retract_len             = 0.15f,                           /* 目标 m */
-
-    /* 摆角串级PD */
-    .angle_pos_kp            = 45.0f,                           /* 位置 P */
-    .angle_pos_kd            = 15.0f,                           /* 位置 D */
-    .angle_speed_kp          = 5.0f,                            /* 速度 P */
-    .angle_speed_kd          = 5.0f,                            /* 速度 D */
-    .angle_speed_max         = 8.0f,                           /* 目标 rad/s */
-
-    /* 翻倒恢复 */
-    .recovery_settle_time    = 0.05f,                            /* 缓冲 s */
-    .recovery_len            = 0.28f,                           /* 扫腿长 m */
-    .recovery_front_angle    = 1.45f,                           /* 作者确认的倒置前点 rad */
-    .recovery_pitch_tol      = 0.6f,                            /* 回正窗口 rad */
-    .recovery_stall_time     = 0.3f,                            /* 卡住 s */
-
-    /* 持稳与交接 */
-    .stable_time             = 0.05f,                           /* 持稳 s */
-    .support_time            = 0.4f,                            /* 支撑渐入 s */
-
-    /* 失败重试 */
-    .retry_wait              = 0.3f,                            /* 撤力等待 s */
-    .recovery_retry_max      = 5u,                              /* 重试次数 */
-};
 
 /* 将有限角度按2pi折回[-pi,pi]；边界与本模块连续角累加配套。 */
 static float Fallen_Process_Wrap(float angle)
@@ -138,6 +98,25 @@ static uint8_t Fallen_Process_Input_Valid(const imu_state_t *imu,
             return 0u;
         }
     }
+    return 1u;
+}
+
+/* 接收已完成准备位的动作；目标/历史重建由本模块负责，任务层不伪造FALLEN。 */
+uint8_t Fallen_Process_Begin_Retract(fallen_process_ctx_t *st, const imu_state_t *imu, const leg_state_t *left, const leg_state_t *right)
+{
+    const leg_state_t *leg[2] = {left, right};
+    if (!Fallen_Process_Input_Valid(imu, leg)) { return 0u; }
+    Fallen_Process_Init(st);
+    st->lifecycle.recovery_enabled = 0u;
+    st->normal.planned = 1u;
+    for (uint8_t i = 0u; i < 2u; i++)
+    {
+        st->normal.path[i] = 2u;
+        st->normal.prepare_angle[i] = fallen_process_param.rear_angle;
+        st->actuator.angle_target[i] = Fallen_Process_Wrap(leg[i]->output.virtual_leg_angle);
+        st->actuator.length_target[i] = leg[i]->output.virtual_leg_length;
+    }
+    Fallen_Process_Enter(st, FALLEN_PROCESS_RETRACT);
     return 1u;
 }
 

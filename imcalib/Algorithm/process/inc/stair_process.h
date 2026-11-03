@@ -11,9 +11,10 @@
 enum {
     STAIR_PROCESS_IDLE = 0, /* 无台阶输出归属 */
     STAIR_PROCESS_SWING, /* 保持腿长/支撑，双腿摆向已确认目标 */
-    STAIR_PROCESS_RETRACT, /* 收腿、释放基础摆矩 */
+    STAIR_PROCESS_RETRACT, /* 委托普通自起收腿 */
     STAIR_PROCESS_WAIT, /* 失败撤力，独立等待 */
     STAIR_PROCESS_RECHECK, /* 零输出，等待任务层重新初判 */
+    STAIR_PROCESS_ALIGN, /* 委托普通自起摆正，不重走准备位 */
 };
 
 enum {
@@ -25,23 +26,15 @@ enum {
     STAIR_EXIT_NONE = 0, STAIR_EXIT_COMPLETE, STAIR_EXIT_CANCELLED,
     STAIR_EXIT_INPUT, STAIR_EXIT_MAPPING, STAIR_EXIT_SWING_TIMEOUT,
     STAIR_EXIT_RETRACT_TIMEOUT, STAIR_EXIT_TOTAL_TIMEOUT, STAIR_EXIT_STALL,
+    STAIR_EXIT_ALIGN_TIMEOUT,
+    STAIR_EXIT_POSE,
 };
 
-/* 由任务层从自起参数源组装；只共享参数，不包含自起状态或实例。 */
-typedef struct {
-    const machine_pid_cfg_t *length_pd;
-    machine_pid_cfg_t angle_pos, angle_speed;
-    float length_rate, angle_rate; /* m/s、rad/s */
-    float support_time, support_angle_range; /* s、rad */
-    const float *leg_trim;
-    const float *support_force;
-} stair_control_param_t;
+
 
 typedef struct {
     const leg_state_t *leg[2]; /* 本拍左右腿，已发布几何及速度 */
-    const stair_control_param_t *control; /* 本拍同源控制参数，只读 */
     const leg_compensation_values_t *compensation; /* 本拍世界姿态重力/弹簧缓存 */
-    float hip_limit; /* 公共最终髋限矩N·m */
     uint32_t now_ms; /* 真实时钟，允许uint32回绕 */
     uint8_t permit; /* 基础出力、四髋使能及LQR投入许可；不检查AIR/FALLEN */
 } stair_process_input_t;
@@ -52,7 +45,8 @@ typedef struct {
     uint32_t sequence, begin_ms, phase_begin_ms, stall_begin_ms[2];
     float elapsed, total_elapsed, stable_elapsed; /* 阶段、动作及连续到位时间s */
     float position[2], last_angle[2]; /* 独立连续几何角及上一包角rad */
-    float angle_target[2], length_target[2]; /* 轨迹给定rad、m */
+    ramp_t angle_ramp[2]; /* 公共斜坡实例，out为几何角指令rad */
+    float length_target[2]; /* 腿长指令m */
     float swing_length[2]; /* 进入时锁定的实测腿长m，仅摆腿阶段保持 */
     pid_t length_pid[2], angle_pos_pid[2], angle_speed_pid[2]; /* 台阶独立历史 */
     ramp_t length_ramp[2]; /* 与自起同一斜坡算法，实例独立 */
@@ -70,6 +64,7 @@ void Stair_Process_Reset(stair_process_t *state);
 uint8_t Stair_Process_Owns_Output(const stair_process_t *state);
 uint8_t Stair_Process_Begin(stair_process_t *state, const stair_process_param_t *param, const stair_process_input_t *input);
 void Stair_Process_Abort(stair_process_t *state, uint8_t reason, uint32_t now_ms);
+void Stair_Process_Complete(stair_process_t *state, uint32_t now_ms);
 /* WAIT到RECHECK/完成到RECHECK只返回一次1，调用者据此复位公共检测历史。 */
 uint8_t Stair_Process_Advance_Exit(stair_process_t *state, const stair_process_param_t *param, uint32_t now_ms);
 /* 每个动作执行拍一次；先清候选，成功才发布有效结果，退出当拍保持零候选。 */

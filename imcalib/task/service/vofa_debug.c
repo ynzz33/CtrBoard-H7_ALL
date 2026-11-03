@@ -936,7 +936,7 @@ void Vofa_Debug_Send(void)
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
 #endif
-    /* 台阶v1固定48路：暂停时22/23只是最后一次检测值，8的PAUSED位明确标记。 */
+    /* 台阶负向判据48路：22/23为世界角加速度，暂停时为旧值，8的PAUSED位标记。 */
     taskENTER_CRITICAL();
     dbg[1] = (float)(state_bits | (Stair_Process_Owns_Output(&stair_process) ? 0x400u : 0u) | (torque_output_enabled ? 0x800u : 0u));
     dbg[3] = (float)control_condition.condition;
@@ -958,14 +958,14 @@ void Vofa_Debug_Send(void)
     dbg[19] = leg_r.output.virtual_leg_angle;
     dbg[20] = leg_l.output.d_virtual_leg_angle;
     dbg[21] = leg_r.output.d_virtual_leg_angle;
-    dbg[22] = stair_detection.acceleration[0];
-    dbg[23] = stair_detection.acceleration[1];
+    dbg[22] = stair_detection.acceleration[0].out;
+    dbg[23] = stair_detection.acceleration[1].out;
     dbg[24] = leg_l.output.virtual_leg_length;
     dbg[25] = leg_r.output.virtual_leg_length;
     dbg[26] = stair_process.length_target[0];
     dbg[27] = stair_process.length_target[1];
-    dbg[28] = stair_process.angle_target[0];
-    dbg[29] = stair_process.angle_target[1];
+    dbg[28] = stair_process.angle_ramp[0].out;
+    dbg[29] = stair_process.angle_ramp[1].out;
     dbg[30] = stair_process.force[0];
     dbg[31] = stair_process.force[1];
     dbg[32] = stair_process.torque[0];

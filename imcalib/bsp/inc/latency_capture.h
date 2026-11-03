@@ -55,6 +55,7 @@ typedef struct {
 } latency_tick_t;
 
 #if MACHINE_LATENCY_CAPTURE_ENABLE
+uint16_t Latency_Crc16(const uint8_t *data, uint16_t length);
 void Latency_Capture_Push(const latency_record_t *record);
 #else
 static inline void Latency_Capture_Push(const latency_record_t *record) { (void)record; }

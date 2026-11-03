@@ -47,6 +47,5 @@ uint8_t RL_Torque_Compute(const rl_motor_state_t *motor, const machine_rl_cfg_t 
         torque->dji[i] = (float)config->motor_sign[RL_MOTOR_L_WHEEL + i] * state->motor_torque[RL_MOTOR_L_WHEEL + i];
     }
     torque->valid = 1u;
-    state->last_torque = *torque;
     return 1u;
 }

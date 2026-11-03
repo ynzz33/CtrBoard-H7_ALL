@@ -299,6 +299,38 @@ typedef struct {
     float fallen_support_angle_range; /* 起立支撑权重角范围rad */
 } machine_recovery_cfg_t;
 
+/* 普通自起/台阶共用参数源；状态实例仍由各自过程持有。 */
+typedef struct {
+    float recovery_settle_time; /* 倒置稳定等待时间s。 */
+    float recovery_len; /* 翻身准备/扫腿目标长度m。 */
+    float recovery_front_angle; /* 倒置专用前点rad，与普通front_angle独立 */
+    float angle_rate; /* 准备位及翻身目标扫角速率rad/s。 */
+    float recovery_pitch_tol; /* 翻身回正俯仰窗口rad。 */
+    float recovery_stall_time; /* 翻身卡滞允许持续时间s。 */
+    uint8_t recovery_retry_max; /* 允许消耗的地面恢复重试次数上限。 */
+    float retry_wait; /* 任务层撤力后重新初判前等待时间s。 */
+    float length_rate; /* 腿长m/s */
+    float extend_len; /* 普通起立伸腿准备长度m。 */
+    float length_tol; /* 伸/收腿到位容差m。 */
+    float length_timeout; /* 伸/收腿阶段最长时间s。 */
+    float front_angle; /* 普通自起前侧准备角rad，几何角表示 */
+    float normal_swing_window; /* 普通入口可直接收短/摆正的角区间rad，不是最终到位容差 */
+    float normal_angle_tol; /* 仅planned普通摆正到位容差rad */
+    float rear_angle; /* 普通后侧准备位几何角rad。 */
+    float prepare_angle_tol; /* 前/后准备位与倒置前点的到位容差rad */
+    float angle_timeout; /* 准备位对齐/普通摆正阶段最长时间s。 */
+    float retract_len; /* 普通起立收腿目标m。 */
+    float angle_pos_kp; /* 摆角外环比例系数，具体离散用法见PID初始化。 */
+    float angle_pos_kd; /* 摆角外环误差差分系数，不等于物理速度阻尼Kd。 */
+    float angle_speed_kp; /* 角速度内环比例系数。 */
+    float angle_speed_kd; /* 角速度内环误差差分系数。 */
+    float angle_speed_max; /* 摆角外环输出的角速度目标上限rad/s。 */
+    float stable_time; /* 到位条件连续确认时间s。 */
+    float support_time; /* 支撑前馈从0渐入到1的时间s。 */
+} fallen_process_param_t;
+
+extern fallen_process_param_t fallen_process_param;
+
 enum {
     STAIR_MODE_OFF = 0, /* 不检测、不接管 */
     STAIR_MODE_OBSERVE, /* 记录特征/确认后的候选，不接管 */
@@ -307,24 +339,18 @@ enum {
 
 typedef struct {
     uint8_t confirmed; /* 本机确认后允许AUTO消费事件；不阻止OBSERVE计算试用候选 */
-    float request_min; /* 最小向前请求m/s */
-    float yaw_request_max, yaw_rate_max; /* 转向请求上限、冲击入口实测偏航上限rad/s */
-    float length_min; /* 开窗要求两腿实际长度均不小于此值m，不限制轮速 */
-    float angle_min; /* 双腿相对站立参考的角偏差绝对值下限rad */
-    float acceleration_min; /* 至少一侧滤波角加速度绝对值下限rad/s² */
+    float angle_threshold; /* 两腿世界角偏差都小于此负阈值rad */
+    float acceleration_threshold; /* 任一侧世界角加速度不大于此负阈值rad/s² */
     float acceleration_tau; /* 角速度差分的一阶低通时间常数s */
-    float confirm_time; /* 冲击后双腿姿态连续确认时间s */
-    float impact_window; /* 冲击候选有效窗口s，后续尖峰不延长 */
+    float confirm_time; /* 两个判据联合成立的连续确认时间s */
 } stair_detection_param_t;
 
 typedef struct {
     uint8_t confirmed; /* 作者允许试用动作后置1，不代表实机越阶已验收 */
-    float swing_angle[2]; /* 沿本机连续几何角分支的摆腿终点rad，待实测 */
-    float retract_length[2]; /* 收腿终点m，待实测 */
-    float angle_tolerance, length_tolerance; /* 到位容差rad、m */
+    float angle_tolerance; /* 后摆到位容差rad；收腿/摆正容差归普通自起 */
     float confirm_time; /* 双腿实际/指令到位连续确认时间s */
-    float stall_angle_progress, stall_length_progress; /* 卡滞窗口内最小进度rad、m */
-    uint32_t swing_timeout_ms, retract_timeout_ms; /* 各阶段真实期限ms */
+    float stall_angle_progress; /* 后摆卡滞窗口内最小角进度rad */
+    uint32_t swing_timeout_ms; /* 后摆阶段真实期限ms，收腿/摆正期限归普通自起 */
     uint32_t total_timeout_ms, stall_timeout_ms, wait_ms; /* 总期限、卡滞窗口及失败撤力等待ms */
 } stair_process_param_t;
 

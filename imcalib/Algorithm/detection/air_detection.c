@@ -5,6 +5,7 @@
 
 #include "air_detection.h"
 #include "machine_config.h"
+#include "simple-function.h"
 #include <math.h>
 #include <string.h>
 
@@ -70,7 +71,7 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     float omega;
     float length;
     const float dt = MACHINE_LQR_DT;
-    float alpha;
+    lpf_t filter;
     float force;
     float torque;
     gravity_leg_result_t gravity; /* AIR固定使用欧拉俯仰，不随输出补偿路径改变。 */
@@ -107,13 +108,13 @@ static uint8_t Air_Estimate(air_leg_t *next, const air_leg_t *previous,const air
     next->height_acceleration = 0.0f;
     if (seeded)
     {
-        alpha = dt / (air_param.derivative_tau + dt);
-        next->height_acceleration = previous->height_acceleration + alpha * ((next->height_velocity - previous->height_velocity) / dt - previous->height_acceleration);
+        filter = (lpf_t){ .out = previous->height_acceleration, .alpha = dt / (air_param.derivative_tau + dt) };
+        next->height_acceleration = LPF_Update(&filter, (next->height_velocity - previous->height_velocity) / dt);
     }
     next->wheel_acceleration = az - next->height_acceleration;
     next->force_raw = next->pressure + air_param.wheel_mass * (9.81f + next->wheel_acceleration);
-    alpha = seeded ? dt / (air_param.force_tau + dt) : 1.0f;
-    next->force = previous->force + alpha * (next->force_raw - previous->force);
+    filter = (lpf_t){ .out = previous->force, .alpha = seeded ? dt / (air_param.force_tau + dt) : 1.0f };
+    next->force = LPF_Update(&filter, next->force_raw);
     return (uint8_t)(isfinite(next->spring_force) && isfinite(next->pressure) && isfinite(next->height_velocity) && isfinite(next->height_acceleration) && isfinite(next->force_raw) && isfinite(next->force));
 }
 

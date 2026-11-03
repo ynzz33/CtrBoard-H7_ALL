@@ -26,6 +26,6 @@ typedef struct {
 
 uint8_t Gravity_Comp_Compute(const machine_gravity_cfg_t *cfg,
     float length, float world_angle, gravity_leg_result_t *result);
-void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], const gravity_comp_result_t *cached_result, gravity_comp_result_t *result);
+void Gravity_Comp_Prepare(const leg_state_t *left, const leg_state_t *right, const float world_angle[2], gravity_comp_result_t *result);
 
 #endif

@@ -103,7 +103,7 @@ void Latency_Can_Pending(uint8_t added)
     __set_PRIMASK(mask);
 }
 
-static uint16_t Latency_Crc(const uint8_t *data, uint16_t length)
+uint16_t Latency_Crc16(const uint8_t *data, uint16_t length)
 {
     uint16_t crc = 0xFFFFu;
     uint16_t byte;
@@ -138,7 +138,7 @@ uint16_t Latency_Capture_Packet(uint8_t *out)
     for (uint32_t i = 0u; i < prepared_count; i++)
     { memcpy(out + 40u + i * LATENCY_RECORD_BYTES, &records[(prepared_read + i) % LATENCY_CAPACITY], LATENCY_RECORD_BYTES); }
     size = (uint16_t)(40u + prepared_count * LATENCY_RECORD_BYTES);
-    crc = Latency_Crc(out, size); memcpy(out + size, &crc, 2u);
+    crc = Latency_Crc16(out, size); memcpy(out + size, &crc, 2u);
     return size + 2u;
 }
 

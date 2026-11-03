@@ -23,6 +23,7 @@ static uint8_t lqr_running;
 static uint8_t rl_engaged;
 static uint8_t rl_wait_ticks;
 static uint8_t stair_owned_previous; /* 只记录进入/退出边沿，用于重建普通平衡历史 */
+static fallen_process_ctx_t stair_normal_control; /* 仅台阶交接使用，和普通倒地恢复实例分开 */
 static rl_motor_map_state_t rl_motor_map; /* 用本拍IMU/腿/轮速组装LQR状态，接入AIR控制选择，再融合轮速和IMU加速度。
  * reset_velocity要求重新建立速度先验；任一步失败都撤销相应状态有效性。 */
 static void Control_State_Update(control_frame_t *frame, uint8_t reset_velocity)
@@ -106,30 +107,61 @@ static void Control_Stair_Balance_Reset(void)
     LQR_Init(&lqr_state);
     lqr_debug = saved;
     lqr_state.valid = 0u;
+    Fallen_Process_Init(&stair_normal_control);
 }
 
 /* 台阶只有独立F/Tp候选；WAIT/RECHECK不运行普通估计或控制。 */
 static void Compute_Stair(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
-    const stair_control_param_t control = {
-        .length_pd = machine->lqr.pd.leg_len,
-        .angle_pos = { .kp = fallen_process_param.angle_pos_kp, .kd = fallen_process_param.angle_pos_kd, .max_output = fallen_process_param.angle_speed_max },
-        .angle_speed = { .kp = fallen_process_param.angle_speed_kp, .kd = fallen_process_param.angle_speed_kd, .max_output = machine->hip.dm_trq_clamp },
-        .length_rate = fallen_process_param.length_rate,
-        .angle_rate = fallen_process_param.angle_rate,
-        .support_time = fallen_process_param.support_time,
-        .support_angle_range = machine->recovery.fallen_support_angle_range,
-        .leg_trim = machine->lqr.reference.leg_trim,
-        .support_force = machine->lqr.roll_height.support_force,
-    };
     const stair_process_input_t input = {
         .leg = {&frame->left, &frame->right},
-        .control = &control,
         .compensation = &frame->compensation,
-        .hip_limit = machine->hip.dm_trq_clamp,
         .now_ms = HAL_GetTick(),
         .permit = (uint8_t)(frame->drive_permit && frame->joint_ready && frame->rc.mode.strategy == CTRL_STRATEGY_LQR && frame->rc.mode.engage),
     };
+    if (stair_process.phase == STAIR_PROCESS_RETRACT || stair_process.phase == STAIR_PROCESS_ALIGN)
+    {
+        uint8_t route;
+        uint8_t reason;
+        stair_process.total_elapsed = (float)(uint32_t)(input.now_ms - stair_process.begin_ms) * 0.001f;
+        if (!input.permit || (uint32_t)(input.now_ms - stair_process.begin_ms) >= machine->stair.process.total_timeout_ms)
+        {
+            Stair_Process_Abort(&stair_process, input.permit ? STAIR_EXIT_TOTAL_TIMEOUT : STAIR_EXIT_INPUT, input.now_ms);
+            return;
+        }
+        if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_IDLE && !Fallen_Process_Begin_Retract(&stair_normal_control, &frame->imu, &frame->left, &frame->right))
+        {
+            Stair_Process_Abort(&stair_process, STAIR_EXIT_INPUT, input.now_ms);
+            return;
+        }
+        route = Fallen_Process_Update(&stair_normal_control, &frame->imu, &frame->left, &frame->right, &frame->compensation, input.permit, MACHINE_LQR_DT, torque);
+        stair_process.elapsed = stair_normal_control.lifecycle.elapsed;
+        for (uint8_t i = 0u; i < 2u; i++)
+        {
+            stair_process.length_target[i] = stair_normal_control.actuator.length_ramp[i].out;
+            stair_process.angle_ramp[i].out = stair_normal_control.actuator.angle_target[i];
+        }
+        if (route == FALLEN_PROCESS_ROUTE_BALANCE)
+        {
+            Torque_Output_Clear(torque);
+            Stair_Process_Complete(&stair_process, input.now_ms);
+        }
+        else if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_FAILED || route != FALLEN_PROCESS_ROUTE_PREPARE || !torque->valid)
+        {
+            Torque_Output_Clear(torque);
+            reason = STAIR_EXIT_MAPPING;
+            if (stair_normal_control.lifecycle.fault == FALLEN_PROCESS_TIMEOUT) { reason = stair_process.phase == STAIR_PROCESS_ALIGN ? STAIR_EXIT_ALIGN_TIMEOUT : STAIR_EXIT_RETRACT_TIMEOUT; }
+            else if (stair_normal_control.lifecycle.fault == FALLEN_PROCESS_BAD_POSE) { reason = STAIR_EXIT_POSE; }
+            else if (stair_normal_control.lifecycle.fault == FALLEN_PROCESS_BAD_INPUT) { reason = STAIR_EXIT_INPUT; }
+            Stair_Process_Abort(&stair_process, reason, input.now_ms);
+        }
+        else
+        {
+            if (stair_normal_control.lifecycle.phase == FALLEN_PROCESS_SWING) { stair_process.phase = STAIR_PROCESS_ALIGN; }
+            *debug = stair_normal_control.actuator.compensation;
+        }
+        return;
+    }
     Stair_Process_Update(&stair_process, &machine->stair.process, &input, MACHINE_LQR_DT, torque);
     if (torque->valid) { *debug = stair_process.compensation; }
 }
