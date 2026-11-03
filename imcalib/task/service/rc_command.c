@@ -43,6 +43,9 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
     cmd->yaw_rate_target = -Rc_Axis(rc->ch2, machine->rc.deadband_yaw) * machine->rc.yaw_max;
     cmd->s1 = rc->s1;
     cmd->s2 = rc->s2;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    cmd->received_ns = rc->received_ns;
+#endif
     cmd->online = 1u;
 
     /* 拨杆语义 */

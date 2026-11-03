@@ -1177,6 +1177,21 @@
           <GroupName>imcalib/bsp</GroupName>
           <Files>
             <File>
+              <FileName>latency_capture.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/latency_capture.c</FilePath>
+            </File>
+            <File>
+              <FileName>output_capture.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/output_capture.c</FilePath>
+            </File>
+            <File>
+              <FileName>latency_usb.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../imcalib/bsp/latency_usb.c</FilePath>
+            </File>
+            <File>
               <FileName>BMI088Middleware.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/bsp/BMI088Middleware.c</FilePath>

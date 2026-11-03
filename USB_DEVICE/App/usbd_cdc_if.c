@@ -29,6 +29,8 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include "latency_usb.h"
+#include "machine_config.h"
 #include <string.h>
 
 /* USER CODE END INCLUDE */
@@ -283,7 +285,9 @@ static int8_t CDC_Control_HS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 11 */
-  UNUSED(Len);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+  Latency_Usb_Receive(Buf,*Len);
+#endif
   USBD_CDC_SetRxBuffer(&hUsbDeviceHS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceHS);
   return (USBD_OK);
@@ -333,7 +337,9 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   uint8_t result = USBD_OK;
   /* USER CODE BEGIN 14 */
   UNUSED(Buf);
-  UNUSED(Len);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+  Latency_Usb_Receive(Buf,*Len);
+#endif
   UNUSED(epnum);
   /* USER CODE END 14 */
   return result;

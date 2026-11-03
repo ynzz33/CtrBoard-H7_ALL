@@ -6,8 +6,9 @@
 #ifndef __MACHINE_CONFIG_H
 #define __MACHINE_CONFIG_H
 
-#include <stdint.h>
 #include "motion_guard.h"
+#include <stdint.h>
+#define MACHINE_LATENCY_CAPTURE_ENABLE              0u /* 完整时序采集；0编译移除测点/缓冲/新增IRQ。 */
 #define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
 #define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
 #define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE         0u /* 4态leso观测器 */

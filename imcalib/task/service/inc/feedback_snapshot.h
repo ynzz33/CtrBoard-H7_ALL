@@ -23,6 +23,9 @@ typedef struct {
 } dm_motor_state_t;
 
 typedef struct {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    uint64_t parsed_rx_ns[DJI_MOTOR_NUM];
+#endif
     float angle_rad[DJI_MOTOR_NUM];
     float angle_total_rad[DJI_MOTOR_NUM];
     float vel_rad_s[DJI_MOTOR_NUM];

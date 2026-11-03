@@ -5,6 +5,9 @@
 
 #include "robot_control.h"
 #include "robot_state.h"
+#include "latency_state.h"
+#include "output_capture.h"
+#include "mono_ns.h"
 #include "machine_config.h"
 #include "fallen_process.h"
 #include "air_detection.h"
@@ -46,6 +49,9 @@ void Policy_Tick_Div(void)
     if (++div_cnt >= MACHINE_POLICY_DIV)
     {
         div_cnt = 0u;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        Latency_Tick(1u);
+#endif
         osSemaphoreRelease(policy_tick_sem_handle);
     }
 }

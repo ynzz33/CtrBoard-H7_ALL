@@ -62,6 +62,9 @@ void imu_task_body(void)
     {
         next.pitch_world_valid = Pitch_World_Calc(next.euler_rad[IMU_PITCH_WORLD_IDX], next.quat, &next.pitch_world) ? 1u : 0u;
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    next.received_ns = sample.received_ns;
+#endif
     next.last_timestamp_ms = sample.ts;
     Robot_Feedback_Publish_Imu(&next);
 }

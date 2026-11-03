@@ -4,6 +4,9 @@
  */
 #include "robot_control.h"
 #include "robot_state.h"
+#include "latency_state.h"
+#include "output_capture.h"
+#include "mono_ns.h"
 #include "rl_observation.h"
 #include "rl_policy.h"
 #include <string.h>
@@ -16,6 +19,12 @@ void ctrl_task_init(void)
  * reset_count前后不一致或模式已退出则丢弃结果；遥控选择RL可推理，出力另由执行层许可。 */
 void ctrl_task_body(void)
 {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    latency_record_t trace={0};
+    uint64_t build_ns;
+    trace.kind=LATENCY_POLICY;trace.begin_ns=Mono_Ns_Get();trace.value[3]=UINT32_MAX;
+    trace.value[7]=Latency_Tick_Read(1u).sequence;
+#endif
     rl_observation_state_t observation;
     rl_observation_sample_t sample;
     rl_recovery_state_t recovery;
@@ -31,6 +40,14 @@ void ctrl_task_body(void)
     reset_count = action_state.reset_count;
     if (selected)
     {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        trace.value[0]=trace_sample.sequence;
+        trace.value[1]=(uint32_t)(Mono_Ns_Get()-trace.begin_ns);
+        trace.value[4]=trace_policy_sequence;
+        trace.value[5]=(uint32_t)rc_command.mode.strategy;
+        trace.value[6]=(uint32_t)rl_control.recovery.phase;
+        trace.reset_count=reset_count;
+#endif
         recovery = rl_control.recovery;
         command = rc_command;
         sampled = RL_Observation_Read_Sample(&rl_control.observation, &sample);
@@ -45,13 +62,31 @@ void ctrl_task_body(void)
     if (!selected)
     {
         Action_State_Clear();
+        #if MACHINE_LATENCY_CAPTURE_ENABLE
+        if(trace.end_ns==0u) { trace.end_ns=Mono_Ns_Get(); }
+        Latency_Capture_Push(&trace);
+#endif
         return;
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    build_ns=Mono_Ns_Get();
+#endif
     built = RL_Observation_Build(&observation, &machine->rl, &sample, &command, &recovery, sampled);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    trace.value[2]=(uint32_t)((Mono_Ns_Get()-build_ns)/1000u);
+    trace.flags=built ? 2u : 1u;
+#endif
     taskENTER_CRITICAL();
     if (reset_count != action_state.reset_count)
     {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        trace.flags=3u;
+#endif
         taskEXIT_CRITICAL();
+        #if MACHINE_LATENCY_CAPTURE_ENABLE
+        if(trace.end_ns==0u) { trace.end_ns=Mono_Ns_Get(); }
+        Latency_Capture_Push(&trace);
+#endif
         return;
     }
     memcpy(rl_control.observation.obs, observation.obs, sizeof(observation.obs));
@@ -66,8 +101,15 @@ void ctrl_task_body(void)
             Action_State_Clear();
         }
         taskEXIT_CRITICAL();
+        #if MACHINE_LATENCY_CAPTURE_ENABLE
+        if(trace.end_ns==0u) { trace.end_ns=Mono_Ns_Get(); }
+        Latency_Capture_Push(&trace);
+#endif
         return;
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    trace.value[3]=rl_control.policy.run_us;
+#endif
     /* 网络请求保持四髋两轮原始顺序，目标生成和力矩限幅在RL_Torque_Compute。
      * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
     taskENTER_CRITICAL();
@@ -78,7 +120,17 @@ void ctrl_task_body(void)
         action_state.last_ok_tick = HAL_GetTick();
         action_state.updated = 1u;
         action_state.rl_ready = 1u;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        trace_policy_published_ns=Mono_Ns_Get();
+        trace.correlation=++trace_policy_sequence;trace.flags=4u;
+        trace.value[3]=rl_control.policy.run_us;trace.end_ns=trace_policy_published_ns;
+#endif
     }
     /* 不匹配时直接丢弃；不能用旧推理的失败路径清掉新控制段。 */
     taskEXIT_CRITICAL();
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    if(trace.flags!=4u) { trace.flags=3u; }
+    if(trace.end_ns==0u) { trace.end_ns=Mono_Ns_Get(); }
+    Latency_Capture_Push(&trace);
+#endif
 }

@@ -7,6 +7,7 @@
 #define IMU_STATE_H
 
 #include <stdint.h>
+#include "machine_config.h"
 
 /* 欧拉角索引 */
 enum {
@@ -17,6 +18,9 @@ enum {
 
 /* IMU 状态 */
 typedef struct {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    uint64_t received_ns;
+#endif
     float quat[4];          /* 四元数 */
     float euler_deg[3];     /* 欧拉角 */
     float euler_rad[3];     /* 弧度 */

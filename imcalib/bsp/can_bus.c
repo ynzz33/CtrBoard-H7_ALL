@@ -6,15 +6,46 @@
 #include "can_bus.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "latency_capture.h"
+#include "mono_ns.h"
+#include "output_capture.h"
+#include "machine_config.h"
+#include <string.h>
 
 static can_bus_t can_bus[CAN_BUS_NUM];
 
 static FDCAN_HandleTypeDef *handles[CAN_BUS_NUM] = { &hfdcan1, &hfdcan2, &hfdcan3 };
 static uint32_t last_hard_reset_tick;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+/* 每个硬件TX buffer独立保存原提交信息；不能用最新全局命令配完成IRQ。 */
+static latency_record_t latency_tx[CAN_BUS_NUM][32];
+static uint8_t latency_tx_active[CAN_BUS_NUM][32];
+static uint32_t latency_tx_sequence;
+
+static void Can_Latency_Finish(uint32_t bus, uint32_t slot, uint64_t now_ns, uint8_t result)
+{
+    latency_record_t record;
+    if (!latency_tx_active[bus][slot]) { return; }
+    record = latency_tx[bus][slot];
+    record.end_ns = now_ns;
+    record.flags = (uint8_t)((record.flags & 0x80u) | result);
+    latency_tx_active[bus][slot] = 0u;
+    Latency_Can_Pending(0u);
+    Latency_Capture_Push(&record);
+}
+
+
+#endif
 
 /* FDCAN1/2/3共用RCC复位，不能在单路掉线时直接复位整个模块。 */
 void Can_Bus_Reset_Hardware(void)
 {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    for(uint32_t bus=0u;bus<CAN_BUS_NUM;bus++)
+    {
+        for(uint32_t slot=0u;slot<32u;slot++) { Can_Latency_Finish(bus,slot,Mono_Ns_Get(),4u); }
+    }
+#endif
     const IRQn_Type irq[CAN_BUS_NUM][2] = {
         {FDCAN1_IT0_IRQn, FDCAN1_IT1_IRQn},
         {FDCAN2_IT0_IRQn, FDCAN2_IT1_IRQn},
@@ -104,6 +135,9 @@ static bool Can_Bus_Start(uint32_t idx)
         (void)HAL_FDCAN_Stop(hfdcan);
         return false;
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    (void)HAL_FDCAN_ActivateNotification(hfdcan,FDCAN_IT_TX_COMPLETE,0xffffffffu);
+#endif
     bus->failed_step = 0u;
     return true;
 }
@@ -120,6 +154,9 @@ static void Can_Bus_Recover(uint32_t idx, uint32_t now)
     /* 先屏蔽本控制器中断；高优先级执行任务也不能在重建期间继续写队列。 */
     WRITE_REG(hfdcan->Instance->IE, 0u);
     WRITE_REG(hfdcan->Instance->ILE, 0u);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    for(uint32_t slot=0u;slot<32u;slot++) { Can_Latency_Finish(idx,slot,Mono_Ns_Get(),4u); }
+#endif
     SET_BIT(hfdcan->Instance->TXBCR, hfdcan->Instance->TXBRP);
     bus->failed_step = 1u;
     if (hfdcan->State == HAL_FDCAN_STATE_BUSY && HAL_FDCAN_Stop(hfdcan) != HAL_OK)
@@ -239,28 +276,57 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     FDCAN_TxHeaderTypeDef tx_header;
     HAL_StatusTypeDef status;
     int32_t idx;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    latency_record_t trace={0};
+    uint32_t slot;
+    uint64_t returned_ns;
+    trace.begin_ns=Mono_Ns_Get();
+#endif
 
     idx = Can_Bus_Hw_Index(hfdcan);
     if (idx < 0 || len > 8u)
     {
         return HAL_ERROR;
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    trace.kind=LATENCY_CAN;trace.source=(uint8_t)(idx+1);trace.value[0]=can_id;
+    memcpy(&trace.value[4],data,len);Latency_Can_Context(&trace);
+#endif
     /* 发送临界 */
     taskENTER_CRITICAL();
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    trace.correlation=++latency_tx_sequence;
+#endif
     if (can_bus[idx].state == CAN_BUS_STATE_DEAD)
     {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        trace.end_ns=Mono_Ns_Get();trace.value[2]=(uint32_t)trace.end_ns;trace.value[3]=(uint32_t)(trace.end_ns>>32);trace.value[1]=HAL_BUSY;trace.flags|=3u;if(latency_recording) { Latency_Capture_Push(&trace); }
+#endif
         taskEXIT_CRITICAL();
         return HAL_BUSY;
     }
     if (HAL_FDCAN_GetTxFifoFreeLevel(hfdcan) == 0u)
     {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        trace.end_ns=Mono_Ns_Get();trace.value[2]=(uint32_t)trace.end_ns;trace.value[3]=(uint32_t)(trace.end_ns>>32);trace.value[1]=HAL_ERROR;trace.flags|=3u;if(latency_recording) { Latency_Capture_Push(&trace); }
+#endif
         taskEXIT_CRITICAL();
         return HAL_ERROR;
     }
     tx_header = can_bus[idx].tx_template;
     tx_header.Identifier = can_id;
     tx_header.DataLength = len;
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    slot=(hfdcan->Instance->TXFQS & FDCAN_TXFQS_TFQPI)>>FDCAN_TXFQS_TFQPI_Pos;
+    if(latency_tx_active[idx][slot]) { uint32_t bit=1u<<slot;Can_Latency_Finish(idx,slot,Mono_Ns_Get(),((hfdcan->Instance->TXBTO & bit) && !(hfdcan->Instance->TXBRP & bit)) ? 2u:4u); }
+#endif
     status = HAL_FDCAN_AddMessageToTxFifoQ(hfdcan, &tx_header, (uint8_t *)data);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    returned_ns=Mono_Ns_Get();trace.value[2]=(uint32_t)returned_ns;trace.value[3]=(uint32_t)(returned_ns>>32);
+    if(status==HAL_OK && latency_recording) { trace.value[1]=slot;latency_tx[idx][slot]=trace;latency_tx_active[idx][slot]=1u;Latency_Can_Pending(1u); }
+    else if(status!=HAL_OK && latency_recording) { trace.end_ns=returned_ns;trace.value[1]=(uint32_t)status;trace.flags|=3u;if(latency_recording) { Latency_Capture_Push(&trace); } }
+    if(hfdcan==Can_Bus_Handle(machine->wheel.dji_bus) && can_id==0x200u && len==8u) { Output_Capture_CAN(data,can_id,(uint8_t)status,trace.begin_ns,returned_ns); }
+#endif
     if (status == HAL_OK)
     {
         can_bus[idx].last_tx_tick = HAL_GetTick();
@@ -270,6 +336,23 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 }
 
 
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+void HAL_FDCAN_TxBufferCompleteCallback(FDCAN_HandleTypeDef *hfdcan, uint32_t BufferIndexes)
+{
+    int32_t idx = Can_Bus_Hw_Index(hfdcan);
+    uint64_t now_ns = Mono_Ns_Get();
+    if (idx < 0) { return; }
+    for (uint32_t slot = 0u; slot < 32u; slot++)
+    {
+        uint32_t bit = 1u << slot;
+        if ((BufferIndexes & bit) && !(hfdcan->Instance->TXBRP & bit))
+        { Can_Latency_Finish((uint32_t)idx, slot, now_ns, 1u); }
+    }
+}
+
+
+
+#endif
 /* ISR 接收 */
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {

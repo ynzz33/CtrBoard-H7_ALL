@@ -23,6 +23,11 @@ typedef struct {
     float height; /* 两腿髋轮投影高度均值m，不是机身绝对离地高度。 */
     uint8_t height_valid; /* height是否由有效双腿几何求得。 */
     uint8_t fallen;             /* 本拍公共FALLEN归属；RL独立判断倾角与低高度。 */
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    uint64_t trace_rx_ns[8];
+    uint64_t trace_snapshot_ns;
+    uint8_t trace_wheel_online;
+#endif
     float wheel_vel[2]; /* 左右轮轴速度rad/s，顺序左/右。 */
     float motor_pos[4];         /* 本拍DM零点后连续角，rad；RL首次选分支 */
     float motor_vel[4];         /* 本拍固件电机速度，rad/s */

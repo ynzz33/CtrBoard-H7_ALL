@@ -5,6 +5,9 @@
 #include "control_compute.h"
 #include "control_strategy.h"
 #include "robot_state.h"
+#include "latency_state.h"
+#include "output_capture.h"
+#include "mono_ns.h"
 #include "machine_config.h"
 #include "fallen_process.h"
 #include "slip.h"
@@ -215,15 +218,48 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
     if (!frame->rc.mode.engage) { rl_motor_map.initialized = 0u; }
     if (tick)
     {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        latency_record_t trace={0};
+        trace.kind=LATENCY_SAMPLE;
+        trace.begin_ns=frame->trace_snapshot_ns;
+#endif
         (void)RL_Motor_Map(&machine->rl, 2.0f * machine->hip.dm_pos_max, frame->motor_pos, frame->motor_vel, frame->wheel_vel, frame->motor_valid, &rl_motor_map, &frame->rl_motor);
         RL_Observation_Sample(&rl_control.observation, frame->imu.gyro_rad_s, frame->imu.quat, &frame->rl_motor, frame->imu.online);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        taskENTER_CRITICAL();
+        trace.end_ns=Mono_Ns_Get();
+        trace.correlation=++trace_sample.sequence;
+        trace_sample.cached_ns=trace.end_ns;
+        trace.reset_count=action_state.reset_count;
+        for(uint8_t i=0u;i<8u;i++) { trace_sample_rx[i]=frame->trace_rx_ns[i]; trace.value[i]=Latency_Age_Us(trace.end_ns,frame->trace_rx_ns[i]); }
+        taskEXIT_CRITICAL();
+        Latency_Capture_Push(&trace);
+#endif
     }
     rl_engaged = (uint8_t)(frame->drive_permit && frame->rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);
     if (rl_engaged && rl_control.recovery.phase != RL_RECOVERY_HOLD && action_state.rl_ready && frame->rl_motor.valid)
     {
         if (tick)
         {
+
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+            static uint32_t last_policy,last_reset;
+            static uint8_t seen;
+            latency_record_t trace={0};
+            trace.kind=LATENCY_PD;
+            trace.value[0]=trace_policy_sequence;
+            trace.reset_count=action_state.reset_count;
+            trace.correlation=trace_dispatch_sequence+1u;
+            trace.begin_ns=Mono_Ns_Get();
+#endif
             (void)RL_Torque_Compute(&frame->rl_motor, &machine->rl, action_state.a, &rl_control.torque_state, torque);
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+            trace.end_ns=Mono_Ns_Get(); trace.flags=torque->valid;
+            trace.value[1]=Latency_Age_Us(trace.begin_ns,trace_policy_published_ns);
+            for(uint8_t i=0u;i<6u;i++) { trace.value[i+2u]=Latency_Age_Us(trace.begin_ns,frame->trace_rx_ns[i+1u]); }
+            if(torque->valid && (!seen || last_policy!=trace_policy_sequence || last_reset!=action_state.reset_count)) { trace.flags|=2u;seen=1u;last_policy=trace_policy_sequence;last_reset=action_state.reset_count; }
+            Latency_Capture_Push(&trace);
+#endif
         }
         else
         {

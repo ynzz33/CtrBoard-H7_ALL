@@ -7,6 +7,7 @@
 #define RC_TYPES_H
 
 #include <stdint.h>
+#include "machine_config.h"
 #include <stdbool.h>
 
 #define DR16_CH_LIMIT    660
@@ -48,6 +49,9 @@ typedef struct {
 } dr16_t;
 
 typedef struct {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    uint64_t received_ns;
+#endif
     float velocity_target;   /* 前进速度目标m/s */
     float yaw_rate_target;   /* 偏航角速度目标rad/s，不是偏航角 */
     float leg_length_target; /* 最终腿长目标m */

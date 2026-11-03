@@ -37,6 +37,9 @@ static void Motor_State_Update(motor_state_t *next)
     {
         const dji_motor_feedback_t *feedback = &dji_motor_feedback[i];
 
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+        next->dji.parsed_rx_ns[i] = feedback->parsed_rx_ns;
+#endif
         next->dji.angle_rad[i] = feedback->angle_rad;
         next->dji.angle_total_rad[i] = feedback->angle_total_rad;
         next->dji.vel_rad_s[i] = feedback->vel_rad_s;

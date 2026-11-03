@@ -1,3 +1,62 @@
+## 2026-11-03 时序采集固定使用USB
+
+按作者要求删除MACHINE_LATENCY_TRANSPORT及UART采集分支；完整事件、输出和START/STOP固定走板载USB CDC，VOFA始终保持原发送。MACHINE_LATENCY_CAPTURE_ENABLE直接定义，保留作者当前值0u，不再用ifndef允许命令行覆盖；需要采集时在machine_config.h改为1u并重新编译烧录。保留采集开关的#if条件编译及头文件保护，0时仍编译移除测点、队列和新增IRQ。下文USB/UART选择及默认1的描述属于历史状态，以本节为准。本次完成源码检查，未重新构建或烧录。
+
+## 2026-11-03 板载USB首轮正常RL实采
+
+用户完成IDE构建/烧录并接USB后，COM69首采及后续30秒正常RL完整采集成功；实际builder.params已收录三个采集源。仅发送测量START/STOP，不改变遥控或输出。run03连续NORMAL/fault0，1500次推理、15000次PD、75000条CAN、共136500条时序及30000条输出；两流CRC/新增丢弃/缺号0，最终队列与pending0。开头5条PD引用采集前动作，单列无法配对，不补0；后续1500次新动作首次PD配对有效。
+
+本次网络均值725.042us、P99/最大729us；发布到首次PD均值1229.230us、最大1240.947us；PD间隔均值2000us、P99 2012.191us、最大2017.209us；基础执行间隔最大1388.609us，不以均值正常掩盖偶发波动。CAN提交均值约1.72～2.28us，完成观察按总线/ID分别约126/278/428/524us（CAN1四髋，顺序1/3/2/4）、144us（CAN3轮）。同动作首次分发配对的发布到完成观察均值约1.370～1.742ms。均为软件时钟/完成IRQ口径，不是电机生效。
+
+原始与分析在桌面h7-timing-20261103-68166ff9，主报告measurement-summary.md；此前“未采集”是软件准备时状态。修复了时序解码末包完整性检查KeyError，并将统计分组改为一次聚类，run01全部统计逐项等值；原始数据未改，固件未重烧。未做外部时基校准、采集关闭同工况对照或实机行为验收，不保证采集开销无影响，不直接把数值写入训练参数。
+
+## 2026-11-03 eIDE未定义采集符号的工程接入修复
+
+作者实际IDE链接报trace_sample/Latency_Capture_Push等未定义。核对时Keil源登记完整，但.eide/eide.yml已无三个采集源，实际builder.params及对象目录也缺失。已补回ControlModules的latency_capture.c/output_capture.c/latency_usb.c，并排除物理扫描副本以避免重复。IDE弹出工程配置变化提示必须选“是/重新加载”，然后执行Rebuild；若不重载，旧内存配置可能继续生成不含新源的清单。验收需看实际builder.params/sourceList、compile_commands和链接对象，各新源必须进入一次；不以之前临时构建代替IDE验收。不调整控制/测量代码或关闭采集宏掩盖问题。
+
+## 2026-11-03 当前测量传输已切回板载USB
+
+作者最新要求不用VOFA采集，MACHINE_LATENCY_TRANSPORT默认改回1，完整H7LAT001/H7OUT001及启停命令走板载USB CDC，UART8恢复原JustFloat发送但不参与本次测量，不需要打开VOFA软件。不改记录内容/频率/队列或控制参数。下方串口方案作为此前测试状态保留。
+
+当前匹配大机候选在TEMP构建目录的usb-final-m0/CtrBoard-H7_ALL.hex，预期身份清单firmware-machine0-usb-final.json；小机usb-final-m1。大小机完整GCC构建通过，Flash613448/613256B，AXIRAM142528B；实际USB发送C的15项边界回归通过，未烧录或连接设备。IDE重新生成源码清单的界面操作仍需按此前工程登记说明确认。
+
+接线使用板上已配置USB_OTG_HS/CDC对应接口和数据线，不是ST-Link调试串口，也不是UART8转换器。端口以设备管理器或插拔前后列表差异识别；设备代码仍为Full Speed，不能按名称HS声称高速吞吐。关闭占用该USB COM的其他程序。
+
+```powershell
+Set-Location "C:/Users/ynz/Desktop/s2rgap/H7_RL"
+$py = "$env:USERPROFILE/.codex/tmp/h7-timing-env/Scripts/python.exe"
+$build = "$env:LOCALAPPDATA/Temp/latency-v1-build-02fb1f1a91f5451c8e090f01c11540b9"
+& $py -m serial.tools.list_ports -v
+# 作者下载匹配USB候选后，将COM12换成板载USB CDC端口。
+$run = "$env:USERPROFILE/Desktop/h7-timing-$(Get-Date -Format yyyyMMdd-HHmmss)"
+& $py tools/latency/record_timing.py --port COM12 --seconds 30 --out $run --firmware-manifest "$build/firmware-machine0-usb-final.json"
+& $py tools/latency/h7_latency_capture.py --session $run --out "$run-timing"
+& $py tools/latency/h7_output_capture.py --session $run --out "$run-output"
+```
+
+先断动力只测数据接收/完整性，不对未执行PD或CAN作零延迟结论。录制程序会START、等待确认、录制、STOP、等待排空；录制退出0不等于数据无丢失，两份解码报告须独立核对。无开始确认、停止未排空或解码退出2均保留原目录。提交数据时发送整个原始run目录，含stream.jsonl/meta.json/身份文件；分析目录可一起发送。工具不发电机命令，实际USB吞吐和控制影响仍待实测。
+
+## 此前测量传输：VOFA所选串口的完整事件流
+
+作者明确选择完整记录改走VOFA串口，不是显示最新时延。MACHINE_LATENCY_CAPTURE_ENABLE=1、MACHINE_LATENCY_TRANSPORT=2为当前配置；1可恢复板载USB。2时后台不调用Vofa_Debug_Send，避免JustFloat与二进制流混发；不改原通道赋值、不改波特率，不改变控制/记录频率、队列容量或采样内容。关闭采集宏恢复原VOFA发送。latency_usb.c保留原名称，但已承接编译选择的UART/USB传输及共用协议。
+
+大机仍用MACHINE_VOFA_PORT选择的UART8（1152000/8N1），复用已生成的DMA1 Stream5环形RX、Stream7 TX；不需新增CubeMX配置。需双向连接：H7 PE1/TX→转换器RX、PE0/RX←转换器TX、GND共地。只接H7 TX无法接收START/STOP。RX由后台读取DMA写指针，分片后交原CRC命令解析；发送前检查gState，Clean对齐缓存，提交失败不出队、DMA完成前不覆盖。USB模式时不初始化这套UART接收，UART模式忽略USB上的测量命令。
+
+VOFA软件JustFloat解析器不能解码H7LAT001/H7OUT001，测试时关闭占用该COM口的VOFA软件，用专用工具保存完整原始字节；这是复用VOFA串口，不是把原始事件转换成浮点通道。原始数据/解码协议/结束确认均保持，不增加最新值替代或降采样。
+
+带宽边界：1152000波特8N1的字节上限为115200B/s，低于正常完整事件/输出的数百KB/s。满负载预期溢出；本轮目的是验证收包与如实识别丢失，不能承诺无损。录制退出0只表示会话STOP排空成功，是否无丢失要看两份解码report；完整性失败退出2时必须保留原文件，不跨缺口配对。
+
+```powershell
+$py = "$env:USERPROFILE/.codex/tmp/h7-timing-env/Scripts/python.exe"
+$build = "$env:LOCALAPPDATA/Temp/latency-v1-build-02fb1f1a91f5451c8e090f01c11540b9"
+# 下载匹配的m0-on1候选后，将COM12替换为VOFA转换器端口；不选板载USB口。
+& $py tools/latency/record_timing.py --port COM12 --baud 1152000 --seconds 3 --out "$build/uart-run01" --firmware-manifest "$build/firmware-machine0-uart.json"
+& $py tools/latency/h7_latency_capture.py --session "$build/uart-run01" --out "$build/uart-run01-timing"
+& $py tools/latency/h7_output_capture.py --session "$build/uart-run01" --out "$build/uart-run01-output"
+```
+
+软件验证：大小机UART开/关四种构建和大机USB回归构建通过。UART开启大机Flash614504B、小机614312B，AXIRAM142816B；关闭仍606920/606760B及46496B。实际UART发送/接收C宿主18项覆盖TX忙/失败不出队、RX DMA写指针、CRC及启停；实际C流17B分片经双解码器，1024事件/128输出与76/12溢出均保留失败状态。未接线/烧录/测实机吞吐或控制开销；旧USB测试步骤为此前版本状态。
+
 ## 当前状态：主动防翻参考约束v1（2026-11-01）
 
 2026-11-02提交前现状核对：以作者当前工作区为准，大机防翻开启，budget_fraction=0.70、release_rate=3rad/s²，原turn_comp.gain=0.2；仅实际车速依据保持，Jetson镜像开关当前0。作者反馈防翻目前尚可、中低腿长几乎不再翻倒；此反馈仅覆盖已测试工况，不作为高速高腿或所有扰动的稳定性证明。下方0.6及更早参数均为历史。
@@ -106,6 +165,51 @@ DONE仍通过原接口交接LQR；实际选NORMAL还是FLIGHT取决于有效AIR�
 2026-10-30当前VOFA以本文“当前VOFA与调试入口”的十态/四态联合表为准；下文RL及自起布局描述为此前记录。
 
 # 工程代码总览
+
+## 2026-11-02 完整时序测量第一版（当前软件候选）
+
+本轮以实际脏工作区为基线，不回退作者已有自起/AIR/防翻调参。MACHINE_LATENCY_CAPTURE_ENABLE在machine_config.h默认1，0编译移除测点/队列/新增CAN完成IRQ。运行时START/STOP只控制记录，STOP不等于编译关闭的零采集开销。VOFA原UART8布局和Jetson原开关保持；USB为独立CDC数据流，没有搬入ROS控制代码或镜像布局。
+
+### 文件和测点
+
+- bsp/latency_capture.c、inc/latency_capture.h复用训练仓H7LAT001的64B事件、1024项队列/128项批量；latency_state.h保存诊断样本、动作和分发编号，与控制状态隔离。output_capture.c/h复用H7OUT001的88B输出、128项队列/48项批量。latency_usb.c/h独立发送两种包，不调用Vofa_Send。
+- SAMPLE起点保存于读取本拍反馈快照前，终点为Compute_RL每控制子步模型缓存发布；记录同份来源数据龄。POLICY覆盖任务读取、构建、SDK、动作发布及未选择/坏观测/SDK失败/跨reset丢弃。PD紧贴实际RL_Torque_Compute调用前后计时，年龄计算放在结束计时之后；首次有效采用按reset/policy编号判断。ACTUATION覆盖全部执行拍，包括不分发拍。基础触发观察在main.c用户回调内、ctrl信号量释放前；CAN覆盖有效总线的提交、失败、buffer完成IRQ/复用前观察与恢复中取消。
+- IMU received_ns与实际姿态、DJI parsed_rx_ns与实际轮反馈、RC received_ns与命令一同传递；DM复用parsed_rx_ns。Control_Frame_Read固定同批来源时刻。接收时刻不是硬件采样时刻；断流/坏数据结合原故障与有效标志解释。
+- CAN保留当前DEAD/FIFO判断、返回码、原8字节和恢复逻辑，只新增完成通知及测量上下文。IRQ/轮询时间为软件完成观察，不是总线精确EOF或电机力矩生效。PD有效不等于最终出力，通过H7OUT001核对门控后的请求与发送结果。
+- USB沿用内置PHY Full Speed且DMA关闭的实际配置，不因名称HS当作高速。数据缓冲只在Ready后写，提交失败不出队，提交成功才消费队列，异步完成前不复用。数据队满只计数，绝不阻塞控制。新源已登记Keil和eIDE的ControlModules，物理扫描副本排除；本次外部构建显式包含三个新增源，IDE重新生成sourceList的操作尚未在界面实测。
+
+### 测量命令和会话边界
+
+USB RX仅识别14B命令`<4sBBHIH>`：H7TC、op(1开始/2停止)、version1、reserved0、uint32 token、前12B的CRC16/CCITT-FALSE。只写测量请求，不修改目标/使能/参数。仅空闲/已结束接受START；STOP须token一致。停止后不生成新普通记录，继续导出已挂起CAN结果；不能确认完成会保留pending，不伪造零延迟。
+
+每次USB提交追加34B H7STAT01状态（CRC覆盖前32B），状态0等待/1采集/2排空/3结束，带token、剩余双队列及pending CAN。只有成功提交末包才转结束，电脑收到同token结束确认才标capture_complete。CRC、缺号、队满、尾包和中断均保留。再次连接遇到旧会话未结束时不会自动覆盖旧数据，须先结束/复位测量会话。
+
+### 本机准备和录制
+
+已准备独立Python采集环境`C:/Users/ynz/.codex/tmp/h7-timing-env`（pyserial3.5，NumPy复用本机运行库），没有连接设备。固件/manifest均在工程外TEMP，默认大机候选：
+
+```powershell
+$py = "$env:USERPROFILE/.codex/tmp/h7-timing-env/Scripts/python.exe"
+$build = "$env:LOCALAPPDATA/Temp/latency-v1-build-02fb1f1a91f5451c8e090f01c11540b9"
+# 列出端口。必须选板载USB CDC，不能选UART8 VOFA串口。
+& $py -m serial.tools.list_ports
+# manifest只是预期构建身份；重新构建后使用新输出文件名重新生成。
+& $py tools/latency/make_manifest.py --params "$build/m0-on1.params" --out "$build/firmware-machine0-final.json"
+# 由作者确认并下载匹配的m0-on1/下HEX后，再运行；COM12需替换为实际USB端口。
+& $py tools/latency/record_timing.py --port COM12 --seconds 30 --out "$build/run01" --firmware-manifest "$build/firmware-machine0-final.json"
+& $py tools/latency/h7_latency_capture.py --session "$build/run01" --out "$build/run01-timing"
+& $py tools/latency/h7_output_capture.py --session "$build/run01" --out "$build/run01-output"
+```
+
+录制脚本仅发送测量START/STOP，不发任何电机控制命令；原始stream.jsonl/身份文件/meta.json包含哈希、连接与结束事件。STOP排空超过5秒或START无响应均返回2并保留失败文件。解码器保留训练仓事件/输出协议，依赖轻量timing_session，不依赖MuJoCo/显示/网络。输出records.csv、measurements.csv、statistics.csv、report.json及outputs.csv，按模式/阶段/总线/ID分组；std为总体标准差，百分位按NumPy默认线性插值。无效或缺测不能解释为0。
+
+先断动力检查USB及数据完整性，只评价实际执行到的环节；再由作者在保护条件下投入真实RL，录未投入→投入→退出，最后停止记录。RL正常500Hz/50Hz与禁用1kHz发送分别统计；LQR/自起覆盖执行/CAN/输出，不声称测到未执行的RL推理或PD。第一版测试不调整训练延迟。
+
+### 当前验证边界
+
+大小机×开/关四种GCC工程外构建通过。大机开采集Flash613448B、AXIRAM142496B，关采集606920B/46496B，新增约96KB AXI静态存储；小机613256B/142496B及606760B/46496B。原有函数关采集机器码对照11个文件57个函数一致。真实C双队列/USB发送宿主15项边界通过：CRC、溢出、忙、失败不出队、分片命令、STOP排空。实际C字节流按17B切片经两套Python解码通过，1024时序/128输出记录及76/12丢弃均正确报告为完整性失败。当前匹配大机清单为TEMP构建目录firmware-machine0-delivery.json；源码变化后需重新生成清单。
+
+上述不包含真实USB持续吞吐、CAN完成IRQ竞态与恢复全覆盖、H7时基校准、开启采集的最坏临界区/截止时间和实机行为验收；不能据此保证上板控制效果不变。CAN callback额外负载和既有后台5tick轮询是否足以排空，必须实采验证。源码/原脏工作区备份在TEMP的latency-baseline-23fd70dd12b143b1b7a43a1b89bd33b1，未烧录/提交/推送。
 
 2026-10-30最新参数回退：control_condition_param.body_contact_height恢复为0.15m，confirm_time保持0.05s，覆盖下文此前0.16m的修改记录；AIR参数和选路优先级保持。
 

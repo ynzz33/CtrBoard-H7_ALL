@@ -4,6 +4,9 @@
  */
 #include "robot_control.h"
 #include "robot_state.h"
+#include "latency_state.h"
+#include "output_capture.h"
+#include "mono_ns.h"
 #include "machine_config.h"
 #include "dm.h"
 #include "tim.h"
@@ -35,6 +38,9 @@ static void Control_Frame_Read(void)
 {
     static robot_feedback_t feedback;
 
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    uint64_t snapshot_ns=Mono_Ns_Get();
+#endif
     (void)Robot_Feedback_Read(&feedback);
     control_frame.landed = 0u;
 
@@ -56,6 +62,14 @@ static void Control_Frame_Read(void)
         control_frame.joint_torque[i] = feedback.motor.dm.trq_nm[i];
         control_frame.joint_ready &= (uint8_t)(feedback.motor.dm.online[i] && Dm_Is_Enabled(i));
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    control_frame.trace_rx_ns[0] = feedback.imu.received_ns;
+    control_frame.trace_snapshot_ns = snapshot_ns;
+    control_frame.trace_wheel_online = (uint8_t)((feedback.motor.dji.online[0] ? 1u : 0u) | (feedback.motor.dji.online[1] ? 2u : 0u));
+    for (uint8_t i=0u;i<4u;i++) { control_frame.trace_rx_ns[i+1u]=feedback.motor.dm.parsed_rx_ns[i]; }
+    for (uint8_t i=0u;i<2u;i++) { control_frame.trace_rx_ns[i+5u]=feedback.motor.dji.parsed_rx_ns[i]; }
+    control_frame.trace_rx_ns[7]=feedback.rc.received_ns;
+#endif
     control_frame.motor_valid = feedback.motor.valid;
     control_frame.drive_permit = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
     if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
@@ -94,6 +108,14 @@ uint8_t output_task_rl_engaged(void)
  * torque是待检查候选；pending_compensation随最终应用结果发布，尚未发送时不当作已执行。 */
 void output_task_body(void)
 {
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    latency_record_t trace = {0};
+    latency_tick_t trigger = Latency_Tick_Read(0u);
+    trace.kind=LATENCY_ACTUATION;
+    trace.begin_ns=Mono_Ns_Get();
+    trace.value[0]=trigger.sequence;
+    trace.value[1]=Latency_Age_Us(trace.begin_ns,trigger.ns);
+#endif
     ctrl_strategy_t strategy; /* 本拍选中的控制策略。 */
     torque_output_t torque; /* 计算得到的四髋/双轮候选力矩，尚未经过最终发送检查。 */
     compensation_debug_t pending_compensation; /* 与候选配套的诊断，输出层按实际提交结果发布。 */
@@ -118,6 +140,17 @@ void output_task_body(void)
     strategy = Control_Strategy_Prepare(&control_frame, &entered_fallen);
     Control_Compute_Run(&control_frame, strategy, entered_fallen, &torque, &dispatch, &pending_compensation);
     /* 3. RL分频可跳过发送；进入输出层后仍会复查即时故障并决定正常力矩或发零。 */
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    trace.value[2]=dispatch ? ++trace_dispatch_sequence : trace_dispatch_sequence;
+    trace.value[3]=trace_policy_sequence;
+    trace.value[4]=(uint32_t)strategy;
+    trace.value[5]=ctrl_fault;
+    trace.value[6]=(uint32_t)rl_control.recovery.phase;
+    trace.value[7]=trace_sample.sequence;
+    trace.reset_count=action_state.reset_count;
+    trace.flags=dispatch;
+    if (dispatch) { Latency_Dispatch_Begin(trace_dispatch_sequence,trace_policy_sequence,action_state.reset_count); }
+#endif
     if (dispatch)
     {
         Control_Output_Apply(&control_frame, strategy, &torque, &pending_compensation);
@@ -127,6 +160,12 @@ void output_task_body(void)
         control_time_debug.output_sequence++;
 #endif
     }
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    Latency_Dispatch_End();
+    trace.end_ns=Mono_Ns_Get();
+    trace.correlation=trace_dispatch_sequence;
+    Latency_Capture_Push(&trace);
+#endif
 #if CONTROL_TIME_VOFA_ENABLE
     run_us = (uint32_t)(Mono_Ns_Get() / 1000u) - start_us;
     if (control_time_debug.sequence != 0u)

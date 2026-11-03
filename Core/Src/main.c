@@ -41,6 +41,7 @@
 #include "Attitude_Algorithm.h"
 #include "dji.h"
 #include "mono_ns.h"
+#include "latency_capture.h"
 #include "dm.h"
 #include "robot_control.h"
 #include "machine_config.h"
@@ -317,6 +318,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM6)
   {
     Mono_Ns_Tick();   /* 累计DWT周期，避免32位计数回绕丢失时间。 */
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+    Latency_Tick(0u);
+#endif
     osSemaphoreRelease(ctrl_tick_sem_handle);   /* 按机型配置的 TIM6 周期唤醒输出任务 */
     Policy_Tick_Div();                          /* 分频唤醒策略任务 */
   }
