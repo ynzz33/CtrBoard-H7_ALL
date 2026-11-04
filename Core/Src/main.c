@@ -212,7 +212,6 @@ int main(void)
   /* USER CODE END 2 */
 
   /* Call init function for freertos objects (in cmsis_os2.c) */
-  /* 创建控制信号量、初始化算法状态并创建五个任务，随后启动调度。 */
   MX_FREERTOS_Init();
 
   /* Start scheduler */

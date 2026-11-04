@@ -29,6 +29,13 @@ void Vofa_Debug_Send(void)
     static float dbg[VOFA_MAX_CH];
     uint8_t online_mask;
     uint16_t state_bits;
+#if 0 /* 零位诊断局部变量。 */
+    float calibration_position[4], calibration_velocity[4], calibration_wheel[2];
+    float calibration_quat[4], calibration_gravity[3];
+    uint8_t calibration_valid;
+    rl_motor_map_state_t calibration_map = {0};
+    rl_motor_state_t calibration_motor = {0};
+#endif
     // float turn_scale;
     // float contribution;
     // uint8_t row;
@@ -1033,5 +1040,88 @@ void Vofa_Debug_Send(void)
     dbg[46] = (float)stair_process.sequence;
     dbg[47] = (float)HAL_GetTick();
     taskEXIT_CRITICAL();
+//     /* 8000 v2固定48路；后台异步观察，obs与当前动作不保证同一策略拍。 */
+//     taskENTER_CRITICAL();
+//     for (uint8_t i = 0u; i < RL_OBS_SIZE; i++) { dbg[3u + i] = rl_control.observation.obs[i]; }
+//     for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++) { dbg[28u + i] = action_state.a[i]; }
+//     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++) { dbg[34u + i] = rl_control.torque_state.pos[i]; }
+//     dbg[38] = rl_control.torque_state.vel[RL_MOTOR_L_WHEEL];
+//     dbg[39] = rl_control.torque_state.vel[RL_MOTOR_R_WHEEL];
+//     dbg[40] = robot_state.height + MACHINE_RL_LEG_TO_HEIGHT; /* 仅显示已有代理高度，不参与模型观测。 */
+//     dbg[41] = rc_command.leg_length_target;
+//     dbg[42] = (float)rl_control.recovery.phase;
+//     dbg[43] = (float)rl_control.observation.warmup_steps;
+//     dbg[44] = (float)rl_control.policy.ready;
+//     dbg[45] = (float)rl_control.policy.run_ok;
+//     dbg[46] = (float)rl_control.policy.run_us;
+//     dbg[47] = (float)HAL_GetTick();
+//     taskEXIT_CRITICAL();
+//     /* 8000 v2输入/目标/输出固定48路；后台异步帧不代表同一次策略或PD快照。 */
+//     taskENTER_CRITICAL();
+//     for (uint8_t i = 0u; i < RL_OBS_SIZE; i++) { dbg[3u + i] = rl_control.observation.obs[i]; }
+//     for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
+//     {
+//         dbg[28u + i] = action_state.a[i]; /* 网络顺序：左前/左后/左轮/右前/右后/右轮。 */
+//         dbg[34u + i] = rl_control.torque_state.target[i]; /* 内部顺序：四腿角度rad、双轮速度rad/s。 */
+//     }
+//     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++) { dbg[40u + i] = output_dm_torque_nm[i]; }
+//     dbg[44] = output_wheel_torque_nm[0];
+//     dbg[45] = output_wheel_torque_nm[1]; /* 最终许可后的固件坐标力矩Nm，非实测力矩。 */
+//     dbg[46] = (float)((uint32_t)rl_control.recovery.phase
+//         | (rl_control.policy.ready ? 0x08u : 0u)
+//         | (rl_control.observation.valid ? 0x10u : 0u)
+//         | (rl_control.observation.history_initialized ? 0x20u : 0u)
+//         | (action_state.rl_ready ? 0x40u : 0u)
+//         | (rc_command.mode.engage ? 0x80u : 0u)
+//         | ((uint32_t)rl_control.observation.warmup_steps << 8u));
+//     dbg[47] = (float)HAL_GetTick();
+//     taskEXIT_CRITICAL();
+#if 0 /* 上一版零位诊断，人工切换时恢复对应局部变量。 */
+    /* 零位/方向诊断：直接读持续发布的反馈，失能时也能看，不推进控制使用的映射状态。 */
+    taskENTER_CRITICAL();
+    for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
+    {
+        dbg[3u + i] = motor_state.dm.pos_rad[i]; /* 已应用驱动反馈符号，尚未加dm_zero，rad。 */
+        dbg[7u + i] = motor_state.dm.pos_zero_rad[i];
+        dbg[11u + i] = calibration_position[i] = motor_state.dm.pos_continuous_rad[i];
+        calibration_velocity[i] = motor_state.dm.vel_rad_s[i];
+        dbg[25u + i] = output_dm_torque_nm[i];
+    }
+    for (uint8_t i = 0u; i < 2u; i++)
+    {
+        calibration_wheel[i] = motor_state.dji.vel_rad_s[i];
+        dbg[29u + i] = output_wheel_torque_nm[i];
+    }
+    memcpy(calibration_quat, imu_state.quat, sizeof(calibration_quat));
+    calibration_valid = motor_state.valid;
+    for (uint8_t i = 0u; i < 3u; i++) { dbg[31u + i] = imu_state.gyro_rad_s[i]; }
+    dbg[37] = imu_state.euler_deg[ATTITUDE_PITCH];
+    dbg[38] = imu_state.euler_deg[ATTITUDE_ROLL];
+    dbg[39] = (float)rc_command.mode.strategy;
+    dbg[40] = (float)rc_command.mode.engage;
+    dbg[41] = (float)robot_state.motor_enabled;
+    dbg[43] = leg_l.output.virtual_leg_length;
+    dbg[44] = leg_r.output.virtual_leg_length;
+    dbg[45] = leg_l.output.virtual_leg_angle;
+    dbg[46] = leg_r.output.virtual_leg_angle;
+    dbg[47] = (float)HAL_GetTick();
+    taskEXIT_CRITICAL();
+    /* 独立预览：每次按reference选最近整圈分支，等同控制首次映射，不沿用RL投入历史。 */
+    (void)RL_Motor_Map(&machine->rl, 2.0f * machine->hip.dm_pos_max,
+        calibration_position, calibration_velocity, calibration_wheel,
+        calibration_valid, &calibration_map, &calibration_motor);
+    for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
+    {
+        dbg[15u + i] = calibration_motor.pos[i]; /* 原生q，未减nominal_pos。 */
+        dbg[19u + i] = calibration_motor.vel[i];
+    }
+    dbg[23] = calibration_motor.vel[RL_MOTOR_L_WHEEL];
+    dbg[24] = calibration_motor.vel[RL_MOTOR_R_WHEEL];
+    dbg[42] = (float)calibration_motor.valid;
+    if (RL_Observation_Project_Gravity(calibration_quat, calibration_gravity))
+    {
+        for (uint8_t i = 0u; i < 3u; i++) { dbg[34u + i] = calibration_gravity[i]; }
+    }
+#endif
     Vofa_Send(dbg, VOFA_MAX_CH);
 }

@@ -1,8 +1,8 @@
 /*
- * 初始化CubeAI网络并校验输入/输出尺寸，观测有效时运行一次网络，返回原始action。
+ * 初始化CubeAI网络并校验输入/输出尺寸，观测有效时运行一次网络，返回环境裁剪后的action。
  * ready表示网络接口就绪，不表示遥控投入或允许电机出力；推理耗时单独记录。
  */
-/* 单actor推理接口及SDK状态；网络仅输出请求动作，不包含PD、历史encoder或latent。 */
+/* 8000网络包含Encoder和Actor；历史缓存及PD由固件维护。 */
 #ifndef RL_POLICY_H
 #define RL_POLICY_H
 #include "rl_observation.h"
@@ -18,9 +18,11 @@ typedef struct {
     ai_handle network;
     ai_buffer *inputs;
     ai_buffer *outputs;
+    uint8_t obs_index;     /* SDK输入顺序可能变化，按25/125尺寸绑定。 */
+    uint8_t history_index;
     uint8_t ready;
 } rl_network_t;
-/* 初始化在策略任务启动时调用；Run保持网络原始左右两侧顺序，不重排或全局限幅。 */
+/* 初始化在策略任务启动时调用；Run输出有限并按环境裁剪后的网络顺序动作。 */
 void RL_Policy_Reset(rl_policy_t *policy);
 uint8_t RL_Policy_Init(rl_policy_t *policy);
 uint8_t RL_Policy_Run(rl_policy_t *policy, const rl_observation_state_t *observation, float action[RL_ACTION_SIZE]);

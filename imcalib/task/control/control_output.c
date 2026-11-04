@@ -45,7 +45,7 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
         }
     }
     zero_output = (uint8_t)(!applied.valid || !frame->drive_permit || ctrl_fault != FAULT_NONE || !torque_output_enabled);
-    if (strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase != RL_RECOVERY_NORMAL && rl_control.recovery.phase != RL_RECOVERY_RECOVER)
+    if (strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase != RL_RECOVERY_NORMAL)
     {
         zero_output = 1u;
     }

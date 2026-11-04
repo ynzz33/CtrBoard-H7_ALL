@@ -2,9 +2,9 @@
 
 根目录[AGENTS.md](../AGENTS.md)为自动发现入口；规则正文在[md/AGENTS.md](AGENTS.md)，当前实现看[file-guide.md](file-guide.md)，历史看[sysid-change-map.md](sysid-change-map.md)。
 
-接手先读AGENTS，再读file-guide；仅在需要判断原改动依据时按日期/模块/关键词检索历史账本。历史中的参数、通道、测试命令和规划不替代当前源码。
+每次开始新任务，必须先读取当前版本的[AI任务工作流程](AI任务工作流程.md)，不得凭记忆跳过；再读AGENTS及file-guide。完整流程位于本工程md目录，无需依赖父目录文件。仅在需要判断原改动依据时按日期/模块/关键词检索历史账本。历史中的参数、通道、测试命令和规划不替代当前源码。
 
-仅保留AGENTS.md、CLAUDE.md、file-guide.md、sysid-change-map.md四份正文，现行功能写入总览，历史归修改记录；不新增独立模块/计划文档。
+按2026-11-04作者要求，长期正文为AI任务工作流程.md、AGENTS.md、CLAUDE.md、file-guide.md、sysid-change-map.md五份。现行功能写入总览，历史归修改记录；不新增无关独立模块/计划文档。
 
 全程中文，改动最小化，参数以源码为准；物理极性、零点、轴向、MIT刻度和几何符号只能由作者实测决定。修改授权、任务职责、CubeMX保护区和验证纪律完整遵守AGENTS，不把编译成功当作实机效果确认。
 

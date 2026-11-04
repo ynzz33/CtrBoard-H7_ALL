@@ -106,7 +106,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .deadband_len = 20u,
             .vel_max = 3.0f,
             .yaw_max = 5.0f,
-            .len_init = 0.13f,
+            .len_init = 0.15f,
             .len_rate = 1.3f,
         },
         /* IMU安装映射；只迁移，不改标定 */
@@ -172,7 +172,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .motor_zero = {0.0f, 0.0f, 0.0f, 0.0f},
             .nominal_pos = {-0.604720554f, 0.608324173f, 0.604720554f, -0.608324173f},
             .position_limit_center = {-0.664720554f, 0.667594582f, 0.664720554f, -0.667594582f},
-            .observation = { .gyro_scale = 0.5f, .height_scale = 5.0f, .joint_vel_scale = 0.1f, .obs_clip = 100.0f, .velocity_clip = 200.0f },
+            .observation = { .gyro_scale = 0.25f, .height_scale = 5.0f, .joint_vel_scale = 0.05f, .obs_clip = 100.0f, .velocity_command_scale = 2.0f },
             .torque = {
                 .pos_scale = 0.5f,
                 .wheel_vel_scale = 10.0f,
@@ -180,17 +180,14 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
                 .d_gains = {2.0f, 2.0f, 2.0f, 2.0f},
                 .wheel_gain = {0.1f, 0.1f},
                 .position_limit = 3.14f,
-                .wheel_speed_limit = 100.0f,
+                .wheel_speed_limit = 150.0f,
                 .leg_torque_limit = 40.0f,
                 .wheel_torque_limit = 3.9f,
             },
-            /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
+            /* 8000行走终止判据；不使用高度代理或旧趴地恢复。 */
             .recovery = {
-                .fallen_angle_deg = 40.0f,
-                .recovery_height = 0.13f,
-                .recovery_hold_ms = 200u,
-                .recovery_stable_ms = 500u,
-                .recovery_timeout_ms = 400u,
+                .terminal_gravity_z = -0.1f,
+                .terminal_ms = 1010u,
             }, /* 公共起立/恢复过程 */
             /* RL动作新鲜度/就绪期限，ms */
             .timing = {
@@ -230,7 +227,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .spring = &machine_spring_leg3,
             .gravity = &gravity_big,
         }, /* 公共物理补偿模型 */
-        /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
+        /* 8000行走终止判据；不使用高度代理或旧趴地恢复。 */
         .recovery = {
             .fallen_support_angle_range = 0.6f,
         }, /* 公共起立/恢复过程 */
@@ -305,13 +302,10 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         },
         /* RL观测、动作、恢复及新鲜度 */
         .rl = {
-            /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
+            /* 8000行走终止判据；不使用高度代理或旧趴地恢复。 */
             .recovery = {
-                .fallen_angle_deg = 40.0f,
-                .recovery_height = 0.13f,
-                .recovery_hold_ms = 200u,
-                .recovery_stable_ms = 500u,
-                .recovery_timeout_ms = 400u,
+                .terminal_gravity_z = -0.1f,
+                .terminal_ms = 1010u,
             }, /* 公共起立/恢复过程 */ /* RL动作新鲜度期限，ms */
         }, /* rl */
         /* 轮驱动：型号、传动、限矩Nm及实机标定 */
@@ -345,7 +339,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
         .compensation = {
             .spring = 0,
         }, /* 公共物理补偿模型 */
-        /* 恢复策略：公共起立角范围rad；RL恢复高度m、时间ms */
+        /* 8000行走终止判据；不使用高度代理或旧趴地恢复。 */
         .recovery = {
             .fallen_support_angle_range = 0.6f,
         }, /* 公共起立/恢复过程 */

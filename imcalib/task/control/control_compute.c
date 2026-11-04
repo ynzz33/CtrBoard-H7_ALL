@@ -343,7 +343,7 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
 #endif
     }
     rl_engaged = (uint8_t)(frame->drive_permit && frame->rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);
-    if (rl_engaged && rl_control.recovery.phase != RL_RECOVERY_HOLD && action_state.rl_ready && frame->rl_motor.valid)
+    if (rl_engaged && action_state.rl_ready && frame->rl_motor.valid)
     {
         if (tick)
         {
@@ -359,6 +359,10 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
             trace.begin_ns=Mono_Ns_Get();
 #endif
             (void)RL_Torque_Compute(&frame->rl_motor, &machine->rl, action_state.a, &rl_control.torque_state, torque);
+            if (torque->valid && rl_control.observation.history_initialized && rl_control.observation.warmup_steps < MACHINE_POLICY_DIV / MACHINE_RL_CTRL_DIV)
+            {
+                rl_control.observation.warmup_steps++;
+            }
 #if MACHINE_LATENCY_CAPTURE_ENABLE
             trace.end_ns=Mono_Ns_Get(); trace.flags=torque->valid;
             trace.value[1]=Latency_Age_Us(trace.begin_ns,trace_policy_published_ns);

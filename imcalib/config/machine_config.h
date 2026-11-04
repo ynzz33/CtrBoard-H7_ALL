@@ -26,8 +26,6 @@
 /* 两份机器配置表同时编译，各自引用机械腿长范围，单位m。 */
 #define MACHINE_BIG_LEG_LEN_MIN   0.14f
 #define MACHINE_BIG_LEG_LEN_MAX   0.33f
-#define MACHINE_RL_HEIGHT_CMD_MIN  0.27f
-#define MACHINE_RL_HEIGHT_CMD_MAX  0.47f
 
 #define MACHINE_SMALL_LEG_LEN_MIN 0.13f
 #define MACHINE_SMALL_LEG_LEN_MAX 0.23f
@@ -44,7 +42,7 @@
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_TICK_DT           0.001f
 #define MACHINE_RL_CTRL_DIV       2u      /* RL实体PD/反馈采样/正常下发：500Hz */
-#define MACHINE_POLICY_DIV        20u     /* model1999单帧35维，50Hz策略/500Hz PD */
+#define MACHINE_POLICY_DIV        10u     /* 8000 v2：25/125双输入，100Hz策略/500Hz PD */
 #define MACHINE_DM_OFFLINE_MS     50u
 #define MACHINE_VOFA_PORT         8u      /* UART8 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
@@ -66,7 +64,7 @@
 
 #define MACHINE_LQR_DT            MACHINE_TICK_DT
 #define MACHINE_RL_CTRL_DT        (MACHINE_TICK_DT * (float)MACHINE_RL_CTRL_DIV)
-/* 训练参考点换算，仅RL恢复代理高度使用，不修改公共髋轮投影。 */
+/* 训练XML直立目标换算：轮接地半径减髋轴相对base_link高度，非实机标定。 */
 #define MACHINE_RL_LEG_TO_HEIGHT  (0.06f - 0.02352f)
 #define MACHINE_POLICY_DT         (MACHINE_TICK_DT * (float)MACHINE_POLICY_DIV)
 
@@ -107,13 +105,13 @@ typedef struct {
     float len_rate; /* m/s */
 } machine_rc_cfg_t;
 
-/* model1999：先裁剪后缩放，模型原生q/dq供电机PD使用。 */
+/* 8000 v2：先缩放，当前帧整体裁剪；历史保存裁剪前帧。 */
 typedef struct {
     float gyro_scale;          /* 机体角速度观测缩放 */
     float height_scale;        /* 目标高度命令观测缩放 */
     float joint_vel_scale;     /* 六路电机速度观测缩放 */
-    float obs_clip;            /* 角速度/重力/角差/action缩放前裁剪幅值 */
-    float velocity_clip;       /* 1999电机速度先裁剪±200rad/s再缩放 */
+    float obs_clip;            /* 缩放后完整当前帧裁剪幅值 */
+    float velocity_command_scale; /* 前向速度命令缩放 */
 } machine_rl_observation_cfg_t;
 typedef struct {
     float pos_scale;           /* action→相对名义角偏移，rad/action */
@@ -131,11 +129,8 @@ typedef struct {
  * 配对映射将公共驱动坐标转换至RL坐标，不能照网络action顺序填写。 */
 /* 公共起立/恢复过程 */
 typedef struct {
-    float fallen_angle_deg; /* RL独立倾倒阈值deg */
-    float recovery_height; /* 代理机高m */
-    uint32_t recovery_hold_ms;
-    uint32_t recovery_stable_ms;
-    uint32_t recovery_timeout_ms;
+    float terminal_gravity_z; /* 模型倾倒终止：机体系单位重力Z大于此值。 */
+    uint32_t terminal_ms; /* 100Hz连续超过100步：1010ms，非起立动作超时。 */
 } machine_rl_recovery_cfg_t;
 
 /* RL动作新鲜度期限，ms */
@@ -154,7 +149,7 @@ typedef struct {
     machine_rl_torque_cfg_t torque;
 
 
-    machine_rl_recovery_cfg_t recovery; /* 公共起立/恢复过程 */
+    machine_rl_recovery_cfg_t recovery; /* RL独立倾倒终止，非自起动作 */
 
     machine_rl_timing_cfg_t timing; /* RL动作新鲜度期限，ms */
 } machine_rl_cfg_t;

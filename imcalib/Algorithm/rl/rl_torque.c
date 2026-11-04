@@ -20,12 +20,12 @@ uint8_t RL_Torque_Compute(const rl_motor_state_t *motor, const machine_rl_cfg_t 
     /* 零action指向q_nominal，目标边界以XML的q_reference为中心，不环绕角差。 */
     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
     {
-        state->target[i] = clampf(config->nominal_pos[i] + config->torque.pos_scale * action[RL_Action_Index(i)], config->position_limit_center[i] - config->torque.position_limit, config->position_limit_center[i] + config->torque.position_limit);
+        state->target[i] = clampf(config->nominal_pos[i] + config->torque.pos_scale * clip(action[RL_Action_Index(i)], RL_ACTION_CLIP), config->position_limit_center[i] - config->torque.position_limit, config->position_limit_center[i] + config->torque.position_limit);
     }
-    /* model1999网络action[4、5]生成左右轮轴速度目标。 */
+    /* 8000网络action[2、5]生成左右轮轴速度目标。 */
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        state->target[RL_MOTOR_L_WHEEL + i] = clip(config->torque.wheel_vel_scale * action[RL_Action_Index(RL_MOTOR_L_WHEEL + i)], config->torque.wheel_speed_limit);
+        state->target[RL_MOTOR_L_WHEEL + i] = clip(config->torque.wheel_vel_scale * clip(action[RL_Action_Index(RL_MOTOR_L_WHEEL + i)], RL_ACTION_CLIP), config->torque.wheel_speed_limit);
     }
     if (!Float_Array_Finite(state->target, RL_ACTION_SIZE)) { return 0u; }
     memcpy(state->pos, motor->pos, sizeof(state->pos));

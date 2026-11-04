@@ -1,48 +1,31 @@
 /*
  * 将执行任务采样的物理反馈转成模型坐标、投影重力并组装当前网络观测。
- * 同时维护RL启动保持/连续异常失败计时；last_action保存网络原始动作，不保存最终力矩。
+ * 同时维护RL倾倒失败计时；last_action保存裁剪后网络动作，不保存最终力矩。
  */
 #include "rl_observation.h"
 #include "math_utils.h"
 #include <math.h>
 #include <string.h>
-/* 1999连续触地/倾倒20个50Hz步终止；作者实机试验指定代理机高≤0.13m。 */
+/* 8000 v2：行走模型仅保留倾倒终止，不实现趴地恢复。 */
 #define RL_RECOVERY_TICK_MS ((uint16_t)(MACHINE_TICK_DT * 1000.0f + 0.5f))
 void RL_Recovery_Reset(rl_recovery_state_t *state)
 {
     memset(state, 0, sizeof(*state));
 }
-/* 每基础拍按固定dt累计RL启动保持和连续down时间；down由倾角或低高度构成。
- * 首次down进入HOLD，保持结束转NORMAL；连续异常达超时转FAILED，退出请求才解除失败。
- * 当前未设置RECOVER阶段；stable_ms仍累计，不能把枚举保留值当成已实现的恢复动作。 */
-void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t feedback_valid, uint8_t fallen, float height)
+/* 仿真gravity_z>-0.1连续超过100个策略步终止；硬件以基础拍累计同一1010ms期限。 */
+void RL_Recovery_Update(rl_recovery_state_t *state, uint8_t request, uint8_t feedback_valid, float gravity_z)
 {
-    uint8_t down;
     if (!request) { RL_Recovery_Reset(state); return; }
     if (state->phase == RL_RECOVERY_FAILED) { return; }
-    if (!feedback_valid) { RL_Recovery_Reset(state); return; }
-    down = (uint8_t)(fallen || height <= machine->rl.recovery.recovery_height);
-    if (state->phase == RL_RECOVERY_IDLE)
-    {
-        state->ground_start = down;
-        state->phase = down ? RL_RECOVERY_HOLD : RL_RECOVERY_NORMAL;
-        return; /* 投入当拍为t=0，不提前推进启动保持。 */
-    }
-    if (state->hold_ms < machine->rl.recovery.recovery_hold_ms) { state->hold_ms += RL_RECOVERY_TICK_MS; }
-    if (down)
-    {
-        state->stable_ms = 0u;
-        state->fallen_ms += RL_RECOVERY_TICK_MS;
-        if (state->phase != RL_RECOVERY_HOLD) { state->phase = RL_RECOVERY_NORMAL; }
-    }
-    else
-    {
-        state->fallen_ms = 0u;
-        if (state->stable_ms < machine->rl.recovery.recovery_stable_ms) { state->stable_ms += RL_RECOVERY_TICK_MS; }
-        if (state->stable_ms >= machine->rl.recovery.recovery_stable_ms) { state->phase = RL_RECOVERY_NORMAL; }
-    }
-    if (state->phase == RL_RECOVERY_HOLD && state->hold_ms >= machine->rl.recovery.recovery_hold_ms) { state->phase = RL_RECOVERY_NORMAL; }
-    if (state->fallen_ms >= machine->rl.recovery.recovery_timeout_ms) { state->phase = RL_RECOVERY_FAILED; }
+    if (!feedback_valid || !isfinite(gravity_z)) { RL_Recovery_Reset(state); return; }
+    state->phase = RL_RECOVERY_NORMAL;
+    state->fallen_ms = gravity_z > machine->rl.recovery.terminal_gravity_z ? state->fallen_ms + RL_RECOVERY_TICK_MS : 0u;
+    if (state->fallen_ms >= machine->rl.recovery.terminal_ms) { state->phase = RL_RECOVERY_FAILED; }
+}
+/* 公共拨轮仍表示腿长；RL入口先换算直立机高，再裁至8000训练范围。 */
+float RL_Command_Height(float leg_length_command)
+{
+    return clampf(leg_length_command + MACHINE_RL_LEG_TO_HEIGHT, 0.22f, 0.30f);
 }
 /* 固件→模型：位置去额外零偏后乘sign，速度只乘sign；输出力矩在rl_torque中配对还原。 */
 uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, float position_period, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_map_state_t *state, rl_motor_state_t *out)
@@ -108,40 +91,49 @@ uint8_t RL_Observation_Read_Sample(const rl_observation_state_t *state, rl_obser
     *sample = state->sample;
     return 1u;
 }
-/* 按RL_OBS索引填命令、角速度、投影重力、电机位置/速度及上次原始action。
- * 高度请求独立限幅/缩放，当前控制模式槽固定1；结果全部有限才置valid。 */
+/* 8000 v2：先缩放拼帧，历史保存未裁剪帧，当前输入最后整体裁剪。
+ * 首帧重复填5次；任务先执行一个零动作周期，下一帧FIFO形成4份复位帧+1份新帧。
+ * 不在硬件添加仿真噪声，也不把后续帧覆写进旧历史。 */
 uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg_t *config, const rl_observation_sample_t *sample, const rc_command_t *command, const rl_recovery_state_t *recovery, uint8_t source_valid)
 {
-    memset(state->obs, 0, sizeof(state->obs));
+    float raw[RL_OBS_SIZE] = {0.0f};
     state->valid = 0u;
+    memset(state->obs, 0, sizeof(state->obs));
     if (!source_valid || recovery->phase == RL_RECOVERY_FAILED) { return 0u; }
-    /* 作者选择直接复用rc.len作高度命令，接受低段拨轮被下限截住；不回写公共RC。 */
-    state->obs[RL_OBS_CMD_VX] = clip(command->velocity_target, 2.7f);
-    state->obs[RL_OBS_CMD_YAW_RATE] = clip(command->yaw_rate_target, 6.283185307f);
-    state->obs[RL_OBS_CMD_HEIGHT] = clampf(command->leg_length_target, MACHINE_RL_HEIGHT_CMD_MIN, MACHINE_RL_HEIGHT_CMD_MAX) * config->observation.height_scale;
-    /* 4～9：机体角速度与单位重力；角速度先限幅，再乘训练缩放。 */
     for (uint8_t i = 0u; i < 3u; i++)
     {
-        state->obs[RL_OBS_GYRO_X + i] = clip(sample->gyro[i], config->observation.obs_clip) * config->observation.gyro_scale;
-        state->obs[RL_OBS_GRAV_X + i] = clip(sample->gravity[i], config->observation.obs_clip);
+        raw[RL_OBS_GYRO_X + i] = sample->gyro[i] * config->observation.gyro_scale;
+        raw[RL_OBS_GRAV_X + i] = sample->gravity[i];
     }
-    /* 10～15：四实体电机角减名义角，末两路轮位置槽保持0。 */
+    raw[RL_OBS_CMD_VX] = clip(command->velocity_target, 2.5f) * config->observation.velocity_command_scale;
+    raw[RL_OBS_CMD_YAW_RATE] = clip(command->yaw_rate_target, 2.0f) * config->observation.gyro_scale;
+    raw[RL_OBS_CMD_HEIGHT] = RL_Command_Height(command->leg_length_target) * config->observation.height_scale;
     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
     {
-        state->obs[RL_OBS_MOTOR_POS + i] = clip(sample->pos[i] - config->nominal_pos[i], config->observation.obs_clip);
+        raw[RL_OBS_MOTOR_POS + i] = sample->pos[i] - config->nominal_pos[i];
     }
-    /* 16～27：六路速度与上一原始请求；观测裁剪不改写保存的action。 */
     for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++)
     {
-        state->obs[RL_OBS_MOTOR_VEL + i] = clip(sample->vel[i], config->observation.velocity_clip) * config->observation.joint_vel_scale;
-        state->obs[RL_OBS_LAST_ACTION + i] = clip(state->last_action[RL_Action_Index(i)], config->observation.obs_clip);
+        raw[RL_OBS_MOTOR_VEL + RL_Action_Index(i)] = sample->vel[i] * config->observation.joint_vel_scale;
+        raw[RL_OBS_LAST_ACTION + i] = state->last_action[i];
     }
-    state->obs[RL_OBS_CONTROL_MODE] = 1.0f; /* 1999动态模式关闭，始终普通模式。 */
-    state->valid = Float_Array_Finite(state->obs, RL_OBS_SIZE);
+    if (!Float_Array_Finite(raw, RL_OBS_SIZE)) { return 0u; }
+    if (!state->history_initialized)
+    {
+        for (uint8_t i = 0u; i < RL_HISTORY_FRAMES; i++) { memcpy(&state->history[i * RL_OBS_SIZE], raw, sizeof(raw)); }
+        state->history_initialized = 1u;
+    }
+    else
+    {
+        memmove(state->history, &state->history[RL_OBS_SIZE], (RL_HISTORY_SIZE - RL_OBS_SIZE) * sizeof(float));
+        memcpy(&state->history[RL_HISTORY_SIZE - RL_OBS_SIZE], raw, sizeof(raw));
+    }
+    for (uint8_t i = 0u; i < RL_OBS_SIZE; i++) { state->obs[i] = clip(raw[i], config->observation.obs_clip); }
+    state->valid = Float_Array_Finite(state->history, RL_HISTORY_SIZE);
     return state->valid;
 }
-/* 保存网络请求本身；不能用PD目标、延迟后的目标或最终力矩替代。 */
+/* 与环境process_actions一致：last_action保存裁剪后的动作，保持网络顺序。 */
 void RL_Observation_Set_Last_Action(rl_observation_state_t *state, const float action[RL_ACTION_SIZE])
 {
-    memcpy(state->last_action, action, sizeof(state->last_action));
+    for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++) { state->last_action[i] = clip(action[i], RL_ACTION_CLIP); }
 }

@@ -76,8 +76,8 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         break;
     }
     len_min = MACHINE_BIG_LEG_LEN_MIN;
-    /* 公共拨轮仅限总命令范围；各算法入口再按腿长/机高含义分别裁剪。 */
-    len_max = MACHINE_RL_HEIGHT_CMD_MAX;
+    /* 公共拨轮保持本机腿长范围；RL入口仅加训练机高偏置。 */
+    len_max = MACHINE_BIG_LEG_LEN_MAX;
     cmd->leg_length_target += Rc_Axis(rc->wheel, machine->rc.deadband_len) * machine->rc.len_rate * dt*0.3;
     cmd->leg_length_target = fminf(fmaxf(cmd->leg_length_target, len_min), len_max);
 }

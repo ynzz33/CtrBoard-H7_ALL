@@ -12,37 +12,23 @@
 #include <string.h>
 #include <math.h>
 
-/* 根据本拍倾角和RL机高推进启动保持/失败状态；阶段变化时清动作或作废旧推理。
- * request只在遥控在线、使能、RL且投入时成立；rl_fallen不写公共robot_state.fallen。 */
+/* RL只更新自身终止状态，不改写LQR公共倒地/AIR选路。 */
 static void Control_RL_Recovery_Update(const control_frame_t *frame)
 {
-    rl_recovery_state_t recovery;
-    rl_recovery_phase_t previous;
-    uint8_t request;
-    uint8_t rl_fallen; /* RL专用倾角超限，不影响公共LQR倒地阈值。 */
-
-    recovery = rl_control.recovery;
-    previous = recovery.phase;
-    request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_RL && frame->rc.mode.engage);
-    rl_fallen = (uint8_t)(fabsf(frame->imu.euler_deg[ATTITUDE_ROLL]) > machine->rl.recovery.fallen_angle_deg || fabsf(frame->imu.euler_deg[ATTITUDE_PITCH]) > machine->rl.recovery.fallen_angle_deg);
-    /* 旧模型没有承重解锁；机身接触传感器缺失，使用既有高度代理。 */
-    RL_Recovery_Update(&recovery, request, (uint8_t)(frame->drive_permit && frame->height_valid), rl_fallen, frame->height + MACHINE_RL_LEG_TO_HEIGHT);
+    rl_recovery_state_t recovery = rl_control.recovery;
+    rl_recovery_phase_t previous = recovery.phase;
+    float gravity[3];
+    uint8_t valid;
+    uint8_t request = (uint8_t)(frame->rc.online && frame->rc.mode.rc_enable && frame->rc.mode.strategy == CTRL_STRATEGY_RL && frame->rc.mode.engage);
+    valid = (uint8_t)(frame->drive_permit && frame->imu.online && RL_Observation_Project_Gravity(frame->imu.quat, gravity));
+    RL_Recovery_Update(&recovery, request, valid, valid ? gravity[2] : 0.0f);
     taskENTER_CRITICAL();
     rl_control.recovery = recovery;
     if (recovery.phase != previous)
     {
-        if (previous == RL_RECOVERY_IDLE || recovery.phase == RL_RECOVERY_IDLE || recovery.phase == RL_RECOVERY_FAILED)
-        {
-            RL_Torque_Reset(&rl_control.torque_state);
-            Action_State_Clear();
-            memset(rl_control.observation.last_action, 0, sizeof(rl_control.observation.last_action));
-        }
-        else
-        {
-            /* 保留训练的原始action历史；拒绝跨模式的在途推理，等待新模式首帧。 */
-            action_state.rl_ready = 0u;
-            action_state.reset_count++;
-        }
+        RL_Torque_Reset(&rl_control.torque_state);
+        Action_State_Clear();
+        RL_Observation_Reset(&rl_control.observation); /* 投入/退出/失败不能继承上一段历史。 */
     }
     taskEXIT_CRITICAL();
 }

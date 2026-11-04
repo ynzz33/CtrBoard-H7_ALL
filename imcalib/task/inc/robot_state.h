@@ -21,7 +21,7 @@
 
 
 typedef struct {
-    float a[RL_ACTION_SIZE];    /* 1999原始顺序[LF前,LF后,RF前,RF后,L轮,R轮]，未缩放 */
+    float a[RL_ACTION_SIZE];    /* 8000网络顺序[LF前,LF后,L轮,RF前,RF后,R轮]，±100裁剪，未乘动作尺度 */
     uint32_t reset_count;       /* 动作清零次数：拒绝清零前已在途、清零后才返回的推理 */
     uint32_t last_ok_tick;      /* 最近一次有效动作发布时间，ms */
     uint8_t updated;            /* 动作已发布，看门狗可开始检查更新时间 */
@@ -36,11 +36,11 @@ typedef struct {
 typedef struct {
     uint8_t motor_enabled; /* 通信任务维护的电机使能请求状态，不等于四髋反馈均已使能。 */
     uint8_t fallen; /* 公共FALLEN选路归属，恢复完成重新选路解除；非RL倾角判据。 */
-    float height; /* 公共髋轮投影间距m；通信发布，RL与LQR触地判断共用。 */
+    float height; /* 公共髋轮投影间距m；通信发布，RL仅诊断显示。 */
     uint8_t height_valid; /* 公共投影高度是否有效。 */
 } robot_state_t;
 
-/* 最新采样/PD归执行任务，观测/原始action历史归策略任务；参数直接读机器表。 */
+/* 最新采样/PD归执行任务，观测/裁剪后action历史归策略任务；参数直接读机器表。 */
 typedef struct {
     rl_observation_state_t observation;
     rl_policy_t policy;
