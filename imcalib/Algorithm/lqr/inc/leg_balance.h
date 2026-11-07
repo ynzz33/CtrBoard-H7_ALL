@@ -32,8 +32,13 @@ typedef struct {
     roll_height_balance_t roll_height; /* NORMAL唯一轴向控制，不再后备PD */
 } leg_balance_t;
 
+void Leg_Balance_Reference_Preview(leg_balance_t *lb, const lqr_state_t *st); /* 仅写MPC预览缓冲。 */
 void    Leg_Balance_Init(leg_balance_t *lb);
 void    Leg_Balance_Reset(leg_balance_t *lb);
+/* 只重组当拍已有F与已选十态输入，不推进任何控制/参考/模型历史。 */
+uint8_t Leg_Balance_Apply_Inputs(leg_balance_t *lb,const leg_state_t *left,const leg_state_t *right,
+    const float F[2],const float input[4],const leg_compensation_values_t *values,
+    const lqr_runtime_config_t *config,torque_output_t *torque);
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
                             const leg_compensation_values_t *values,

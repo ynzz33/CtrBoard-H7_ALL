@@ -43,7 +43,7 @@ typedef struct {
 } control_frame_t;
 
 #ifndef CONTROL_TIME_VOFA_ENABLE
-#define CONTROL_TIME_VOFA_ENABLE 0u
+#define CONTROL_TIME_VOFA_ENABLE (MACHINE_ROLL_HEIGHT_USE_MPC || MACHINE_BALANCE_USE_MPC)
 #endif
 
 typedef struct {
@@ -52,6 +52,8 @@ typedef struct {
     uint32_t min_period_us; /* 已记录的最小执行间隔us。 */
     uint32_t max_period_us; /* 已记录的最大执行间隔us。 */
     uint32_t run_us; /* 本拍执行函数耗时us。 */
+    uint32_t max_run_us; /* 完整执行拍峰值us，包含状态/模型、计算与发送。 */
+    uint32_t overrun_count; /* run_us达到基础周期的次数，不是物理CAN丢帧数。 */
     uint32_t output_sequence; /* 调用最终输出层的次数，不是成功CAN帧数。 */
     uint32_t output_period_us; /* 相邻发送调用所在执行拍的起点间隔us。 */
 } control_time_debug_t;

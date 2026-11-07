@@ -8,9 +8,18 @@
 
 #include "motion_guard.h"
 #include <stdint.h>
+#define MACHINE_BALANCE_USE_MPC 0u
+#define MACHINE_ROLL_HEIGHT_USE_MPC 0u
+
+#define MACHINE_MPC_REFERENCE_PREDICT 1u /* 四态真实长度斜坡预览；不改变十态参考生成。 */
+#define MACHINE_MPC_INPUT_CONSTRAINT 1u
+#if MACHINE_ROLL_HEIGHT_USE_MPC && !MACHINE_MPC_INPUT_CONSTRAINT
+#error "MPC requires input constraints"
+#endif
+
 #define MACHINE_LATENCY_CAPTURE_ENABLE              0u /* 完整时序采集；0编译移除测点/缓冲/新增IRQ。 */
 #define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
-#define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：四态LQR，控制NORMAL腿长和roll */
+#define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：NORMAL四态后端（LQR/MPC），控制腿长和roll */
 #define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE         0u /* 4态leso观测器 */
 /* 轴向力补偿，*/
 #define MACHINE_HEIGHT_TRIM_ENABLE                  1u
@@ -99,7 +108,8 @@ typedef struct {
     uint16_t deadband_vel; /* DR16原始计数 */
     uint16_t deadband_yaw;
     uint16_t deadband_len;
-    float vel_max; /* m/s */
+    float vel_max; /* m/s，前进上限 */
+    float vel_max_rev; /* m/s，倒车幅值上限 */
     float yaw_max; /* rad/s */
     float len_init; /* m */
     float len_rate; /* m/s */
@@ -190,6 +200,12 @@ typedef struct {
     float roll_height_bias_common_max; /* 观测器平均偏置上限N/腿，不是腿力输出限幅 */
     float roll_height_bias_diff_max; /* 左右偏置之差上限N，不是单腿力输出限幅 */
     float support_force[2];
+    struct {
+        uint16_t max_iter; /* MPC有限迭代上限；模型/rho/窗口由生成数据管理。 */
+        float primal_tolerance; /* 输入共识残差N。 */
+        float dual_tolerance; /* rho加权对偶残差，求解器坐标。 */
+        uint16_t solve_div; /* MPC重算/输入保持拍数，模型周期须等于基础周期*solve_div。 */
+    } mpc;
 } machine_lqr_roll_height_cfg_t;
 
 /* 原腿长/roll PD；参数口径保持 */

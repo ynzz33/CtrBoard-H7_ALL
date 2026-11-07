@@ -25,6 +25,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
 {
     float len_min;
     float len_max;
+    float velocity_axis;
 
     cmd->mode.strategy = CTRL_STRATEGY_DISABLE;
     cmd->mode.rc_enable = 0u;
@@ -39,7 +40,8 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         cmd->online = 0u;
         return;
     }
-    cmd->velocity_target = Rc_Axis(rc->ch1, machine->rc.deadband_vel) * machine->rc.vel_max;
+    velocity_axis = Rc_Axis(rc->ch1, machine->rc.deadband_vel);
+    cmd->velocity_target = velocity_axis * (velocity_axis >= 0.0f ? machine->rc.vel_max : machine->rc.vel_max_rev);
     cmd->yaw_rate_target = -Rc_Axis(rc->ch2, machine->rc.deadband_yaw) * machine->rc.yaw_max;
     cmd->s1 = rc->s1;
     cmd->s2 = rc->s2;

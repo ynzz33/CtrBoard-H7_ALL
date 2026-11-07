@@ -105,6 +105,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .deadband_yaw = 20u,
             .deadband_len = 20u,
             .vel_max = 3.0f,
+            .vel_max_rev = 3.0f,
             .yaw_max = 5.0f,
             .len_init = 0.15f,
             .len_rate = 1.3f,
@@ -134,7 +135,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             }, /* 十态姿态参考及偏航反馈开关 */
             /* 停车位置保持：距离m、速度m/s、角度rad */
             .position_hold = {
-                .pos_target = 0.0f,
+                .pos_target = 0.15f,
                 .pos_reset_dist = 3.5f,
                 .pos_arm_vel = 0.15f,
                 .pos_leg_tol = 0.15f,
@@ -151,6 +152,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
                 .roll_height_bias_common_max = 150.0f,
                 .roll_height_bias_diff_max = 40.0f,
                 .support_force = {25.544f * 9.81f * 0.5f, 25.544f * 9.81f * 0.5f},
+                .mpc = {100u,0.002f,0.0000002f,2u},
             }, /* 四态轴向/高度控制；N、m/s² */
             /* 原PD：左右腿长度输出N，roll差动力N，Kd原换算口径不变 */
             .pd = {
@@ -241,6 +243,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
             .deadband_yaw = 20u,
             .deadband_len = 20u,
             .vel_max = 3.0f,
+            .vel_max_rev = 2.8f,
             .yaw_max = 5.0f,
             .len_init = 0.14f,
             .len_rate = 0.3f,
@@ -274,6 +277,7 @@ const machine_cfg_t machine_table[MACHINE_NUM] = {
                 .leg_force_min = -10.0f,
                 .length_ref_accel_max = 1.0f,
                 .support_force = {8.0f, 8.0f},
+                .mpc = {100u,0.002f,0.0000002f,2u},
             }, /* 四态轴向/高度控制；N、m/s² */
             /* 原PD：左右腿长度输出N，roll差动力N，Kd原换算口径不变 */
             .pd = {

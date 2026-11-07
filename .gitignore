@@ -29,4 +29,7 @@ __pycache__/
 /tools/matlab/lqr10/cache
 /tools/matlab/**/*.log
 /tools/matlab/lqr4/output/
+/tools/matlab/balance14/output/
+/tools/matlab/mpc4/output/
+/tools/matlab/mpc10/output/
 /tools/matlab/**/*.asv

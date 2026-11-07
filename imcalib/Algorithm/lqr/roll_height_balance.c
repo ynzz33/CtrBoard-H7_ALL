@@ -4,7 +4,6 @@
  */
 #include "roll_height_balance.h"
 #include "machine_config.h"
-#include "mono_ns.h"
 #include <math.h>
 #include <string.h>
 
@@ -24,7 +23,7 @@ void Roll_Height_Reset(roll_height_balance_t *state)
 }
 
 /* 开始四态轴向控制一拍，设置控制/观察器许可并清本拍采样标志；失去许可则清历史。 */
-void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit)
+void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit, uint8_t output_applied)
 {
     if (!permit || !Roll_Height_Available())
     {
@@ -34,8 +33,12 @@ void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_
     state->permit = 1u;
     state->sampled = 0u;
     state->observer.permit = observer_permit;
-    state->observer.updated = 0u;
-    state->observer.limited = 0u;
+#if MACHINE_ROLL_HEIGHT_USE_MPC
+    /* 未实际提交/已限矩时不沿用优化辅助历史，下一拍从当前状态冷启动。 */
+    if (!output_applied) state->mpc.initialized=0u;
+#else
+    (void)output_applied;
+#endif
 }
 
 /* 输入F保持补偿前坐标；仅使用上一拍确认提交且未限矩的请求，不把FN估计当模型输入。 */
@@ -71,7 +74,8 @@ static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float mea
         }
         for (uint8_t j = 0u; j < RH_NU; j++)
         {
-            predicted[i] += roll_height_model.B[i][j] * (state->force[j] + observer->bias[j]);
+            /* 上拍base_force已含trim/向心及-bias，回到同一名义support输入坐标，避免重复学习已知补偿。 */
+            predicted[i] += roll_height_model.B[i][j] * (state->force[j] + machine->lqr.roll_height.support_force[j] - state->lqr.base_force[j]);
         }
         innovation[i] = measurement[i] - predicted[i];
     }
@@ -94,8 +98,6 @@ static uint8_t Roll_Height_Observe(roll_height_balance_t *state, const float mea
     memcpy(observer->state, next, sizeof(observer->state));
     observer->bias[0] = bounded_common + 0.5f * bounded_difference;
     observer->bias[1] = bounded_common - 0.5f * bounded_difference;
-    observer->limited = (uint8_t)(bounded_common != common || bounded_difference != difference);
-    observer->updated = 1u;
     return 1u;
 #endif
 }
@@ -128,7 +130,6 @@ static uint8_t Roll_Height_State_Update(roll_height_balance_t *state, const lqr_
     /* 固定腿角目标、roll目标为0：高度位置与速度来自同一长度参考。 */
     state->target[2] = 0.5f * (length_ramp_target[0] * cosf(lqr->target[LQR_X_THL]) + length_ramp_target[1] * cosf(lqr->target[LQR_X_THR]));
     state->target[3] = 0.5f * (length_rate_target[0] * cosf(lqr->target[LQR_X_THL]) + length_rate_target[1] * cosf(lqr->target[LQR_X_THR]));
-    state->height_target = 0.5f * (lqr->leg_length_target[0] * cosf(lqr->target[LQR_X_THL]) + lqr->leg_length_target[1] * cosf(lqr->target[LQR_X_THR]));
     if (!isfinite(state->x[2]) || !isfinite(state->height_rate_raw) || !isfinite(state->target[2]) || !isfinite(state->target[3]))
     {
         return 0u;
@@ -160,8 +161,7 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
         value = state->lqr.base_force[i];
         for (uint8_t j = 0u; j < RH_NX; j++)
         {
-            state->lqr.feedback[i][j] = -roll_height_model.K[i][j] * (state->x[j] - state->target[j]);
-            value += state->lqr.feedback[i][j];
+            value += -roll_height_model.K[i][j] * (state->x[j] - state->target[j]);
         }
         if (!isfinite(value))
         {
@@ -170,7 +170,6 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
         raw_force[i] = value;
     }
     difference = 0.5f * raw_force[0] - 0.5f * raw_force[1];
-    state->lqr.difference_request = difference;
     state->lqr.common_shift = 0.0f;
     if (raw_force[0] < machine->lqr.roll_height.leg_force_min || raw_force[1] < machine->lqr.roll_height.leg_force_min)
     {
@@ -204,10 +203,9 @@ static uint8_t Roll_Height_Fail(roll_height_balance_t *state)
 /* 由长度/横滚状态与目标求左右轴向力，并更新可选偏置观察器和力限幅诊断。 */
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
-                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff)
+                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff, const leg_compensation_values_t *values, const lqr_runtime_config_t *config)
 {
     float measurement[RH_NX];
-    uint32_t started;
 
     if (!state->permit)
     {
@@ -223,16 +221,11 @@ uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
         return Roll_Height_Fail(state);
     }
 
-    /* 保持原计时范围：状态/滤波更新之后，观测及反馈计算之前。 */
-    started = (uint32_t)(Mono_Ns_Get() / 1000u);
     state->valid = 0u;
     measurement[0] = state->x[0];
     measurement[1] = lqr->roll_rate;
     measurement[2] = state->x[2];
     measurement[3] = state->height_rate_raw;
-    state->lqr.observer_force[0] = state->force[0];
-    state->lqr.observer_force[1] = state->force[1];
-    state->lqr.observer_input_used = (float)(MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE && state->observer.permit && state->observer.seeded);
     /* 观测用原始速度，避免将控制低通的延迟误认为物理扰动。 */
     if (!Roll_Height_Observe(state, measurement))
     {
@@ -242,12 +235,11 @@ uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
     {
         return Roll_Height_Fail(state);
     }
-    state->elapsed_us = (uint32_t)(Mono_Ns_Get() / 1000u) - started;
-    if (state->elapsed_us > state->max_elapsed_us)
-    {
-        state->max_elapsed_us = state->elapsed_us;
-    }
-    state->update_count++;
+#if MACHINE_ROLL_HEIGHT_USE_MPC
+    Roll_Height_MPC_Update(state,lqr,left,right,values,config);
+#else
+    (void)values; (void)config;
+#endif
     state->valid = 1u;
     return 1u;
 }

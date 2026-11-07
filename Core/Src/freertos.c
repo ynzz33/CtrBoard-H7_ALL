@@ -31,6 +31,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "robot_control.h"
+#include "task_balance_mpc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,6 +51,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+osThreadId balanceMpcTaskHandle;
 
 /* USER CODE END Variables */
 osThreadId defaultTaskHandle;
@@ -60,6 +62,7 @@ osThreadId actuationTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
+void balanceMpcTask_Entry(void const *argument);
 
 /* USER CODE END FunctionPrototypes */
 
@@ -153,6 +156,13 @@ void MX_FREERTOS_Init(void) {
   actuationTaskHandle = osThreadCreate(osThread(actuationTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
+#if MACHINE_BALANCE_USE_MPC
+  /* 实测High会与IMU/policy争用并饿死comm/VOFA，先退回Normal；
+   * 如再试只能AboveNormal并验证输出路径。模型/工作数组静态分配。 */
+  osThreadDef(balanceMpcTask,balanceMpcTask_Entry,osPriorityNormal,0,1024);
+  balanceMpcTaskHandle=osThreadCreate(osThread(balanceMpcTask),NULL);
+  Balance_MPC_Task_Ready((uint8_t)(balanceMpcTaskHandle!=NULL));
+#endif
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
@@ -263,5 +273,25 @@ void actuationTask_Entry(void const * argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+void balanceMpcTask_Entry(void const *argument)
+{
+  (void)argument;
+  TickType_t wake=xTaskGetTickCount();
+  const TickType_t period=pdMS_TO_TICKS((uint32_t)(BALANCE_MPC_TS*1000.0f+0.5f)*BALANCE_MPC_SOLVE_DIV);
+  for(;;)
+  {
+    balance_mpc_task_body();
+    TickType_t now=xTaskGetTickCount();
+    /* 250Hz：到下一释放点可立即取新快照；真正掉队仅让出1tick，
+     * 不在计算结束后额外等待完整4ms，也不追赶旧快照。 */
+    if((TickType_t)(now-wake)>period)
+    {
+      vTaskDelay(1u);
+      wake=xTaskGetTickCount();
+      continue;
+    }
+    vTaskDelayUntil(&wake,period);
+  }
+}
 
 /* USER CODE END Application */

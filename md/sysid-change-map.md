@@ -1,3 +1,144 @@
+## 2026-11-06 双MPC正常工况优化：提交历史与四态参考力（已修改未烧录）
+
+按作者“10态也一起修改优化”授权，保留恢复后的数值核与十态原参考。control_compute.c复用并补全上一拍输出一致性检查；task_balance_mpc.c/.h新增Set_Applied，十态延迟预测使用成功提交、未改变的轮矩/-Tp请求，未确认则reason9回LQR建立历史，失败作废计划。不是机械力矩回执。
+
+roll_height_mpc.c/.h以同一预览轨迹解delta-F参考，ctx->r=-R*u_ref；mpc_build/export和run_mpc4导出原物理R，生产矩阵/有限因子逐项保持。roll_height_balance.c修正已有偏置观察器与trim/向心项坐标一致性，但开关仍0。新增host_bias_test、参考力方程回代、十态提交/符号/延迟对照与失效门控回归；原QP/异步/预览回归通过。名义升降RMS3.284→0.952mm，F变化更快，不能承诺实机收益。
+
+VOFA5005映射沿用5004、46=5005，reason9=无确认输入；未动标定/Q/R/步数/频率/限矩/.7/offset或高速TODO。完整文件/函数、代价与采集见file-guide顶部。观察器开启、状态软约束和高速根因均未完成，不与本轮结果混称。
+
+## 2026-11-06 高速双向故障暂缓，转正常工况性能（仅分析/计划）
+
+用户确认恢复后仍复现长时间高速双向失衡，暂不继续专项，保留高优先级TODO；本轮不自动恢复数值优化。归档20:27:41恢复版5004，新日志正常速度筛选609点高度平均偏高7.27mm/RMS7.57mm、roll RMS0.364deg，四态采用正常且未触F下界。建议先核对既有关闭的偏置观察器与trim/向心前馈输入口径，再给四态参考预览配套输入参考/线性代价，最后评估软约束。范围/证据与验收在file-guide顶部；本轮未改固件，不声称已解决静态偏差或高速根因。
+
+## 2026-11-06 按作者要求恢复5003阶段数值核（已修改）
+
+收到前进失衡报告后作者明确“恢复”。从优化前完整快照逐字节恢复mpc_kernel.inc、mpc_solver.c/.h、mpc_factor.c、balance_mpc.c，撤销本次数值/因子/工作区/热启动优化，不整体回退Git。保留VOFA5004的重建耗时观测、已有清理、offset工作点、模型/Q/R/限矩/频率/预测步数及四态预览。优化专用host_kernel_test.c和验证入口段归档，现有独立QP/异步/四态回归重跑。完整范围见file-guide顶部；未确认优化为根因，未烧录或证实恢复效果。
+
+## 2026-11-06 十态稀疏数值核/有限因子优化及热启动修正（已修改，未烧录）
+
+按作者“可以，优化”授权，优先处理两份5003日志中的十态时序余量。mpc_solver.c/.h、mpc_kernel.inc增加经模型零结构检查启用的等价稀疏前推/伴随反推，保留通用回退；mpc_factor.c固定维数点积/稀疏PA与A'PA，balance_mpc.c跳过无需的闭环缓存生成，仍同模型完整有限时域因子。融合前推/投影，去掉old[]缓存；MPC_Shift_Warm_Start尾部从最后通道填满改为按通道延续。生产Q/R/rho/alpha/精度/预测节点/频率/约束不改，无无约束快速路径。
+
+host_kernel_test.c新增32组非零仿射/活跃约束稀疏通用对照及多通道尾节点回归；112QP/工作点/异步和四态回归通过。PC等工作量十态迭代快约22%、因子快约25%，未测板端提升。GCC四组合及Keil通过，Keil0错误0警告；未烧录。rho扫描较小值导致若干紧约束例不收敛，未采用。
+
+VOFA5004仅36改为现有十态model_us、46改5004，其他与5003相同，以新日志分别验收热求解/刷新时序。十态不新增参考轨迹，四态trim/权重/观察器开关及状态约束不改；静态偏差/下降滞后仍待下一阶段针对性修正。文件级改动、证据与采集方法见file-guide顶部。
+
+## 2026-11-06 清理近期排查遗留，启动四态参考预览（已修改，未烧录）
+
+按用户“没用都删、验证后优化”授权：删除旧VOFA布局、LQR轮矩分项观测、关闭CKP offset试验、四态只写状态/计时/分项落地、MPC无调用Seed接口、四态废弃保持诊断、十态调试镜像与序号。保留所有实际控制状态/异步时效/几何及输出边界；selected从debug迁回私有控制状态。worker超时统计口径2→4ms，不改求解预算。当前offset/.7/实体标定/Q/R/N/频率保持。
+
+清理回归通过后仅启用四态已有同源参考预览（宏0→1），十态不新增参考轨迹。VOFA5003直接读现有双方性能数据，完整通道和文件/字段清单在file-guide顶部。新增真实适配器名义模型升降/扰动对照，预览前后RMS高度误差约降26%，力变化增快，未证明实机收益。状态软约束和变化率代价留后续阶段。
+
+验证及实际构建结果见file-guide顶部与本轮交付；未烧录，未提交/推送。旧5002后退记录与高速电流TODO保留。
+
+## 2026-11-06 用户暂缓高速问题，转MPC性能调查（仅文档）
+
+已在file-guide顶部登记高速轮电流兑现不足TODO及证据路径；用户确认旧末尾退出为主动操作，新后退失衡后反打为救车。未实施临时限速或物理参数修改。核对双方模型/参考/约束接口，建议先建双后端性能基线，再四态参考预览、十态参考轨迹，后状态软约束/变化率代价及Q/R/窗口对照。现有四态参考预览关闭，十态已有当前命令延续，不能混称无预测；强制迭代与输出差异不代表收益。完整范围/验收见file-guide顶部；本轮无固件改动，无需编译。
+
+## 2026-11-06 后退VOFA5002及十态MPC/offset工作点一致性（已修改）
+
+- 用户授权：补齐VOFA供录制，并解决当前MPC与offset问题；原后退根因仍待实机反馈。
+- lqr_balance.h/.c：LQR_State新增operating_point；LQR_Target_Update只发布现有模型静态点与原offset，原LQR目标/解算保持。
+- balance_mpc.h/.c：输入新增x_eq；Balance_MPC_Solve在工作点误差坐标下预测/参考/延迟补偿，输入输出保留u_eq换算，去掉重复B*u_eq仿射项；约束ADMM不变。
+- task_balance_mpc.c：Balance_MPC_Control复制工作点，局部偏航坐标同步x_eq归零。
+- vofa_debug.c：固定48路5002，加入轮电流命令与反馈、轮速、四髋请求与反馈、原LQR真实分项及限幅前轮矩；原布局#if 0保留。完整定义和采集步骤见file-guide顶部。
+- tools/matlab/mpc10：生产参数读取、双节点延迟及工作点平移/静态点回归，真实LQR目标输出5000组不变性测试。mpc4/10主机编译显式-UNDEBUG，防止Zig -O2禁用断言；旧仅打印PASS证据撤销，真实断言已重跑。
+- 验证：十态112QP+112平移+3静态点、5000组LQR不变、异步边界通过；四态18QP及6合法/2非法配置通过；GCC四组合和Keil构建通过。未烧录，未确认实机频率和后退改善。
+- 保留作者当前双宏1、十态N20/Ts2ms/后台4ms/100轮、四态N10/500Hz/100轮、pos_target=.7和全部offset/物理标定/Q/R/限矩；未回退作者调参。
+
+## 2026-11-06 按用户要求关闭两MPC，转纯LQR后退失衡诊断
+
+确认MACHINE_BALANCE_USE_MPC=0、MACHINE_ROLL_HEIGHT_USE_MPC=0，原四态LQR及原速度/补偿/模型参数保持，MPC源保留。lqr_balance.c/.h新增实际轮反馈项[2][10]与限幅前请求，只记录已有term/sum；5000主机随机状态输出与不记录基线逐位一致，分项依原顺序重加与限幅前值一致。VOFA人工切4001固定48路：目标/融合/原始速度，pitch/两腿角速度，轮矩三层请求，实际轮轴速度/反馈电流raw/命令raw，十列实际共模分项，dlength/Tp及许可位。3002自起/2005对照保留为旧布局；当前布局以file-guide顶部为准。GCC四配置链接及纯LQR Keil构建通过（1原有rc_command警告），未烧录。未修改物理标定、未下定论根因。
+
+## 2026-11-06 · 切换自起排查VOFA布局3002
+
+按作者要求仅修改vofa_debug.c的人工选中布局，保留原2005，新增固定48路阶段/目标/误差/输出/检测观测；通道与位定义见file-guide顶部。没有修改自起、倒置、AIR、MPC控制和参数。软件验证与实机CSV结论分别记录，本轮尚无新CSV根因结论。 本轮按当前工程compile_commands对vofa_debug.c单文件GCC编译通过（工程外对象），48路覆盖/唯一发送及三文件diff检查通过；未做全量链接、烧录或台架验证。
+
+## 2026-11-06 用户要求对照LQR并将双预测增至10步
+
+现有2004 CSV未上传同拍LQR候选且回退工况不匹配，不能证明控制效果改善。已人工将VOFA切2005：十态实际选择14～17/原LQR候选18～21，四态原LQR F22/23/实际F24/25，补roll/H完整状态目标、配对有效位与当前/全预测序列近界标志。只读既有候选，不重算历史；新增balance_mpc solution/debug.constraint_active只作观测，阈值0.001Nm，四态预测近界阈值0.01N。关闭旧布局配套无用栈扫描。完整48路以file-guide顶部为准。
+
+作者后续要求预测10步，四态/十态生成N5→10，2ms节点/20ms窗口，30轮与原精度保持。十态原rho3 alpha1.7有3/112例轮限，离线对照rho3/4/5/6后采用rho4（全过、中位19轮），alpha1.7不改；最终112组最大差6.1983e-5Nm、最多29轮。四态18例最大差0.00293948N、最多19轮，回归与GCC/Keil构建通过。VOFA29=2005、13=1010，保留原两个MPC开启值。10步实机耗时/频率与控制收益仍待新数据，未烧录。
+
+5步旧记录对应离线反馈矩阵比较：四态与同2ms LQR近乎相同、与原1ms C表相差0.7276%；十态92个调度点与同2ms LQR相差约0.75%、与现役C表相差中位5.78%。这是矩阵范数差，不是实机输出或误差改善比例，不能替代配对数据与闭环A/B。
+
+## 2026-11-06 按作者授权实施缓存/固定维数ADMM优化，双30轮
+
+mpc_solver.c/.h+mpc_kernel.inc：逐阶段Ct、每快照Pf与q/r不变量缓存，固定10/4和4/2展开MAC，内联有限性/绝对值/盒投影/残差比较，通用其他维数保留；生成器mpc_export及两个WORK_SIZE生成宏同步。balance_mpc.c/.h增加模型Ct缓存，四态生产Ct静态导出。两适配层迭代上限100→30；四态精度/rho不改，十态离线28组rho/alpha扫描后选择rho6→3、alpha1→1.7，原精度不变。十态112独立QP全部收敛，序列最大差7.6299e-5Nm、最多17轮；四态18组差0.00134827N、最多17轮，运行/误配置/异步边界回归通过。未新增无约束快速路径。
+
+freertos USER CODE修复完成后额外等完整周期，真实掉队仅让1tick，不追赶旧快照；增加工作起点周期和四态重算计数。VOFA v4布局2004：27为十态起点间隔us，28为四态重算计数，44新增bit5迭代上限/bit6后台曾>2ms，其余关键通道延续。Keil map已无优化核内fmaxf/fminf/fabsf/isfinite调用，GCC全量及Keil构建通过。Windows同工作量30轮微基准显示10/4约25.75→15.50us、4/2约7.50→3.50us，只证明主机内核，不能推算板端。实际500Hz/板端精度闭环验收尚未完成，需新版CSV；未烧录、未提交/推送。物理量不改。
+
+## 2026-11-06 双MPC统一5步、约束配置闸及CKP性能对照
+
+作者要求两者无无约束快速路径且均5步。十态已5步且只走带约束ADMM；四态原本无解析快速路径，本次run_mpc4 N10→5并同步生产数据，保留2ms/500Hz同步重算/1kHz守护保持。新增machine_config.h闸：四态MPC开而输入约束关即编译报错；测试改为6允许运行+2误配置拒绝。四态18例QP最大差0.00134827N、最多17轮，回归通过。GCC全量和Keil依赖重建链接通过，未烧录。约束MPC的保持及失败LQR回退仍保留。
+
+调查CKP可确认名义十态4ms、四态10ms，两者7输入区间；使用固定维数展开、缓存AmBKt/代价不变量、比较限幅；R/rho及分裂不同比较不能照抄。当前C核心存在迭代内fmaxf/fminf调用及重复P*affine、rho归一化后的慢收敛，freertos掉队分支额外等待也降低发布率。CKP任务也有完成后等待，尚无对照实机证据。优化方案与证据在file-guide顶部，仅调查与拟方案，未实施内核/调度/参数优化。
+
+## 2026-11-06 十态预测缩短至5步
+
+作者要求预测先改5步，按当前十态调参上下文执行：mpc10/run_mpc10.m N=10→5，同步重新生成生产balance_mpc_data.c/.h，2ms节点、目标500Hz、带约束ADMM、rho6、容差与100轮上限不变；四态仍10步。窗口20→10ms，序列/因子/工作区按宏同步缩小，执行侧计划寿命随N缩至10ms，VOFA布局2003不变。28组独立QP最大序列差0.00013049Nm、最多55轮；异步和边界回归通过。GCC大机十态开126源全量链接通过，Keil依赖重编译链接0错误0警告。尚未烧录或测量新版板端耗时，预测步数减半不等于迭代轮数/总耗时减半。
+
+## 2026-11-06 十态强制带约束ADMM及LQR一致的腿长调度
+
+作者明确不允许无约束快速路径，已删除Balance_MPC_Solve内rho0预求解、整序列可行即返回、对应free因子/工作数组和method诊断。现每次10步预测+输入投影+ADMM残差验收，rho6/100轮/0.001双容差、热启动、时效和失败回原LQR保留；不人为强制最低迭代次数。四态不改。与原LQR同样，模型腿长夹0.15～0.31m，不改变实际状态、物理映射或补偿；结果偏差验收用同一夹值，NaN/Inf拒绝。真实超范围模型误差未验证。VOFA29布局2002→2003，44bit2改为本拍采用且迭代>1，22bit14仍反映实测是否域内但不再门控。
+
+主机28组QP均收敛，序列误差最大0.00012305Nm、最多51轮；异步、上下调度边界、原实测不变和NaN拒绝通过。大机十态开GCC全量126源链接通过；Keil全量0错误、1条原有警告。待重新上板计时/采用率验证，不能把旧快速路径的131us当新版耗时。未烧录。
+
+## 2026-11-06 双MPC VOFA诊断v2（用户要求修改通道）
+
+针对CSV混入停机保留值，固定48路22～29从四输入界改为：当前条件位、四态求解status、十态快照seq/后台发布count/实际消费seq、epoch、model_version、布局号2002。12号未实际采用十态时显示-1，44 bit2仅在实际采用无约束全界可行计划时置位。task_balance_mpc.c/.h增加三个纯诊断字段与写点，不参与控制判断；退出清消费序号。所有控制开关、模型/求解/限矩/输出流程不改。完整通道及位定义在file-guide顶部，旧CSV仍按旧布局解析。未烧录。
+
+## 2026-11-06 十态独立异步MPC接入（用户授权执行）
+
+不做14态融合；用户确定同步四态500Hz/2ms/10步，十态采用独立后台。新增mpc_factor.c/.h、balance_mpc.c/.h及grid data、task_balance_mpc.c/.h，通用核心增加MPC_Seed_Input。原Q/R及物理模型不改，输入归一化；17×17 Ad/B/P插值后重建同模型完整有限因子，终端1.01P，rho6。全序列无约束最优可行直接采用，触界才ADMM；模式epoch、延迟激活和执行拍当前物理限矩/模型域/计划时效验收，失败回原LQR。原四态保持同步降频，不改作者1/0/1开关；新增十态默认0。Leg_Balance_Apply_Inputs复用原映射，不重复推进F/参考；LQR只发布已用防翻参考缩放。FreeRTOS USER CODE新增低优先级任务；Keil登记四源；VOFA手工切十态部署固定48路，通道与上板验收见file-guide顶部。
+
+软件：545点终端和64保持偏差局部检查通过；28组独立QP误差最大0.00012078Nm、最多52轮；真实异步桥时效/模式/当前限矩回退通过；四态18例及八组合回归通过。GCC大小机×十态开关全量链接通过，Keil十态开全量0错误1原警告。没有十态实机数据；未改物理符号/零位、未烧录、未提交/推送。模型缓存5mm/固定节点延迟是近似，局部采样验证不等于实机稳定性证明。
+
+## 2026-11-05 按作者要求缩为10步、500Hz，取消四态单次时间截止
+
+作者明确要求先10步、适当降低MPC求解频率、去掉单次预算。实际选择10个输入区间、2ms节点（20ms窗口），solve_div=2，在1kHz执行/状态/限矩链内每两拍求解一次，间隔拍零阶保持选中的总F。保持拍使用当前Tp/映射/补偿检查力界和Nm；失效则退当前受限LQR、作废保持、下拍重算。失败也按降频计数重试，不因清冷启动状态反而每拍重算。
+
+删除machine.lqr.roll_height.mpc.max_solve_us，替换为solve_div；四态不再注入时钟停止回调，最大100轮及原容差保留。通用内核可选停止接口留作通用功能，本后端不使用。对齐2ms离散模型、DARE终端和有限因子，原1ms LQR表及物理Q/R不改；通过原1ms系统组合得到fd并核对Ad/Bd。生成C/H已成套替换，独立导出同Q/R的2ms LQR基准增益用于测试，不把其与原1ms K误称逐值相同。
+
+增加保持/当拍求解/拒绝保持诊断，44号bit5/6/7分别表示本拍重算/保持/保持失效，9号为最近求解拍耗时，保持拍不以低耗时覆盖。MPC保持许可与观察器支持力学习许可分离，只用上拍实际提交判断；观察器原条件不变。保留作者当前1/0/1开关，不改RL周期、基础1kHz或十态后端，不调整物理标定、rho和容差。
+
+MATLAB18个4/2 C/独立QP用例最大完整序列误差约0.002940N，最多19轮；10/4核心复用算例仍通过。八种开关组合验证2ms LQR同权重对照、20次基础调用10次求解/10次保持、保持越界拒绝、无单次截止、输出失效下重算降频、真实预览/原NORMAL链与原异常用例。测试用临时生产配置副本覆盖开关，不改作者配置；假时钟不作为板端证据。
+
+最终大小机MPC开/关四配置GCC全量编译链接，以及大机当前MPC启用配置的Keil/AC5全固件构建通过（工程外副本，既有rc_command浮点提升警告保留）。初次外部GCC命令误向启动汇编预包含C测试配置，已仅对C源注入配置并重做干净构建，未修改生产源掩盖。尚未烧录新版本或获取10步/500Hz板端数据，取消截止不保证单次求解小于1ms，继续依VOFA完整拍峰值/超期/栈余量验收。未提交/推送。
+
+## 2026-11-05 四态MPC软件接入、限矩及回退完成（实机待验证）
+
+作者要求完整实施先腿长/roll MPC，十态仍LQR，不再融合。新增通用MPC求解器、四态适配和成套生成数据；Roll_Height_Update内保留原LQR候选、只更新一次状态/观察器，MPC成功才替换F。新增Leg_Balance_Reference_Preview只推进副本。原Q/R与四态模型不变，Fbase含原trim/turn_ff/bias，使用原补偿假设的控制等效模型与完整参考缺陷项，输出不重复加前馈。
+
+当拍Tp、force_map及实际启用的补偿换算逐髋扭矩为F上下界，两个髋区间与原力下限相交；单次求解冻结当前区间。可行区间内迭代失败/预算耗尽回退并限制原LQR候选；区间为空走商定的原LQR＋最终电机限矩；无效映射/补偿不绕过原输出有效性。另校验首拍Nm浮点结果。模型维数/窗口/周期和A/B不匹配拒绝新后端。模式退出清历史；上拍未实际提交/已限矩不沿用优化辅助历史。
+
+三个开关在machine_config.h，默认0/0/1；运行容差、100轮上限和400us适配预算集中于machine.lqr.roll_height.mpc，窗口/模型/rho由MATLAB数据管理。新增可选停止回调，内核不直接读取硬件时钟，迭代前后检查预算并返回MPC_TIME_LIMIT。不能中断一轮，也不把预算称为整拍硬保证。仅两个MPC算法源使用O2 pragma，不更改整机优化等级，不声称实测耗时下降。
+
+复用CONTROL_TIME_VOFA_ENABLE，MPC开启时记录整拍耗时/峰值/超期；后台临界区外读actuation任务栈水位。固定48路布局说明见file-guide；旧布局人工保留，无自动选帧。eIDE加入mpc/inc，Algorithm扫描新源；Keil登记三源/include。曾见IDE旧内存配置写回包含路径，已重新补齐，提示重载后重建。实际compile_commands中三源各一次，工程外构建显式遵循新增持久包含路径，不用手改builder.params伪装接入。
+
+MATLAB/主机验证：18个四态C/独立QP用例完整序列最大误差约0.002064N、最多30轮；同一核心10/4固定模型首输入误差约8.94e-9Nm。八种后端/预览/约束开关组合使用真实Leg_Balance、Roll_Height、映射、补偿及参考源，验证区间系数正负/零/小值/不可行、补偿有效性、NaN/容量不足/迭代失败、真实预览不写历史、NORMAL输出链、热启动和预算回退。夹具时钟/配置不是真实板端。verify_mpc4可复跑，输出忽略的verification_latest.txt/mat。
+
+最终大小机、MPC开关两态共四种GCC全量编译链接通过（122源，工程外产物）。另将当前Keil工程复制到临时目录，改绝对源/include与输出路径、禁用构建钩子，启用大机MPC/预览，实际UV4/AC5全固件编译链接0错误、1条rc_command.c既有浮点转double警告；FromELF/map确认MPC_Solve、适配、数据和Roll_Height_Update引用。未以此替代原IDE增量构建重载验收，原IDE产物未污染。没有烧录、板端耗时/栈或新实机闭环数据。默认仍纯LQR；MPC只达到可开始受控台架验证的软件阶段，不保证直接驾驶稳定。未更改物理极性、零点、MIT尺度、现有补偿值或原LQR权重；未提交/推送。
+
+## 2026-11-05 四态MPC第一阶段：通用内核与首轮C/QP对拍
+
+用户授权按第15节实施。新增Algorithm/mpc/mpc_solver.c及inc/mpc_solver.h（参数化nx/nu/N、静态调用方工作区、输入分裂ADMM），tools/matlab/mpc_common/mpc_build.m及mpc4/run_mpc4.m。原四态模型/Q/R、40输入区间，先验证两例无约束/约束激活的完整序列；独立凝聚QP与真实单精度C最大误差约0.0014/0.0010N，分别11/14轮。MATLAB未配置MEX编译器，改用现有Zig编译独立主机程序，编译器通过参数/环境变量指定，不新增安装或个人路径配置。生成主机适配代码/二进制及结果在忽略的mpc4/output。
+
+ARM-GCC以C99/Cortex-M7硬浮点-Wall/-Wextra/-Werror独立编译核心通过，产物在临时目录；不是固件工程登记或完整链接验证。尚未完成前馈/参考/异常/热启动/十态复用对拍、力矩换算、开关、四态适配与固件接入。未烧录、未提交或推送，原控制路径未调用该内核。
+
+## 2026-11-05 停止融合，完善四态MPC与通用内核计划（仅文档）
+
+作者改为不融合模型，先嵌入腿长/roll MPC，并要求稳定可复用的运算接口、后续便于接十态。已核对原Leg_Balance_Compute、Roll_Height_Update、force_map、补偿叠加与最终门控；完整拟方案写入上级MPC嵌入开发交接第15节，file-guide顶部标明最新路线。
+
+方案明确使用原四态模型/Q/R、通用静态工作区内核、当拍电机限矩换算F箱约束、参考预览及三开关；补充前馈/误差仿射合同、避免共模抬升突破上界、可行区间内LQR回退与空区间回退的区别。上述均为拟修改，没有新增求解器、约束、开关或C端行为；原融合候选文件保留，不删除既有未提交内容。本轮只读核对/计划文档检查，没有重跑模型验证、编译固件、烧录或Git写操作。
+
+## 2026-11-05 先整合模型，沿用现役LQR权重（MATLAB约化候选）
+
+作者明确先做模型整合，保持当前LQR参数，确定模型后再切MPC。新增balance14三文件：run_balance14从现役两份生成C的来源头读取Q/R；model_balance14复用原十态和高度等效参数，在统一动力学核加入F*cos(theta)到高度/roll的耦合；verify_balance14检查退化、雅可比、仿射、ZOH、左右对称、20局部工作点与5类未饱和理想补偿对象闭环。.gitignore忽略本目录结果产物，file-guide记录当前接口与边界。
+
+保留原物理值、质量口径差异和两个旧模型，不补猜惯量/符号，不改原LQR表、任何C/H或电机输出。融合后依原Q/R重算K；首版零腿角与独立两块LQR等价，非零腿角存在交叉反馈。不是完整多体/双向耦合，未纳入变腿长惯性、轮矩竖直项、height_trim/向心前馈及实际补偿误差，不据此宣称模型准确或实机稳定。
+
+首次运行在闭环结果数组赋值处失败，最小复现确认为MATLAB空无字段struct不能接收异构字段赋值，改为匹配字段预分配；未改控制权重或降低阈值。复核发现默认H0与左右腿长的零姿态几何高度不一致，改为mean(lengths)，工作点测试按同一几何口径更新H。最终验证结果以balance14/output/report_latest.txt为准；无C改动，本轮不编译固件、不烧录、不提交或推送。
+
 2026-11-04提交前验证：当前工作区含作者生成8000网络，大小机GCC工程外全量编译链接均通过；未覆盖IDE增量产物。自有源码及本次文档差异空白检查通过，生成文件既有尾随空格保留；未重新烧录或新增实机测试。
 
 ## 2026-11-04 汇总8000 v2网络、部署外围和实际验证状态
@@ -10993,3 +11134,108 @@ MATLAB前后十态生成、模型核对和四态生成均通过；四态13组模
 
 - 作者要求遵守复用约定并指定LHX参数0.01。删除检测器内联低通递推，状态改为现有lpf_t，初始化/推进直接调用LPF_Init/LPF_Update，不改公共实现、不新增包装层，VOFA直接读out而不增加镜像字段。
 - acceleration_tau=0.02→0.01s；其余门槛、30ms确认及后处理未改。155项检测/公共低通断言及905项实际任务交接回归通过，大小机GCC链接与相关源AC5编译通过，未烧录和实测。
+
+2026-11-06 作者要求位置目标按停车积分状态启用：LQR_Target_Update在本拍cmd速度=0、pos_armed且非AIR时使用position_hold.pos_target，否则目标0；投入锁存同时清位置目标。当前执行链先融合/更新积分，再更新本拍命令目标，因此在LQR求解前按本拍指令最终选择，行进不再施加固定pos_target偏差。原锁定门槛、积分冻结/重定基、Q/R和物理标定不变。配置pos_target未改；目标切入仍为阶跃，需实测停车响应。
+
+2026-11-06 后退失衡诊断VOFA v1（46号为位图，无独立ID）
+- 作者要求定位后退时pitch上抬并录制CSV。仅改 imcalib/task/service/vofa_debug.c：新增48路后退诊断，46号为饱和/门控/后端位图；旧台阶后处理布局整块移入#if 0保留。未改控制公式、Q/R、K表、滤波、参数或物理标定。
+- 通道：0在线掩码、1状态位、2故障、3工况、4 LQR许可位、5十态后端+10*回退原因、6本拍计划年龄ms、7/8/9 pitch及目标/角速度、10/11/12/13速度目标/融合/运动学/IMU前向加速度、14/15/16停车积分/位置目标/pos_trace、17~22原LQR位移/速度/pitch三列对左右轮贡献、23~30腿角/角速度/腿长/长度目标/本拍斜坡、31~35 F_L/F_R/基础力/共模抬升/转向前馈、36/37实际Tp、38~41左前/左后髋限幅前与实际、42~45最终轮请求与原LQR限幅前轮候选、46饱和/门控/后端位图、47 HAL ms。
+- 46位图：bit0/1轮LQR候选越限、bit2/3左前/左后髋限矩、bit4补偿饱和、bit5 F共模抬升、bit6 pos_armed、bit7 pos_hold、bit8 AIR控制、bit9 flight、bit10 MPC采用、bit11 MPC回退、bit12/13 DM/DJI发送成功、bit14 MPC约束近界、bit15 MPC最近status=OK。
+- 用途：区分停车位置环（当前pos_target=0.7m）撤除、轮/髋饱和、速度估计、MPC回退/计划年龄、腿角工作区五类原因。当前源码MACHINE_BALANCE_USE_MPC=1、MACHINE_ROLL_HEIGHT_USE_MPC=1、position_hold.pos_target=0.7m、turn_comp.gain=0.4均为作者工作区现状，本布局不改。
+- 验证：按build/compile_commands.json原参数将vofa_debug.c用arm-none-eabi-gcc编译到工程外临时对象，0错误0警告；未链接、未烧录、未实机验证。
+2026-11-06 试验：十态MPC N=30、ADMM上限100轮
+- 作者要求在后退失衡排查中试更长预测窗和更多迭代。仅改 balance_mpc_data.h 的 BALANCE_MPC_N 10u→30u、balance_mpc.c 的 problem.max_iter 30u→100u、tools/matlab/mpc10/run_mpc10.m 的 N=10→30；rho=4、alpha=1.7、Q/R、终端P、模型网格、2ms节点、500Hz调度及四态MPC（N=10/max_iter=100）未改。
+- BALANCE_MPC_WORK_SIZE、balance_mpc.h 的 Ct/P/K/Hinv/q/r/affine/lower/upper/input/solution 数组随宏自动扩；balance_mpc_data.c 的17×17×240 A/B/终端P与N无关，未改。context约20.2KB→55.6KB，work 1588→4668 float，新增约35.4KB静态RAM。
+- 验证：按 build/compile_commands.json 原参数用 arm-none-eabi-gcc 编译 balance_mpc.c、task_balance_mpc.c、control_compute.c、vofa_debug.c、control_strategy.c 均0错误；未链接、未烧录、未测板端耗时。风险：30步×100轮可能超过2ms计划激活预算，导致reason 6回退；须看VOFA ch5/6、ch46 bit15和实际backend。
+2026-11-06 VOFA切换为十态MPC健康检查
+- 作者要求把VOFA改为MPC以核对N=30/100轮是否正常。仅改 imcalib/task/service/vofa_debug.c：当前布局改为MPC健康检查，46号=BALANCE_MPC_N（当前30）；后退诊断5001整块移入#if 0，旧台阶布局保持#if 0。未改控制、Q/R、N、迭代上限或调度。
+- 通道：0~2在线/状态/故障、3工况、4编译/许可位、5后端、6回退原因、7计划年龄ms、8迭代、9status、10/11原始/对偶残差、12求解us、13模型重建us、14后台起点间隔us、15超2ms累计、16/17/18快照/发布/消费序号、19模型版本、20消费节点、21~24 MPC选定四输入、25~28 LQR基线四输入、29~32轮/髋左输入界、33~38 F/Tp/最终轮请求、39~44 pitch/速度/腿长、45状态位、46 BALANCE_MPC_N、47 HAL ms。
+- 验证：按compile_commands原参数用arm-none-eabi-gcc编译vofa_debug.c，0错误；未链接、未烧录、未实机验证。正常判据见file-guide顶部：ch46=30、ch5=1、ch9=0、ch8<100、ch7 0~1ms、ch12约2ms、ch17持续增长。
+2026-11-06 十态MPC N=30/100轮实测：计划迟到，实际回退
+- 作者提供 mpc.csv（57.2s，布局含MPC健康通道，ch46=30确认N=30）。统计：backend=1仅36帧（0.3%），backend=2共10107帧（88.4%）；回退原因reason6=9118、reason2=1700、reason5=67。solve_us中位4251、最大10233；worker周期中位4901us、>2ms累计4182；迭代中位22、最大36；status全0；原始/对偶残差≤0.0002/0.001。
+- 采用的36帧solve为2.4~2.8ms、迭代13~16，说明求解器能收敛；N=30中位4.25ms超过约4ms的迟到接纳边界（result.time_us=快照+2ms，Control再允许2ms），计划被reason6拒绝，实际由LQR回退。100轮上限未成为瓶颈（最大36轮）。
+- 结论：当前2ms节点/500Hz调度下N=30不可用；要验证30步控制效果需做延迟补偿（按实际求解延迟预测状态或推后激活节点，约200~250Hz MPC）或把N降到约20~24。未改控制、时序或参数；仅记录实测。
+2026-11-06 十态MPC改250Hz求解，N=30不变
+- 作者要求推理频率250Hz且保持30步。新增 balance_mpc.h 的 BALANCE_MPC_SOLVE_DIV=2；balance_mpc.c 的 predicted 由1节点改为按 SOLVE_DIV 预测2节点，out->time_us 由快照+2ms改为+4ms；freertos.c 的 balanceMpcTask 周期由2ms改为4ms。BALANCE_MPC_N=30、BALANCE_MPC_TS=2ms、N=30的60ms窗口、Q/R、rho、终端P、100轮上限、四态MPC及物理标定未改。
+- 目的：让4.25ms的30步求解落在计划激活+4ms之后0.25ms，避免此前2ms激活导致的reason 6回退。计划年龄门槛未改（仍允许约2ms迟到）；状态预测使用最近已选输入的ZOH两节点近似。
+- 验证：按compile_commands编译 balance_mpc.c、task_balance_mpc.c、freertos.c、control_compute.c、vofa_debug.c 均0错误；未链接、未烧录。风险：求解4.25ms仍>4ms周期，任务会走1tick让出，实际约190Hz而非严格250Hz；需看VOFA ch14/ch12。
+2026-11-06 十态MPC热启动平移优化
+- 在250Hz/N=30基础上，mpc_solver.c/h 新增 MPC_Shift_Warm_Start：每次求解前把上次ADMM的z/y按 BALANCE_MPC_WARM_SHIFT=2 个节点前移，末尾重复上一节点；balance_mpc.c 在求解前调用。只改初值，不改问题、收敛验收、Q/R、rho、终端P或最优解；若平移后仍不收敛仍按原约定回退。
+- 目的：上次计划按旧快照排列，新快照已前进约4ms（2节点），不移位会让z/y初值错位、增加迭代。预期减少迭代次数和solve_us；实际效果待VOFA ch8/ch12/ch14验证。
+- 验证：GCC编译 mpc_solver.c、balance_mpc.c、task_balance_mpc.c、roll_height_mpc.c、freertos.c 均0错误；未链接、未烧录、未实机验证。
+2026-11-06 十态MPC预测步30→27
+- 按作者要求保留250Hz/4ms、2节点预测、热启动平移2节点和100轮上限，仅把 BALANCE_MPC_N 30u→27u（54ms窗口），run_mpc10.m N=27；rho=4、Q/R、终端P、模型网格、四态MPC及物理标定未改。
+- BALANCE_MPC_WORK_SIZE、balance_mpc.h 的 Ct/P/K/Hinv/q/r/affine/lower/upper/input/solution 随宏自动缩小；实测 context 55576→50272B（约49.1KB），work 4668→4206 float。按30步4.25ms线性估算27步约3.8ms，仍在4ms边沿。
+- 验证：按compile_commands编译 balance_mpc.c、task_balance_mpc.c、control_compute.c、vofa_debug.c 均0错误；未链接、未烧录。效果看VOFA ch46=27、ch8迭代、ch12 solve、ch14周期、ch5后端。
+2026-11-06 十态MPC任务优先级提到High（与RL推理相同）
+- 按作者要求，Core/Src/freertos.c 的 balanceMpcTask 从 osPriorityNormal 改为 osPriorityHigh，与 policyTask 相同，低于 actuationTask（Realtime），不能再高；评论同步。目的是减少求解墙钟被 comm/default 抢占，争取27步 solve 落到4ms内。
+- 风险：与 imuTask/policyTask 同为 High，时间片共享可能增加 IMU/策略/通信/VOFA 的调度抖动；需看实机与CSV连续性。N=27、4ms/250Hz、2节点预测、热启动2节点、100轮、rho=4、Q/R/终端P均未改。
+- 验证：按compile_commands编译 freertos.c，0错误；未链接、未烧录。
+2026-11-06 MPC任务High实测失力，退回Normal
+- 作者反馈High后更差、前向也摔、莫名失力。16:29 mpc.csv（N=27，37.4s，3498帧）：frame间隔中位5ms、p95 30ms、最大296ms，VOFA被饿；solve中位4190us、后台周期4344us，未比Normal的4.25ms改善。11.3～11.53s LQR仍投入（ch1 bit8=1）、选定轮矩1.33/-4.79Nm，但最终轮输出持续0，F/Tp为67/58、5.99/-16.25；属于最终输出/发送路径失力，不是控制决策为零。
+- 判断High与imu/policy同优先级并抢占comm/default，导致输出路径/反馈时序异常；已把 Core/Src/freertos.c 的 balanceMpcTask 退回 osPriorityNormal，评论说明如再试只能AboveNormal并验证输出。N=27、4ms/250Hz、2节点预测、热启动2节点、100轮、rho=4、Q/R/终端P均未改。
+- 验证：freertos.c按compile_commands编译0错误；未链接、未烧录。下一步先复测Normal下失力是否消失；若仍有最终轮0，需切回5001布局看DM/DJI发送标志与leg valid/force_map。
+2026-11-06 十态MPC预测步27→20
+- 作者要求再看20步。仅把 BALANCE_MPC_N 27u→20u（40ms窗口），run_mpc10.m N=20；250Hz/4ms、2节点预测、热启动平移2节点、100轮、rho=4、Q/R、终端P、四态MPC和物理标定未改；balanceMpcTask已退回Normal。
+- context约50272→37896B（约37.0KB），work 4206→3128 float。按27步solve 4.18ms线性估算20步约3.1ms，应能落在4ms/250Hz内；实际看ch8迭代、ch12 solve、ch5采用率。
+- 验证：按compile_commands编译 balance_mpc.c、task_balance_mpc.c、control_compute.c、vofa_debug.c 均0错误；未链接、未烧录。
+2026-11-06 十态MPC N=20实测：250Hz稳定采用
+- 16:40 mpc.csv（46.1s，21790帧，N=20）：frame间隔p50/p95 5ms、最大40ms；投入11854帧，backend1 9819（82.8%）、backend2 2035；reason6仅90帧、reason2 1736（停车/pos门控）、reason5 57、reason7 152。backend1迭代中位26、solve p50 3179us/p90 3526us、后台周期4000us；LQR投入且最终轮0仅2帧，Normal下无失力。
+- 控制：reverse段776帧、ds -2.24～-0.3m/s、pitch -0.07～0.12rad、轮饱和2.1%、backend1 57.1%（其余多为reason2）；forward段8418帧、饱和1.1%、pitch最大0.34、backend1 83.2%。未复现此前-3.4m/s/pitch -0.59的失稳；reverse实际未到-3.0m/s，需同profile对照才能判断长窗口是否解决根因。
+- 验证：balance_mpc/task_balance_mpc/control_compute/vofa_debug 已按compile_commands编译0错误；未烧录声明；数据来自作者烧录。未改控制分配。
+2026-11-06 N=20复测仍后退失稳：根因是轮饱和分配，不是N/频率
+- 作者提供16:44 mpc.csv（42.8s，N=20，backend1 14540/17765=81.8%，reason6 106、reason2 2858；solve 3152us、period 4001us、迭代26，MPC时序正常）。但reverse段仍出现target -3.0、ds约-3.2m/s、最终轮-4.79/-4.79打满、pitch -0.62rad、Tp约-17.6Nm（髋限幅54，仍有余量），backend在1/2间切换。
+- 结论：20步/250Hz已解决计划迟到和输出失力，但没有解决轮矩饱和后的控制分配；继续降N、调频率、调优先级不会改变这个根因。CSV在28.8s附近有两段同时间戳不同工况的数据，文件混了至少两段记录，分析按target -3.0段。
+- 下一步应做轮饱和后的髋接管/约束分配（或证明髋无法替代后回到包线/限速），不再继续N/频率扫描。未改控制。
+2026-11-06 公共速度指令改为 +3.0/-2.8 非对称限幅
+- 按作者要求，machine_config.h 的 machine_rc_cfg_t 新增 vel_max_rev；machine_config.c 大/小机 rc 均设 vel_max=3.0、vel_max_rev=2.8；rc_command.c 的 Rc_Command_Update 先取摇杆归一化 axis，再按 axis>=0 乘 vel_max、axis<0 乘 vel_max_rev。
+- 公共 velocity_target 因此前进最大+3.0m/s、倒车最大-2.8m/s；LQR/MPC/RL观测共用，不改死区、yaw量程、腿长、模式解码、Q/R、K表或物理标定。
+- 验证：按compile_commands编译 rc_command.c、machine_config.c、rl_observation.c、control_compute.c、vofa_debug.c 均0错误；未链接、未烧录。VOFA ch42可核对速度目标。
+2026-11-06 VOFA切回5001腿角/分项诊断
+- 按作者要求，vofa_debug.c 当前布局由十态MPC健康检查切回后退失衡诊断v1（5001）：23～26世界腿角/角速度、17～22 DS/pitch分项、38～41髋限幅前/实际、42～45最终轮/原LQR限幅前、5/6后端/原因。MPC健康布局整块#if 0保留；46号为位图，无独立ID。
+- 目的：复测低腿长后退腿角向前偏离是否大于前进向后偏离，判断是leg_trim/坐标/符号还是速度与腿角增益相互抵消；未改控制、N=20、250Hz、热启动、优先级或限幅。
+- 验证：按compile_commands编译vofa_debug.c 0错误；未链接、未烧录。
+2026-11-06 按CKP LQR_OFF_WBR结构增加长度相关腿角平衡点
+- 作者要求按CKP做法试。lqr_balance.c 新增 LQR_Offset_Eval，LQR_Target_Update 把 off[0/1/2] 加到 target[THL/THR/THB]；LQR与MPC共用该target，AIR时off=0。默认 LQR_OFF_USE_CKP=0，用本机5001静止中点线性拟合：左0.500*L-0.1045、右0.627*L-0.1208；LQR_OFF_USE_CKP=1 可切CKP多项式(0.174607-0.780429L+0.988958L²，按本机virtual-pitch与CKP ang+pitch的负号映射)。
+- 依据：5001实测静止中点 0.155m 左/右 -0.027/-0.028，0.179m -0.018/-0.021，0.219m +0.005/+0.014；固定0不可能是所有腿长的平衡点。leg_trim仍0；未改K/Q/R/轮矩/物理零位。高腿长0.30m为外推，未实测。
+- 验证：GCC编译lqr_balance.c、control_compute.c、balance_mpc.c、vofa_debug.c、leg_balance.c 均0错误；未链接、未烧录。下一步用0.16/0.22/0.30低速前后对照；若方向相反或变差，先翻 off 符号/关掉，再改用模型生成而非实测拟合。
+2026-11-06 新增后退失衡排查交接文档
+- 按作者要求新增 md/后退失衡排查交接_20261106.md，汇总本轮 VOFA 诊断、MPC N/频率/热启动/优先级、速度限幅、CKP LQR_OFF_WBR 平衡点、轮-髋分配分析、轮矩/质量包线判断及未确认项；file-guide 顶部加链接。
+- 该文档是交接快照，参数以源码为准；未改控制。当前工作区仍未提交，MPC 目录未跟踪。
+2026-11-06 十态MPC回退收敛为同模型Kinf兜底；输入权重R全域×5
+- 作者要求：与CKP对比回退条件，删除过度保守的回退。CKP TinyMPC仅对非有限/不收敛/序列过期做处理，且兜底用同一模型末节点K；腿长变化只重建模型；超界直接clip。
+- task_balance_mpc.c：删除reason2（许可/pos_armed）与reason9（applied确认）；reason5/6/7/8改为Balance_MPC_Kinf兜底并clamp本拍界；保留reason1/3/4返回LQR。新增Balance_MPC_Kinf读worker.K末节点单步反馈，不切回独立LQR表。
+- tools/matlab/mpc10/run_mpc10.m新增r=r*5；重新生成并部署balance_mpc_data.c/.h，input_scale 0.0447/0.1414→0.0200/0.0632，worst_pole=0.9989。
+- host_async_test.c按新语义改写reason2/9/8/7/6断言。
+- 验证：ARM GCC单独编译task_balance_mpc.c等7个源文件通过；host_async_test.c语法检查通过；control_compute.c因AI运行时依赖未单独编译。未做整机链接、未烧录、未验证实机行为。
+- 备份：C:/Users/ynz/.codex/tmp/mpc-r5-20261106。
+2026-11-06 十态MPC速度参考斜率置零
+- 依据：22:28日志中目标3.0、实际3.29→3.46、轮矩仅1~4.6Nm未饱和，pitch从0.026线性涨到0.33后翻；全程ch5=1（MPC接管），ch5=22已消失、72仅33行，证明回退收敛生效但翻车与回退无关。
+- task_balance_mpc.c：in.slope[0] 由 in.reference[LQR_X_DS] 改为 0.0f。原实现把速度命令当窗口斜率，40ms末端参考=目标+目标×0.040，导致超速时MPC仍认为未达参考而继续给正轮矩。slope[1]偏航不变。
+- tools/matlab/mpc10/host_async_test.c同步expected.slope[0]=0。
+- 验证：ARM GCC编译task_balance_mpc.c通过，host_async_test.c语法检查通过；未烧录。
+2026-11-07 十态MPC兜底改为沿用计划节点；腿长漂移不再作废计划；max_iter 100→40
+- 数据依据（15:47 CSV）：backend=2的行全部status=0，即无一次迭代失败；reason 5/6/7共32行。迭代p95=22/max=26，但solve_us p95=3224us/max=4643us，超4ms预算38次。腿长相邻帧diff p95=0.24mm、p99=1.9mm，仅33次>5mm；reason7来自计划快照与当前实测的累计漂移。
+- task_balance_mpc.c：新增Balance_MPC_Hold取代Balance_MPC_Kinf，计划有效时沿用其首节点并夹本拍界，计划失效才退同模型末节点K单步反馈；reason5/6/8改用Hold；reason7只写诊断不再中断计划。
+- balance_mpc.c：max_iter 100u→40u。
+- host_async_test.c：reason8/7断言改为接受Hold语义。
+- 验证：task_balance_mpc.c、balance_mpc.c、mpc_solver.c、mpc_factor.c ARM GCC编译通过；host_async_test.c语法检查通过。未整机链接、未烧录、未验证实机。
+2026-11-07 新增左轮分项诊断（VOFA5006），用于静止抖动归因
+- 依据：5005静止段轮矩std=0.81Nm、左右反相（L均值-0.726/R+0.735），pitch均值0.11、pitchRate std=0.69，但5005无分项，无法定位是哪个状态贡献。
+- lqr_balance.c/.h：新增只读数组lqr_wheel_term[LQR_X_NUM]，在LQR_Control_Update左轮(i==LQR_U_WL)分支记录每列term，不参与控制。
+- vofa_debug.c：ch32/33/36/37由primal/dual/model_us/fallback_count改为lqr_wheel_term的THB/DTHB/DS/THL四项，ch46 5005→5006；其余通道不变。
+- 验证：lqr_balance.c ARM GCC编译通过；vofa_debug.c依赖AI运行时，需整机Keil/eIDE构建。未烧录。
+2026-11-07 静止时俯仰角速度死区0.1rad/s
+- 依据：5006静止归因显示轮矩抖动中pitch rate分项占37~60%、与左轮相关0.812~0.853；pitch率噪声std约0.095rad/s，属于陀螺微抖而非真实俯仰运动。降低Q的dth_b(1000→100)只使静止轮矩std 0.367→0.336(约8%)，却损害动态，故改由死区处理小信号。
+- lqr_balance.h：lqr_runtime_config_t新增pitch_rate_deadband(rad/s，0=关闭)；新增LQR_DEADBAND_IDLE_VEL=0.15f静止速度门限。
+- lqr_balance.c：LQR_Init置0.10f；LQR_State_Update中LPF之后、写状态之前，若目标与实测速度均<0.15m/s且|omg_pitch|<门限则置0，随后x[DTHB]与x[DTHL]/x[DTHR]均使用处理后的值。行进段不启用。
+- 验证：lqr_balance.c ARM GCC编译通过；未整机构建、未烧录。
+2026-11-07 回退静止俯仰角速度死区（置0关闭）
+- 依据：17:06静止测试（Q=1000+死区0.1）静止轮矩std 0.447、pitch率std 0.1817、dpitch占58%，比无死区(Q=100时std 0.336/0.0951/37%)更差；动态段ds与腿角分项占比>100%互相抵消。原因：噪声std 0.18高于阈值0.1，过滤有限；开关式边界不连续注入新抖动；x[DTHL]/x[DTHR]同样受影响波及行进。
+- lqr_balance.c：pitch_rate_deadband 0.10f→0.0f 关闭。字段和LQR_DEADBAND_IDLE_VEL保留未删，便于以后评估；不新增其他补偿。
+- 验证：ARM GCC编译通过；未烧录。
+2026-11-07 删除LQR左轮分项诊断；VOFA改为腿长不对称诊断（ch46=5007）
+- 删除：lqr_balance.c/.h的lqr_wheel_term数组及其写入；vofa_debug.c ch32/33/36/37恢复为primal/dual/model_us/fallback_count，ch46由5006回到5005后被本轮腿长诊断改为5007。
+- 新增腿长诊断：vofa_debug.c ch20/21/22/23由四态F上下界改为左前髋角、左后髋角、右前髋角、右后髋角（leg_l/leg_r.input.hip_f/hip_b，rad）。判断口径：同腿长目标下左右髋角不等=髋零点/标定或指令差异；髋角相等而ch44/45腿长不等=几何解算差异。
+- 实测依据：qr调参测试.csv中左右腿长差随腿长放大，0.14-0.16m为+5.6mm、0.16-0.18m为+11.8mm、0.18-0.20m为+25.0mm；dm_zero大机为{0.476998,1.974491,0.476998,1.974491}，左右共用同一组零点，故腿长不等只能来自左右电机实际反馈角差异。
+- 验证：lqr_balance.c ARM GCC编译通过；vofa_debug.c依赖AI运行时需整机构建；未烧录。

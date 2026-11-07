@@ -187,6 +187,7 @@ targets:
         - imcalib/common/inc
         - imcalib/config
         - imcalib/Algorithm/lqr/inc
+        - imcalib/Algorithm/mpc/inc
         - imcalib/Algorithm/rl/inc
         - imcalib/Algorithm/estimation/inc
         - imcalib/Algorithm/detection/inc

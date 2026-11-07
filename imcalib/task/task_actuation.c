@@ -181,6 +181,8 @@ void output_task_body(void)
     }
     control_time_debug.period_us = period_us;
     control_time_debug.run_us = run_us;
+    if (run_us>control_time_debug.max_run_us) control_time_debug.max_run_us=run_us;
+    if (run_us>=(uint32_t)(MACHINE_TICK_DT*1000000.0f)) control_time_debug.overrun_count++;
     control_time_debug.sequence++;
 #endif
 }

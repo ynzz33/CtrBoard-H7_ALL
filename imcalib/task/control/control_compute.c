@@ -17,6 +17,7 @@
 #include "control_detection.h"
 #include "stair_process.h"
 #include "stair_detection.h"
+#include "task_balance_mpc.h"
 #include <string.h>
 
 static slip_state_t slip_control;
@@ -91,6 +92,7 @@ static uint8_t LQR_Engage_Update(control_frame_t *frame)
 /* 退出LQR投入，清防翻和腿控制历史并撤销AIR控制应用标志；不重置AIR检测器。 */
 static void LQR_Idle(void)
 {
+    Balance_MPC_Invalidate();
     Motion_Guard_Reset(&motion_guard);
     lqr_running = 0u;
     Leg_Balance_Reset(&leg_balance);
@@ -203,6 +205,7 @@ static void Compute_Compensation(const control_frame_t *frame, torque_output_t *
 static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, compensation_debug_t *debug)
 {
     rc_command_t command;
+    uint64_t state_time_us=Mono_Ns_Get()/1000u;
 
     command = frame->rc;
     if (lqr_state.air_control)
@@ -212,22 +215,32 @@ static void Compute_LQR(const control_frame_t *frame, torque_output_t *torque, c
     }
     if (!LQR_Target_Update(&lqr_state, &command))
     {
+        Balance_MPC_Invalidate();
         return;
     }
     if (!lqr_state.valid)
     {
+        Balance_MPC_Invalidate();
         return;
     }
     LQR_Control_Update(&lqr_state, (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL));
     if (!lqr_state.gain_valid)
     {
+        Balance_MPC_Invalidate();
         return;
     }
     torque->valid = Leg_Balance_Compute(&leg_balance, &lqr_state, &frame->left, &frame->right, &frame->compensation, &lqr_debug, (uint8_t)(control_condition.valid && control_condition.condition == CONTROL_NORMAL), MACHINE_LQR_DT, torque);
     if (torque->valid)
     {
+        float selected[4];
+        if(Balance_MPC_Control(&lqr_state,&frame->left,&frame->right,leg_balance.F,&frame->compensation,
+            &lqr_debug,(uint8_t)(control_condition.valid && control_condition.condition==CONTROL_NORMAL && torque_output_enabled && ctrl_fault==FAULT_NONE),state_time_us,selected))
+        {
+            torque->valid=Leg_Balance_Apply_Inputs(&leg_balance,&frame->left,&frame->right,leg_balance.F,selected,&frame->compensation,&lqr_debug,torque);
+        }
         *debug = leg_balance.compensation;
     }
+    else Balance_MPC_Invalidate();
 }
 
 /* 普通自起与台阶委托共用完整交接：有效姿态选路、普通补偿、LQR投入/计算及失败撤力。 */
@@ -385,6 +398,10 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
                          uint8_t *dispatch, compensation_debug_t *debug)
 {
     uint8_t observer_permit;
+    uint8_t output_applied;
+    if(strategy!=CTRL_STRATEGY_LQR || !frame->drive_permit || !frame->rc.mode.engage ||
+        !control_condition.valid || control_condition.condition!=CONTROL_NORMAL || Stair_Process_Owns_Output(&stair_process))
+        Balance_MPC_Invalidate();
 
     if (Stair_Process_Owns_Output(&stair_process))
     {
@@ -414,15 +431,22 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     /* 保持原顺序：进入FALLEN先清动作，再构建本拍LQR状态。 */
     Control_State_Update(frame, 0u);
     /* 校验上一拍F确实通过最终许可并成功提交；HAL_OK不等于电机实际力已实现。 */
-    observer_permit = (uint8_t)(leg_balance.roll_height.valid && leg_balance.cmd.valid && output_debug_dm_sent && output_debug_dji_sent && !leg_balance.compensation.saturated && air_detection.valid && air_detection.initialized && !air_detection.flight && air_detection.leg[0].force > air_param.force_on && air_detection.leg[1].force > air_param.force_on);
+    output_applied = (uint8_t)(leg_balance.roll_height.valid && leg_balance.cmd.valid && output_debug_dm_sent && output_debug_dji_sent && !leg_balance.compensation.saturated);
+    observer_permit = (uint8_t)(output_applied && air_detection.valid && air_detection.initialized && !air_detection.flight && air_detection.leg[0].force > air_param.force_on && air_detection.leg[1].force > air_param.force_on);
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
         if (leg_balance.cmd.dm[i] != output_dm_torque_nm[i])
         {
             observer_permit = 0u;
+            output_applied = 0u;
         }
     }
-    Roll_Height_Begin_Tick(&leg_balance.roll_height, (uint8_t)(strategy == CTRL_STRATEGY_LQR && frame->drive_permit && frame->rc.mode.engage && lqr_state.valid && control_condition.valid && control_condition.condition == CONTROL_NORMAL && !Control_Postprocess_Inhibited()), observer_permit);
+    for(uint8_t i=0u;i<DJI_MOTOR_NUM;i++)
+    {
+        if(leg_balance.cmd.dji[i]!=output_wheel_torque_nm[i]){output_applied=0u;}
+    }
+    Balance_MPC_Set_Applied(leg_balance.cmd.dji,leg_balance.Tp,output_applied);
+    Roll_Height_Begin_Tick(&leg_balance.roll_height, (uint8_t)(strategy == CTRL_STRATEGY_LQR && frame->drive_permit && frame->rc.mode.engage && lqr_state.valid && control_condition.valid && control_condition.condition == CONTROL_NORMAL && !Control_Postprocess_Inhibited()), observer_permit, output_applied);
     Torque_Output_Clear(torque);
     memset(debug, 0, sizeof(*debug));
     ctrl_strategy = strategy;

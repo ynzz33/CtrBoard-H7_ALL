@@ -59,8 +59,10 @@ typedef lqr_runtime_config_t lqr_debug_t;
 /* LQR运行状态：最终长度目标、PD斜坡给定、实测长度是三个不同概念。 */
 typedef struct {
     float x[LQR_X_NUM]; /* 10维状态，顺序由LQR_X枚举固定 */
+    float operating_point[LQR_X_NUM]; /* 静态模型工作点，含同一腿角offset；不含位置/速度操纵目标。 */
     float target[LQR_X_NUM]; /* 与x同序的目标，长度目标不在这个数组内 */
     float u[LQR_U_NUM]; /* 双轮及双腿摆矩输出N·m，尚未组合腿长力 */
+    float control_reference_scale; /* 本拍原防翻器实际采用的偏航参考缩放，供MPC只读复用。 */
     float K[LQR_U_NUM][LQR_X_NUM]; /* 增益矩阵，行输出/列状态 */
     float len[2]; /* 左右实测虚拟腿长m，用于增益调度 */
     float len_eval[2]; /* 上次求K使用的腿长m，只作重复计算判据 */
