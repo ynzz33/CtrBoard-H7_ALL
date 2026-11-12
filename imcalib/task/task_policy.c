@@ -55,6 +55,7 @@ void ctrl_task_body(void)
         memcpy(observation.last_action, rl_control.observation.last_action, sizeof(observation.last_action));
         memcpy(observation.history, rl_control.observation.history, sizeof(observation.history));
         observation.history_initialized = rl_control.observation.history_initialized;
+        observation.history_seeded = rl_control.observation.history_seeded;
         observation.warmup_steps = rl_control.observation.warmup_steps;
     }
     else
@@ -105,6 +106,7 @@ void ctrl_task_body(void)
     memcpy(rl_control.observation.obs, observation.obs, sizeof(observation.obs));
     memcpy(rl_control.observation.history, observation.history, sizeof(observation.history));
     rl_control.observation.history_initialized = built ? observation.history_initialized : 0u;
+    rl_control.observation.history_seeded = built ? observation.history_seeded : 0u;
     rl_control.observation.valid = built;
     taskEXIT_CRITICAL();
     if (!built || !rl_control.policy.ready || (!warmup && !RL_Policy_Run(&rl_control.policy, &observation, action)))

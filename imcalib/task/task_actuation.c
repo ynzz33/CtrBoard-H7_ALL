@@ -41,7 +41,7 @@ static void Control_Frame_Read(void)
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     uint64_t snapshot_ns=Mono_Ns_Get();
 #endif
-    (void)Robot_Feedback_Read(&feedback);
+    Robot_Feedback_Read(&feedback);
     control_frame.landed = 0u;
 
     taskENTER_CRITICAL();
@@ -105,7 +105,7 @@ uint8_t output_task_rl_engaged(void)
 }
 
 /* 完成一个执行拍：读快照→准备状态/模型→算候选力矩→按dispatch发送。
- * torque是待检查候选；pending_compensation随最终应用结果发布，尚未发送时不当作已执行。 */
+ * torque是待检查候选；最终请求和提交结果由输出层发布。 */
 void output_task_body(void)
 {
 #if MACHINE_LATENCY_CAPTURE_ENABLE
@@ -118,27 +118,14 @@ void output_task_body(void)
 #endif
     ctrl_strategy_t strategy; /* 本拍选中的控制策略。 */
     torque_output_t torque; /* 计算得到的四髋/双轮候选力矩，尚未经过最终发送检查。 */
-    compensation_debug_t pending_compensation; /* 与候选配套的诊断，输出层按实际提交结果发布。 */
     uint8_t entered_fallen; /* 本拍刚进入公共FALLEN，触发自起历史复位。 */
     uint8_t dispatch; /* 1调用输出层，0本拍不发送；不是发送成功标志。 */
-#if CONTROL_TIME_VOFA_ENABLE
-    static uint32_t previous_start_us;
-    static uint32_t previous_output_us;
-    uint32_t start_us;
-    uint32_t period_us;
-    uint32_t run_us;
-
-    /* 可选时序诊断：记录函数起点，统计的是调用间隔，不是CAN物理发送间隔。 */
-    start_us = (uint32_t)(Mono_Ns_Get() / 1000u);
-    period_us = control_time_debug.sequence != 0u ? start_us - previous_start_us : 0u;
-    previous_start_us = start_us;
-#endif
 
     /* 1. 固定本拍反馈和基础出力许可，后续计算使用同一份输入。 */
     Control_Frame_Read();
     /* 2. 先更新恢复状态/补偿缓存/公共选路，再生成候选力矩。 */
     strategy = Control_Strategy_Prepare(&control_frame, &entered_fallen);
-    Control_Compute_Run(&control_frame, strategy, entered_fallen, &torque, &dispatch, &pending_compensation);
+    Control_Compute_Run(&control_frame, strategy, entered_fallen, &torque, &dispatch);
     /* 3. RL分频可跳过发送；进入输出层后仍会复查即时故障并决定正常力矩或发零。 */
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     trace.value[2]=dispatch ? ++trace_dispatch_sequence : trace_dispatch_sequence;
@@ -153,36 +140,12 @@ void output_task_body(void)
 #endif
     if (dispatch)
     {
-        Control_Output_Apply(&control_frame, strategy, &torque, &pending_compensation);
-#if CONTROL_TIME_VOFA_ENABLE
-        control_time_debug.output_period_us = control_time_debug.output_sequence != 0u ? start_us - previous_output_us : 0u;
-        previous_output_us = start_us;
-        control_time_debug.output_sequence++;
-#endif
+        Control_Output_Apply(&control_frame, strategy, &torque);
     }
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     Latency_Dispatch_End();
     trace.end_ns=Mono_Ns_Get();
     trace.correlation=trace_dispatch_sequence;
     Latency_Capture_Push(&trace);
-#endif
-#if CONTROL_TIME_VOFA_ENABLE
-    run_us = (uint32_t)(Mono_Ns_Get() / 1000u) - start_us;
-    if (control_time_debug.sequence != 0u)
-    {
-        if (control_time_debug.min_period_us == 0u || period_us < control_time_debug.min_period_us)
-        {
-            control_time_debug.min_period_us = period_us;
-        }
-        if (period_us > control_time_debug.max_period_us)
-        {
-            control_time_debug.max_period_us = period_us;
-        }
-    }
-    control_time_debug.period_us = period_us;
-    control_time_debug.run_us = run_us;
-    if (run_us>control_time_debug.max_run_us) control_time_debug.max_run_us=run_us;
-    if (run_us>=(uint32_t)(MACHINE_TICK_DT*1000000.0f)) control_time_debug.overrun_count++;
-    control_time_debug.sequence++;
 #endif
 }

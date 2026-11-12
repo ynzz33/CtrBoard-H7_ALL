@@ -53,34 +53,4 @@ void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_s
     }
     result->valid = 1u;
 }
-
-/* 叠加本拍抵消量 */
-uint8_t Gas_Spring_Apply(const gas_spring_result_t *spring, const float base_dm[4], float unclamped_dm[4])
-{
-    float result[4];
-    uint8_t active = (uint8_t)(GAS_SPRING_COMP_ENABLE && machine->compensation.spring != NULL);
-
-    memcpy(result, base_dm, sizeof(result));
-    memset(unclamped_dm, 0, sizeof(result));
-#if GAS_SPRING_COMP_ENABLE
-    if (active && !spring->valid)
-    {
-        return 0u;
-    }
-#else
-    (void)spring;
-#endif
-    for (uint8_t i = 0u; i < 4u; i++)
-    {
-        if (active)
-        {
-            result[i] += spring->delta_dm[i];
-        }
-        if (!isfinite(result[i]))
-        {
-            return 0u;
-        }
-    }
-    memcpy(unclamped_dm, result, sizeof(result));
-    return 1u;
-}
+ 

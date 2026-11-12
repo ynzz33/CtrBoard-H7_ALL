@@ -10,14 +10,9 @@
 /* 编译期检查: 极性表长度对齐 */
 typedef char dji_num_check[(MACHINE_WHEEL_NUM == DJI_MOTOR_NUM) ? 1 : -1];
 
-/* 按机型选 ID */
-#if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
+/* 大机左右轮反馈ID。 */
 #define DJI_FEEDBACK_ID_LFT 0x202u
 #define DJI_FEEDBACK_ID_RGT 0x201u
-#else
-#define DJI_FEEDBACK_ID_LFT 0x201u
-#define DJI_FEEDBACK_ID_RGT 0x202u
-#endif
 
 const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM] = {
     [DJI_MOTOR_WHEEL_LFT] = {
@@ -57,17 +52,9 @@ int16_t Dji_Torque_To_Current(uint8_t index, float torque_nm)
     {
         return 0;
     }
-    if (machine->wheel.dji_type == (uint8_t)DJI_M2006)
-    {
-        /* 输出轴刻度: 满电流堵转力矩 / 满raw, 再按实机总减速比缩放 */
-        per_raw = DJI_NM_FULL_M2006 / (float)DJI_CURRENT_MAX_M2006 * (machine->wheel.dji_gear_ratio / DJI_RATIO_STD_M2006);
-        raw_max = DJI_CURRENT_MAX_M2006;
-    }
-    else
-    {
-        per_raw = DJI_NM_FULL_M3508 / (float)DJI_CURRENT_MAX_M3508 * (machine->wheel.dji_gear_ratio / DJI_RATIO_STD_M3508);
-        raw_max = DJI_CURRENT_MAX_M3508;
-    }
+    /* M3508输出轴刻度，按大机实测总减速比缩放。 */
+    per_raw = DJI_NM_FULL_M3508 / (float)DJI_CURRENT_MAX_M3508 * (machine->wheel.dji_gear_ratio / DJI_RATIO_STD_M3508);
+    raw_max = DJI_CURRENT_MAX_M3508;
     raw = (int32_t)(torque_nm / per_raw);
     if (raw > raw_max)
     {
@@ -168,7 +155,6 @@ void Dji_Parse(void)
         }
         feedback->angle_pending = 1u;
         feedback->parsed_rx_ns = received_ns;
-        feedback->parsed_seen = 1u;
     }
     Dji_Circle_Calculate();
     Dji_Update_Physical();

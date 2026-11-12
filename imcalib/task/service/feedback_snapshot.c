@@ -6,8 +6,8 @@
 #include "feedback_snapshot.h"
 #include "robot_state.h"
 
-/* 在一个临界区复制最新IMU、电机、左右腿、遥控和高度，返回1。 */
-uint8_t Robot_Feedback_Read(robot_feedback_t *out)
+/* 在一个临界区复制最新IMU、电机、左右腿、遥控和高度。 */
+void Robot_Feedback_Read(robot_feedback_t *out)
 {
     taskENTER_CRITICAL();
     out->imu = imu_state;
@@ -18,7 +18,6 @@ uint8_t Robot_Feedback_Read(robot_feedback_t *out)
     out->height = robot_state.height;
     out->height_valid = robot_state.height_valid;
     taskEXIT_CRITICAL();
-    return 1u;
 }
 
 /* 在临界区整体发布IMU共享状态。 */

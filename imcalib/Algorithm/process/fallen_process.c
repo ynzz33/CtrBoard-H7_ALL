@@ -43,10 +43,10 @@ static void Fallen_Process_PID_Init(fallen_process_ctx_t *st)
 {
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&st->actuator.length_pid[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd, 0.0f, 0.0f);
-        PID_struct_init(&st->actuator.angle_pos_pid[i], POSITION_PID, fallen_process_param.angle_speed_max, 0.0f, fallen_process_param.angle_pos_kp, 0.0f, fallen_process_param.angle_pos_kd, 0.0f, 0.0f);
+        PID_struct_init(&st->actuator.length_pid[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd);
+        PID_struct_init(&st->actuator.angle_pos_pid[i], POSITION_PID, fallen_process_param.angle_speed_max, 0.0f, fallen_process_param.angle_pos_kp, 0.0f, fallen_process_param.angle_pos_kd);
         st->actuator.angle_pos_pid[i].angle_wrap = 1u;
-        PID_struct_init(&st->actuator.angle_speed_pid[i], POSITION_PID, machine->hip.dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd, 0.0f, 0.0f);
+        PID_struct_init(&st->actuator.angle_speed_pid[i], POSITION_PID, machine->hip.dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd);
     }
 }
 
@@ -219,7 +219,7 @@ static void Fallen_Process_Prime(pid_t *pid, float measured, float target)
     {
         error = Fallen_Process_Wrap(error);
     }
-    PID_History_Set(pid, measured, target, error);
+    PID_History_Set(pid, error);
 }
 
 /* 检查当前是否在倒置稳定/伸腿/前点对齐/翻身阶段，用来保持翻身路径归属。 */

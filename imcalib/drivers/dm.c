@@ -156,7 +156,6 @@ void Dm_Parse(void)
         feedback->vel_rad_s = Dm_Uint_To_Float(feedback->vel_raw, -machine->hip.dm_vel_max, machine->hip.dm_vel_max, 12u);
         feedback->trq_nm = Dm_Uint_To_Float(feedback->trq_raw, -machine->hip.dm_trq_max, machine->hip.dm_trq_max, 12u);
         feedback->parsed_rx_ns = rx_ns;
-        feedback->parsed_seen = 1u;
     }
 }
 

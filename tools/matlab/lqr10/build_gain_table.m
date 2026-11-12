@@ -18,7 +18,7 @@ if ~exist(out_dir, 'dir'),   mkdir(out_dir);   end
 if ~exist(cache_dir, 'dir'), mkdir(cache_dir); end
 
 addpath(fileparts(here));
-m = machine_table(CFG.machine);
+m = machine_table();
 assert(strcmp(m.ctrl.state_schema, 'hip'), '固件表必须采用公共髋轴状态');
 Q = diag(q);  R = diag(r);
 table_id = sprintf('%s-%s-%s', m.name, CFG.model, char(datetime('now', 'Format', 'yyyyMMdd-HHmm')));
@@ -214,7 +214,7 @@ w(' * 待实测 : %s\n *\n', pend_str);
 w(' * 状态序 x = [s ds phi dphi th_ll dth_ll th_lr dth_lr th_b dth_b]\n');
 w(' * s/ds = 髋轴中点位置/速度，已从上交轮轴状态做坐标变换；腿摆角/角速度前摆为正。\n');
 w(' * 输出序 u = [T_wl T_wr T_bl T_br]\n');
-w(' * 用法   : LQR_K_WBR(lL, lR, K_sym) -> K_sym[状态*4 + 输出] (lqr_balance.c 按此取 K[输出][状态])\n */\n\n');
+w(' * 用法   : LQR_Gain_Eval(lL, lR, K_sym) -> K_sym[状态*4 + 输出] (lqr_balance.c 按此取 K[输出][状态])\n */\n\n');
 w('#include "lqr_gain_table.h"\n\n');
 w('static void eval_%s(float lL, float lR, float K_sym[40])\n{\n', m.suffix);
 w('  float t2;\n  float t3;\n  float t4;\n');

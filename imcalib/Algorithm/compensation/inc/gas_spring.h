@@ -22,6 +22,5 @@ typedef struct {
 } gas_spring_result_t;
 
 void Gas_Spring_Prepare(const leg_state_t *left, const leg_state_t *right, gas_spring_result_t *result);
-uint8_t Gas_Spring_Apply(const gas_spring_result_t *spring, const float base_dm[4], float unclamped_dm[4]);
 
 #endif

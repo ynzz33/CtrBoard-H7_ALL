@@ -56,7 +56,7 @@ uint8_t Leg_Compensation_Apply(const gas_spring_result_t *spring, const gravity_
 }
 
 /* 从base_dm四髋基础力矩N·m开始，按spring_active叠加弹簧，再叠加选定重力并逐髋限矩。
- * 缺所需有效模型则返回0；debug记录增量、限幅前命令及是否饱和。 */
+ * 缺所需有效模型则返回0；debug记录最终四髋是否饱和。 */
 uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gravity_comp_result_t *gravity, const float base_dm[4], float limit, uint8_t spring_enable, float output_dm[4], compensation_debug_t *debug)
 {
     float raw[4];
@@ -75,7 +75,6 @@ uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gra
         if (spring_active)
         {
             raw[i] += spring->delta_dm[i];
-            debug->spring_dm[i] = raw[i] - base_dm[i];
         }
         if (machine->compensation.gravity != NULL)
         {
@@ -87,8 +86,6 @@ uint8_t Leg_Compensation_Apply_Mode(const gas_spring_result_t *spring, const gra
             return 0u;
         }
     }
-    debug->gravity = *gravity;
-    memcpy(debug->unclamped_dm, raw, sizeof(raw));
     for (uint8_t i = 0u; i < 4u; i++)
     {
         output_dm[i] = clampf(raw[i], -limit, limit);

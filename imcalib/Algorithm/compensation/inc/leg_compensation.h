@@ -23,11 +23,7 @@ typedef struct {
 } leg_compensation_values_t;
 
 typedef struct {
-    gravity_comp_result_t gravity; /* 实际选中并应用到输出的重力补偿诊断。 */
-    float spring_dm[4];
-    float unclamped_dm[4];
-    uint8_t saturated;
-    uint8_t bench;
+    uint8_t saturated; /* 原最终四髋限矩标志，供观察器许可和VOFA使用。 */
 } compensation_debug_t;
 
 void Leg_Compensation_Prepare(leg_compensation_values_t *values, const leg_state_t *left, const leg_state_t *right, const imu_state_t *imu, uint8_t enabled);

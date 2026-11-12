@@ -12,7 +12,7 @@ typedef struct {
 } motion_guard_param_t;
 typedef struct {
     float length[2], length_target;
-    float velocity, velocity_request, yaw_rate;
+    float velocity, yaw_rate;
     float yaw_request, heading_error;
     float heading_gain_diff, rate_gain_diff;
     float track, height_offset, yaw_max, dt;

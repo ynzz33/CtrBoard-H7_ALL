@@ -98,7 +98,7 @@ static void Control_Detection_Stair_Update(control_frame_t *frame, uint8_t reque
 {
     stair_detection_input_t input;
     stair_process_input_t process_input;
-    if (machine->stair.mode == STAIR_MODE_OFF || MACHINE_DEFAULT != MACHINE_ID_BIG_WHEELLEG)
+    if (machine->stair.mode == STAIR_MODE_OFF)
     {
         Stair_Detection_Reset(&stair_detection);
         return;

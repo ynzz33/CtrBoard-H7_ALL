@@ -77,26 +77,6 @@ FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus)
     return handles[bus - 1u];
 }
 
-/* 收帧计数 */
-uint32_t Can_Bus_Rx_Count(uint8_t bus)
-{
-    if (bus < 1u || bus > CAN_BUS_NUM)
-    {
-        return 0u;
-    }
-    return can_bus[bus - 1u].alive_cnt;
-}
-
-/* 最近一帧的 ID */
-uint32_t Can_Bus_Last_Rx_Id(uint8_t bus)
-{
-    if (bus < 1u || bus > CAN_BUS_NUM)
-    {
-        return 0u;
-    }
-    return can_bus[bus - 1u].last_rx_id;
-}
-
 /* 句柄指针→下标 */
 static int32_t Can_Bus_Hw_Index(const FDCAN_HandleTypeDef *hfdcan)
 {
@@ -234,7 +214,6 @@ void Can_Bus_Init(void)
         bus->route_cnt    = 0;
         bus->alive_cnt    = 0;
         bus->alive_prev   = 0;
-        bus->last_tx_tick = HAL_GetTick();
         bus->dead_since   = HAL_GetTick();
         bus->reinit_tick  = HAL_GetTick();
         bus->recover_attempts = 0u;
@@ -327,10 +306,6 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
     else if(status!=HAL_OK && latency_recording) { trace.end_ns=returned_ns;trace.value[1]=(uint32_t)status;trace.flags|=3u;if(latency_recording) { Latency_Capture_Push(&trace); } }
     if(hfdcan==Can_Bus_Handle(machine->wheel.dji_bus) && can_id==0x200u && len==8u) { Output_Capture_CAN(data,can_id,(uint8_t)status,trace.begin_ns,returned_ns); }
 #endif
-    if (status == HAL_OK)
-    {
-        can_bus[idx].last_tx_tick = HAL_GetTick();
-    }
     taskEXIT_CRITICAL();
     return status;
 }
@@ -371,7 +346,6 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
             break;
 
         bus->alive_cnt++;
-        bus->last_rx_id = rx_header.Identifier;
         /* FD 帧也放行 (达妙 FD 1M/4M 反馈) */
         if (rx_header.IdType != FDCAN_STANDARD_ID || rx_header.RxFrameType != FDCAN_DATA_FRAME || rx_header.DataLength != FDCAN_DLC_BYTES_8)
         {

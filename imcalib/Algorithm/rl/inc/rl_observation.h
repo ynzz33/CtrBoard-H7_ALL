@@ -31,7 +31,8 @@ typedef struct {
 } rl_observation_sample_t;
 typedef struct {
     float obs[RL_OBS_SIZE];         /* 缩放后整体裁剪至±100，网络当前帧输入 */
-    float history[RL_HISTORY_SIZE]; /* v2：裁剪前帧，最旧在前，每策略拍推进一次 */
+    float history[RL_HISTORY_SIZE]; /* v3：限幅后帧，最旧在前，每策略拍推进一次 */
+    uint8_t history_seeded;        /* 热步后的首个推理帧已填满历史 */
     float last_action[RL_ACTION_SIZE]; /* 上次经±100裁剪的动作，网络顺序 */
     rl_observation_sample_t sample; /* 最新500Hz反馈，不主动添加观测延迟 */
     uint8_t sample_valid;           /* 最新反馈可用，坏反馈立即清除 */
@@ -45,7 +46,6 @@ typedef struct {
     uint8_t initialized;
 } rl_motor_map_state_t;
 uint8_t RL_Motor_Map(const machine_rl_cfg_t *config, float position_period, const float position[4], const float velocity[4], const float wheel_velocity[2], uint8_t source_valid, rl_motor_map_state_t *state, rl_motor_state_t *out);
-float RL_Command_Height(float leg_length_command);
 uint8_t RL_Observation_Project_Gravity(const float quat[4], float gravity[3]);
 void RL_Observation_Reset(rl_observation_state_t *state);
 void RL_Observation_Sample(rl_observation_state_t *state, const float gyro[3], const float quat[4], const rl_motor_state_t *motor, uint8_t source_valid);

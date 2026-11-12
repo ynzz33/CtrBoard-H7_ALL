@@ -1,26 +1,24 @@
 % 文件职责：LQR生成总入口与调参入口（run_all.m）。
-% 输入/来源：机器名、模型选择、Q/R和部署选项。
+% 输入/来源：大机模型选择、Q/R和部署选项。
 % 输出/去向：调用build_gain_table，生成机器候选C表与报告。
 % 关键边界：日常Q/R选择在这里；机械参数在machine_table，不能用调增益替代物理标定。
 % 阅读入口：md/file-guide.md；参数当前值以源码为准。
 
-function ok = run_all(machine_name)
-%RUN_ALL  LQR 增益表入口: 选机器 / 模型 → Q/R → build_gain_table 出表 → 生成对应机器候选表
+function ok = run_all()
+%RUN_ALL  LQR 增益表入口: 固定大机 / 选模型 → Q/R → build_gain_table 出表 → 生成大机候选表
 %   run_all                  用 §1 的选择
-%   run_all('big_wheelleg')  临时换机器
-% 产物: output/lqr_gain_small.c / lqr_gain_big.c  → 闭环检查通过且 CFG.deploy=true 时自动覆盖 imcalib/Algorithm/lqr/lqr_gain_<机器>.c,
+% 产物: output/lqr_gain_big.c  → 闭环检查通过且 CFG.deploy=true 时自动覆盖 imcalib/Algorithm/lqr/lqr_gain_big.c,
 %                                   之后整项目编译上板 (.h 不用动, 函数签名从未变过)
-%       output/report_small/big_latest.txt → 各机器报告；report_latest.txt 为最近一次报告
+%       output/report_big_latest.txt → 大机报告；report_latest.txt 为最近一次报告
 % 日常只改本文件: §1 选择、§2 Q/R (数值会原样写进 C 文件头, 表号 = 机器-模型-时间)
 % 机械参数在 machine_table.m; 扫描 / 拟合 / 闭环检查 / 写 C / 部署在 build_gain_table.m; 动力学在 model_AB.m
 % 状态序 x = [s ds phi dphi th_ll dth_ll th_lr dth_lr th_b dth_b], 输出序 u = [T_wl T_wr T_bl T_br]
 
 %% ============ §1 选择 ============
-CFG.machine   = 'big_wheelleg';    % small_wheelleg 小机器 | big_wheelleg 大机器
+CFG.machine   = 'big_wheelleg';    % 固定大机器
 CFG.model     = 'sjtu5';    % 'sjtu5' Leg2 5 方程线性模型 (板上现表来源) | 'newton15' 自研 15 方程 (阶段 2)
-CFG.fit_order = 2;          % 2 = poly22 (板上现表格式) | 3 = poly33 (残差不够时用; 多项式在生成的 C 里, 板上无需改)
+CFG.fit_order = 3;          % 2 = poly22 (板上现表格式) | 3 = poly33 (残差不够时用; 多项式在生成的 C 里, 板上无需改)
 CFG.deploy    = true;      % 显式开启后仅部署对应机器表
-if nargin >= 1 && ~isempty(machine_name), CFG.machine = machine_name; end
 
 %% ============ §2 Q/R  (数值原样写进 C 文件头, 不需要另起标签) ============
 % Q = diag(q): 状态误差平方的权重, 顺序对应 x; R = diag(r): 力矩平方的权重, 顺序对应 u。
@@ -40,43 +38,38 @@ if nargin >= 1 && ~isempty(machine_name), CFG.machine = machine_name; end
 % r(4)  T_br    右虚拟髋力矩 [N*m], 经力映射分配给右腿两个关节电机
 % 固件腿状态: th_l/r = virtual_leg_angle - pitch, dth_l/r = d_virtual_leg_angle - pitch_rate。
 % 其余条件相同时, 增大某项 q 更重视该状态误差, 增大某项 r 更惩罚对应力矩。
-switch CFG.machine
-    case 'small_wheelleg'
-        q = [16000, 3000, 1000, 870, 11000,  250,  11000,  250, 7000, 500];   % Leg2 mlx 生效组 = 板上现表
-        r = [5480, 5480, 650, 650];                                          % T_wl T_wr T_bl T_br
+% hx
+% q = [300, 1, 4000, 1, 600, 10, 600, 10, 55000, 1];             % Leg3 候选权重
+% r = [100, 100, 1, 1];
+% kp
+% q = [800, 500, 30, 4500, 8600, 80, 8600, 80, 15050, 180];
+% r = [80,  80, 102, 102];
+%旧参数
+% q = [600,  800, 30,   100,     100,        210,      100,   210,    800,   10];
+% r = [100.0,  100.0,   10.0,    10.0];
 
-% 状态序 x = [s ds phi dphi th_ll dth_ll th_lr dth_lr th_b dth_b], 输出序 u = [T_wl T_wr T_bl T_br]
 
-    case 'big_wheelleg'
-        % hx
-        % q = [300, 1, 4000, 1, 600, 10, 600, 10, 55000, 1];             % Leg3 候选权重
-        % r = [100, 100, 1, 1];  
-        % kp
-        % q = [800, 500, 30, 4500, 8600, 80, 8600, 80, 15050, 180];
-        % r = [80,  80, 102, 102];
-        %旧参数
-        % q = [600,  800, 30,   100,     100,        210,      100,   210,    800,   10];            
-        % r = [100.0,  100.0,   10.0,    10.0];  
- 
+% q = [1300,  800, 60,   250,     100,        480,      100,   480,    6000,   40];
+% r = [100.0,  100.0,   10.0,    10.0];
 
-        % q = [1300,  800, 60,   250,     100,        480,      100,   480,    6000,   40];            
-        % r = [100.0,  100.0,   10.0,    10.0];        
 
-        q = [2000,  700, 200,   540,    90000,        4000,      90000,   4000,    200000,   1000];
-        r = [500.0,  500.0,   50.0,    50.0];
+%新参数
+%222222222
+% q = [2000,  700, 200,   540,    90000,        4000,      90000,   4000,    200000,   1000];
+% r = [550.0,  550.0,   50.0,    50.0];
+%111111111
+q = [2000,  700, 200,   540,    72000,        4000,      72000,   4000,    180000,   1000];
+r = [550.0,  550.0,   50.0,    50.0];
 
-        % q = [6000,  7500, 11200,   14240,     2900000,        2000,      2900000,   2000,    2000000,   1000];
-        % r = [3000.0,  3000.0,   7500.0,    7500.0];
 
-        % q = [50,  400, 10,   50,     600,        300,      600,   300,    2000,   1];            
-        % r = [10.0,  10.0,   1.0,    1.0];         
-        % 
-        % q = [1000,  8000, 400,   1500,     8000,        2450,      8000,   200,    9000,   1];            
-        % r = [200.0,  200.0,   50.0,    50.0];                                               
-        CFG.fit_order = 3;
-    otherwise
-        error('run_all:machine', '未知机器 "%s" (small_wheelleg / big_wheelleg)', CFG.machine);
-end
+% q = [6000,  7500, 11200,   14240,     2900000,        2000,      2900000,   2000,    2000000,   1000];
+% r = [3000.0,  3000.0,   7500.0,    7500.0];
+
+% q = [50,  400, 10,   50,     600,        300,      600,   300,    2000,   1];
+% r = [10.0,  10.0,   1.0,    1.0];
+%
+% q = [1000,  8000, 400,   1500,     8000,        2450,      8000,   200,    9000,   1];
+% r = [200.0,  200.0,   50.0,    50.0];
 
 %% ============ 出表 ============
 here = fileparts(mfilename('fullpath'));

@@ -6,7 +6,7 @@ root = fileparts(fileparts(fileparts(here)));
 old_path = path;
 cleanup = onCleanup(@() path(old_path));
 addpath(here,fileparts(here),fullfile(fileparts(here),'lqr10'),fullfile(fileparts(here),'lqr4'));
-machine = machine_table('big_wheelleg');
+machine = machine_table();
 
 % 权重读取现役生成C表的来源头，不调用deploy=true的生成入口，也不另存第二份调参值。
 gain_file = fullfile(root,'imcalib','Algorithm','lqr','lqr_gain_big.c');

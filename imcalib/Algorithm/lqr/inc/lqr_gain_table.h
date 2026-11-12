@@ -31,10 +31,8 @@ typedef struct {
     lqr_gain_eval_t eval;
 } lqr_gain_desc_t;
 
-extern const lqr_gain_desc_t lqr_gain_small;
 extern const lqr_gain_desc_t lqr_gain_big;
 const lqr_gain_desc_t *LQR_Gain_Info(void);
 uint8_t LQR_Gain_Eval(float lL, float lR, float K[40]);
-void LQR_K_WBR(float lL, float lR, float K[40]);
 
 #endif

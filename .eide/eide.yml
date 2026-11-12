@@ -52,24 +52,6 @@ virtualFolder:
                   files:
                     - path: USB_DEVICE/Target/usbd_conf.c
                   folders: []
-            - name: X-CUBE-AI
-              files: []
-              folders:
-                - name: App
-                  files:
-                    - path: X-CUBE-AI/App/jump.c
-                    - path: X-CUBE-AI/App/jump_data.c
-                    - path: X-CUBE-AI/App/jump_data_params.c
-                    - path: X-CUBE-AI/App/pin.c
-                    - path: X-CUBE-AI/App/pin_data.c
-                    - path: X-CUBE-AI/App/pin_data_params.c
-                    - path: X-CUBE-AI/App/stable.c
-                    - path: X-CUBE-AI/App/stable_data.c
-                    - path: X-CUBE-AI/App/stable_data_params.c
-                    - path: X-CUBE-AI/App/upstairs.c
-                    - path: X-CUBE-AI/App/upstairs_data.c
-                    - path: X-CUBE-AI/App/upstairs_data_params.c
-                  folders: []
     - name: Drivers
       files: []
       folders:
@@ -96,10 +78,7 @@ virtualFolder:
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_i2c.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_i2c_ex.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_exti.c
-            - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc.c
-            - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_adc_ex.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_fdcan.c
-            - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_ospi.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_spi.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_spi_ex.c
             - path: Drivers/STM32H7xx_HAL_Driver/Src/stm32h7xx_hal_uart.c
@@ -146,13 +125,6 @@ virtualFolder:
         - path: imcalib/task/control/control_compute.c
         - path: imcalib/task/control/control_output.c
       folders: []
-    - name: Doc
-      files:
-        - path: X-CUBE-AI/App/jump_generate_report.txt
-        - path: X-CUBE-AI/App/pin_generate_report.txt
-        - path: X-CUBE-AI/App/stable_generate_report.txt
-        - path: X-CUBE-AI/App/upstairs_generate_report.txt
-      folders: []
     - name: Lib
       files:
         - path: gcc_support/AI/NetworkRuntime1020_CM7_GCC.a
@@ -187,7 +159,6 @@ targets:
         - imcalib/common/inc
         - imcalib/config
         - imcalib/Algorithm/lqr/inc
-        - imcalib/Algorithm/mpc/inc
         - imcalib/Algorithm/rl/inc
         - imcalib/Algorithm/estimation/inc
         - imcalib/Algorithm/detection/inc

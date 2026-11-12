@@ -12,7 +12,7 @@
 
 uint8_t Roll_Height_Available(void)
 {
-    return (uint8_t)(roll_height_model.machine_id == MACHINE_DEFAULT);
+    return (uint8_t)(roll_height_model.machine_id == MACHINE_ID_BIG_WHEELLEG);
 }
 
 void Roll_Height_Reset(roll_height_balance_t *state)
@@ -23,7 +23,7 @@ void Roll_Height_Reset(roll_height_balance_t *state)
 }
 
 /* 开始四态轴向控制一拍，设置控制/观察器许可并清本拍采样标志；失去许可则清历史。 */
-void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit, uint8_t output_applied)
+void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit)
 {
     if (!permit || !Roll_Height_Available())
     {
@@ -33,12 +33,6 @@ void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_
     state->permit = 1u;
     state->sampled = 0u;
     state->observer.permit = observer_permit;
-#if MACHINE_ROLL_HEIGHT_USE_MPC
-    /* 未实际提交/已限矩时不沿用优化辅助历史，下一拍从当前状态冷启动。 */
-    if (!output_applied) state->mpc.initialized=0u;
-#else
-    (void)output_applied;
-#endif
 }
 
 /* 输入F保持补偿前坐标；仅使用上一拍确认提交且未限矩的请求，不把FN估计当模型输入。 */
@@ -113,23 +107,30 @@ static uint8_t Roll_Height_State_Update(roll_height_balance_t *state, const lqr_
     float theta;
     float omega;
     float length;
+    float cos_theta;
+    float cos_roll;
+    float cos_target[RH_NU];
 
     for (uint8_t i = 0u; i < 2u; i++)
     {
         theta = lqr->x[i == 0u ? LQR_X_THL : LQR_X_THR];
         omega = lqr->x[i == 0u ? LQR_X_DTHL : LQR_X_DTHR];
         length = legs[i]->output.virtual_leg_length;
-        projection += length * cosf(theta);
-        velocity += legs[i]->output.d_virtual_leg_length * cosf(theta) - length * sinf(theta) * omega;
+        cos_theta = cosf(theta);
+        projection += length * cos_theta;
+        velocity += legs[i]->output.d_virtual_leg_length * cos_theta - length * sinf(theta) * omega;
     }
+    cos_roll = cosf(lqr->roll);
+    cos_target[0] = cosf(lqr->target[LQR_X_THL]);
+    cos_target[1] = cosf(lqr->target[LQR_X_THR]);
     state->x[0] = lqr->roll;
-    state->x[2] = 0.5f * cosf(lqr->roll) * projection;
-    state->height_rate_raw = 0.5f * (cosf(lqr->roll) * velocity - sinf(lqr->roll) * lqr->roll_rate * projection);
+    state->x[2] = 0.5f * cos_roll * projection;
+    state->height_rate_raw = 0.5f * (cos_roll * velocity - sinf(lqr->roll) * lqr->roll_rate * projection);
     state->target[0] = 0.0f;
     state->target[1] = 0.0f;
     /* 固定腿角目标、roll目标为0：高度位置与速度来自同一长度参考。 */
-    state->target[2] = 0.5f * (length_ramp_target[0] * cosf(lqr->target[LQR_X_THL]) + length_ramp_target[1] * cosf(lqr->target[LQR_X_THR]));
-    state->target[3] = 0.5f * (length_rate_target[0] * cosf(lqr->target[LQR_X_THL]) + length_rate_target[1] * cosf(lqr->target[LQR_X_THR]));
+    state->target[2] = 0.5f * (length_ramp_target[0] * cos_target[0] + length_ramp_target[1] * cos_target[1]);
+    state->target[3] = 0.5f * (length_rate_target[0] * cos_target[0] + length_rate_target[1] * cos_target[1]);
     if (!isfinite(state->x[2]) || !isfinite(state->height_rate_raw) || !isfinite(state->target[2]) || !isfinite(state->target[3]))
     {
         return 0u;
@@ -150,7 +151,7 @@ static uint8_t Roll_Height_Force_Update(roll_height_balance_t *state, float turn
     float fraction;
 
     state->lqr.height_trim = 0.0f;
-    if (MACHINE_HEIGHT_TRIM_ENABLE && MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG)
+    if (MACHINE_HEIGHT_TRIM_ENABLE)
     {
         fraction = clampf((state->target[2] - 0.14f) / (0.33f - 0.14f), 0.0f, 1.0f);
         state->lqr.height_trim = MACHINE_HEIGHT_TRIM_LOW_N + fraction * (MACHINE_HEIGHT_TRIM_HIGH_N - MACHINE_HEIGHT_TRIM_LOW_N);
@@ -203,7 +204,7 @@ static uint8_t Roll_Height_Fail(roll_height_balance_t *state)
 /* 由长度/横滚状态与目标求左右轴向力，并更新可选偏置观察器和力限幅诊断。 */
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
-                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff, const leg_compensation_values_t *values, const lqr_runtime_config_t *config)
+                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff)
 {
     float measurement[RH_NX];
 
@@ -235,11 +236,6 @@ uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
     {
         return Roll_Height_Fail(state);
     }
-#if MACHINE_ROLL_HEIGHT_USE_MPC
-    Roll_Height_MPC_Update(state,lqr,left,right,values,config);
-#else
-    (void)values; (void)config;
-#endif
     state->valid = 1u;
     return 1u;
 }

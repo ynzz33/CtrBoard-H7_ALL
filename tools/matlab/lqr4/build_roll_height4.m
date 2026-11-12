@@ -2,7 +2,7 @@ function [ok,result] = build_roll_height4(CFG,q,r,observer_tau)
 %BUILD_ROLL_HEIGHT4 同一机器/运行配置设计LQR与慢变力观测器，检查通过后覆盖。
 here=fileparts(mfilename('fullpath'));parent=fileparts(here);repo=fileparts(fileparts(parent));
 addpath(parent);
-evalc('machine=machine_table(CFG.machine);');
+evalc('machine=machine_table();');
 if ~isfield(machine,'roll_height'),error('roll_height4:machine','该机器尚无匹配四状态参数');end
 p=machine.roll_height;p.machine=machine.name;p.machine_id=machine.c_id;
 config=fullfile(repo,'imcalib','config','machine_config.c');entry=fullfile(here,'run_roll_height4.m');

@@ -83,7 +83,6 @@ extern hi229_data_t hi229_data;
 void       HI229_Init(void);
 void       HI229_Process(void);
 bool       HI229_Online(void);
-float      HI229_Deadline(float input, float deadline);
 hi229_data_t HI229_Snapshot(void);
 
 #endif

@@ -17,7 +17,6 @@ typedef struct {
     float pos_continuous_rad[DM_MOTOR_NUM]; /* RL连续标定角，rad */
     float vel_rad_s[DM_MOTOR_NUM];
     float trq_nm[DM_MOTOR_NUM];
-    uint32_t last_rx_tick[DM_MOTOR_NUM]; /* 各髋最新有效帧接收时刻ms，用于在线期限。 */
     uint64_t parsed_rx_ns[DM_MOTOR_NUM]; /* 各髋有效反馈帧携带的接收时刻ns。 */
     uint8_t online[DM_MOTOR_NUM];
 } dm_motor_state_t;
@@ -26,11 +25,8 @@ typedef struct {
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     uint64_t parsed_rx_ns[DJI_MOTOR_NUM];
 #endif
-    float angle_rad[DJI_MOTOR_NUM];
-    float angle_total_rad[DJI_MOTOR_NUM];
     float vel_rad_s[DJI_MOTOR_NUM];
     int16_t current_raw[DJI_MOTOR_NUM];
-    uint32_t last_rx_tick[DJI_MOTOR_NUM];
     uint8_t online[DJI_MOTOR_NUM];
 } dji_motor_state_t;
 
@@ -50,7 +46,7 @@ typedef struct robot_feedback {
     uint8_t height_valid;
 } robot_feedback_t;
 
-uint8_t Robot_Feedback_Read(robot_feedback_t *out);
+void Robot_Feedback_Read(robot_feedback_t *out);
 void Robot_Feedback_Publish_Imu(const imu_state_t *next);
 void Robot_Feedback_Publish_Motor(const motor_state_t *next,
     const leg_state_t *left, const leg_state_t *right);

@@ -13,7 +13,6 @@
 #include "torque_output.h"
 
 void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy,
-                          const torque_output_t *torque,
-                          const compensation_debug_t *debug);
+                          const torque_output_t *torque);
 
 #endif

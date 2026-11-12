@@ -36,10 +36,10 @@ static void Stair_Process_PID_Init(stair_process_t *state)
 {
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&state->length_pid[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd, 0.0f, 0.0f);
-        PID_struct_init(&state->angle_pos_pid[i], POSITION_PID, fallen_process_param.angle_speed_max, 0.0f, fallen_process_param.angle_pos_kp, 0.0f, fallen_process_param.angle_pos_kd, 0.0f, 0.0f);
+        PID_struct_init(&state->length_pid[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd);
+        PID_struct_init(&state->angle_pos_pid[i], POSITION_PID, fallen_process_param.angle_speed_max, 0.0f, fallen_process_param.angle_pos_kp, 0.0f, fallen_process_param.angle_pos_kd);
         state->angle_pos_pid[i].angle_wrap = 1u;
-        PID_struct_init(&state->angle_speed_pid[i], POSITION_PID, machine->hip.dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd, 0.0f, 0.0f);
+        PID_struct_init(&state->angle_speed_pid[i], POSITION_PID, machine->hip.dm_trq_clamp, 0.0f, fallen_process_param.angle_speed_kp, 0.0f, fallen_process_param.angle_speed_kd);
     }
 }
 
@@ -164,13 +164,13 @@ void Stair_Process_Update(stair_process_t *state, const stair_process_param_t *p
         state->last_angle[i] = leg->virtual_leg_angle;
         state->length_target[i] = Ramp_Target_Update(&state->length_ramp[i], leg->virtual_leg_length, state->swing_length[i], fallen_process_param.length_rate, dt);
         if (!isfinite(state->length_target[i])) { Stair_Process_Abort(state, STAIR_EXIT_MAPPING, input->now_ms); return; }
-        if (!state->controllers_ready) { PID_History_Set(&state->length_pid[i], leg->virtual_leg_length, state->length_target[i], state->length_target[i] - leg->virtual_leg_length); }
+        if (!state->controllers_ready) { PID_History_Set(&state->length_pid[i], state->length_target[i] - leg->virtual_leg_length); }
         state->force[i] = pid_calc(&state->length_pid[i], leg->virtual_leg_length, state->length_target[i], dt);
         state->angle_ramp[i].rate = param->angle_rate;
         Ramp_Update(&state->angle_ramp[i], fallen_process_param.rear_angle, dt);
-        if (!state->controllers_ready) { PID_History_Set(&state->angle_pos_pid[i], state->position[i], state->angle_ramp[i].out, Angle_Wrap_Pi(state->angle_ramp[i].out - state->position[i])); }
+        if (!state->controllers_ready) { PID_History_Set(&state->angle_pos_pid[i], Angle_Wrap_Pi(state->angle_ramp[i].out - state->position[i])); }
         speed_target = pid_calc(&state->angle_pos_pid[i], state->position[i], state->angle_ramp[i].out, dt);
-        if (!state->controllers_ready) { PID_History_Set(&state->angle_speed_pid[i], leg->d_virtual_leg_angle, speed_target, speed_target - leg->d_virtual_leg_angle); }
+        if (!state->controllers_ready) { PID_History_Set(&state->angle_speed_pid[i], speed_target - leg->d_virtual_leg_angle); }
         state->torque[i] = pid_calc(&state->angle_speed_pid[i], leg->d_virtual_leg_angle, speed_target, dt);
         weight = clampf(1.0f - fabsf(Angle_Wrap_Pi(state->position[i] - machine->lqr.reference.leg_trim[i])) / machine->recovery.fallen_support_angle_range, 0.0f, 1.0f);
         state->force[i] += state->support * weight * machine->lqr.roll_height.support_force[i];

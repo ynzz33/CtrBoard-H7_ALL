@@ -1,5 +1,5 @@
 /*
- * 按编译机型选择增益表，将左右腿长夹到表域后求40个K系数并检查有限性。
+ * 使用大机增益表，将左右腿长夹到表域后求40个K系数并检查有限性。
  * 夹紧仅作用于查表输入，不改写实际反馈腿长；系数排列由增益接口定义。
  */
 
@@ -7,11 +7,7 @@
 #include <math.h>
 #include <string.h>
 
-#if MACHINE_DEFAULT == MACHINE_ID_SMALL_WHEELLEG
-static const lqr_gain_desc_t *const selected_gain = &lqr_gain_small;
-#else
 static const lqr_gain_desc_t *const selected_gain = &lqr_gain_big;
-#endif
 
 const lqr_gain_desc_t *LQR_Gain_Info(void)
 {
@@ -33,9 +29,4 @@ uint8_t LQR_Gain_Eval(float lL, float lR, float K[40])
         }
     }
     return 1u;
-}
-
-void LQR_K_WBR(float lL, float lR, float K[40])
-{
-    (void)LQR_Gain_Eval(lL, lR, K);
 }

@@ -20,6 +20,7 @@ extern dr16_t dr16;
 
 void        DR16_Init(void);
 void        DR16_Process(void);
+/* 仅通信任务每轮解析后调用一次刷新在线状态，后续消费者只读dr16.online。 */
 bool        DR16_Online(void);
 int16_t     DR16_Deadline(int16_t input, uint16_t deadline);
 dr16_t      DR16_Snapshot(void);

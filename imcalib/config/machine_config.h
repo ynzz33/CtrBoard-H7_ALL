@@ -1,6 +1,6 @@
 /*
- * 集中保存大小机的几何、驱动映射、补偿表、遥控和LQR/RL参数。
- * 编译机型及节拍/功能开关在头文件，具体数值在machine_table；物理标定值须由作者台架确认。
+ * 集中保存大机的几何、驱动映射、补偿表、遥控和LQR/RL参数。
+ * 节拍/功能开关在头文件，具体数值在machine_big；物理标定值须由作者台架确认。
  */
 
 #ifndef __MACHINE_CONFIG_H
@@ -8,18 +8,9 @@
 
 #include "motion_guard.h"
 #include <stdint.h>
-#define MACHINE_BALANCE_USE_MPC 0u
-#define MACHINE_ROLL_HEIGHT_USE_MPC 0u
-
-#define MACHINE_MPC_REFERENCE_PREDICT 1u /* 四态真实长度斜坡预览；不改变十态参考生成。 */
-#define MACHINE_MPC_INPUT_CONSTRAINT 1u
-#if MACHINE_ROLL_HEIGHT_USE_MPC && !MACHINE_MPC_INPUT_CONSTRAINT
-#error "MPC requires input constraints"
-#endif
-
 #define MACHINE_LATENCY_CAPTURE_ENABLE              0u /* 完整时序采集；0编译移除测点/缓冲/新增IRQ。 */
 #define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
-#define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：NORMAL四态后端（LQR/MPC），控制腿长和roll */
+#define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：NORMAL四态LQR，控制腿长和roll */
 #define MACHINE_ROLL_HEIGHT_OBSERVER_ENABLE         0u /* 4态leso观测器 */
 /* 轴向力补偿，*/
 #define MACHINE_HEIGHT_TRIM_ENABLE                  1u
@@ -28,48 +19,25 @@
 
 /* 机器编号 */
 #define MACHINE_ID_BIG_WHEELLEG    0u
-#define MACHINE_ID_SMALL_WHEELLEG  1u
 
-#define MACHINE_NUM               2u
-
-/* 两份机器配置表同时编译，各自引用机械腿长范围，单位m。 */
+/* 大机机械腿长范围，单位m。 */
 #define MACHINE_BIG_LEG_LEN_MIN   0.14f
 #define MACHINE_BIG_LEG_LEN_MAX   0.33f
 
-#define MACHINE_SMALL_LEG_LEN_MIN 0.13f
-#define MACHINE_SMALL_LEG_LEN_MAX 0.23f
 /* 电机数量 (须与 dm.c / dji.c 的枚举一致) */
 #define MACHINE_LEG_NUM           4u
 #define MACHINE_WHEEL_NUM         2u
 
-/* 编译选机，参数与 K 表同步绑定。 */
-#ifndef MACHINE_DEFAULT
-#define MACHINE_DEFAULT           MACHINE_ID_BIG_WHEELLEG
-#endif
-
-#if MACHINE_DEFAULT == MACHINE_ID_BIG_WHEELLEG
+/* 固定大机控制节拍及总线参数。 */
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_TICK_DT           0.001f
 #define MACHINE_RL_CTRL_DIV       2u      /* RL实体PD/反馈采样/正常下发：500Hz */
 #define MACHINE_POLICY_DIV        10u     /* 8000 v2：25/125双输入，100Hz策略/500Hz PD */
 #define MACHINE_DM_OFFLINE_MS     50u
-#define MACHINE_VOFA_PORT         8u      /* UART8 */
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u
 #define MACHINE_FDCAN13_DATA_SEG2       1u
-#elif MACHINE_DEFAULT == MACHINE_ID_SMALL_WHEELLEG
-#define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
-#define MACHINE_TICK_DT           0.001f
-#define MACHINE_RL_CTRL_DIV       1u      /* 小机兼容 */
-#define MACHINE_DM_OFFLINE_MS     10u
-#define MACHINE_POLICY_DIV        10u     /* 策略节拍 1000/10 = 100 Hz */
-#define MACHINE_VOFA_PORT         1u      /* UART1 */
-#define MACHINE_FDCAN13_DATA_PRESCALER  3u
-#define MACHINE_FDCAN13_DATA_SEG1       5u
-#define MACHINE_FDCAN13_DATA_SEG2       2u
-#else
-#error "Unsupported MACHINE_DEFAULT"
-#endif
+
 
 #define MACHINE_LQR_DT            MACHINE_TICK_DT
 #define MACHINE_RL_CTRL_DT        (MACHINE_TICK_DT * (float)MACHINE_RL_CTRL_DIV)
@@ -122,6 +90,11 @@ typedef struct {
     float joint_vel_scale;     /* 六路电机速度观测缩放 */
     float obs_clip;            /* 缩放后完整当前帧裁剪幅值 */
     float velocity_command_scale; /* 前向速度命令缩放 */
+    float pitch_target_deg;       /* RL策略的正俯仰目标，deg */
+    float velocity_command_limit; /* 前后速度目标幅值，m/s */
+    float yaw_rate_command_limit; /* 转向角速度目标幅值，rad/s */
+    float height_command_min;     /* 机高目标下限，m */
+    float height_command_max;     /* 机高目标上限，m */
 } machine_rl_observation_cfg_t;
 typedef struct {
     float pos_scale;           /* action→相对名义角偏移，rad/action */
@@ -200,12 +173,6 @@ typedef struct {
     float roll_height_bias_common_max; /* 观测器平均偏置上限N/腿，不是腿力输出限幅 */
     float roll_height_bias_diff_max; /* 左右偏置之差上限N，不是单腿力输出限幅 */
     float support_force[2];
-    struct {
-        uint16_t max_iter; /* MPC有限迭代上限；模型/rho/窗口由生成数据管理。 */
-        float primal_tolerance; /* 输入共识残差N。 */
-        float dual_tolerance; /* rho加权对偶残差，求解器坐标。 */
-        uint16_t solve_div; /* MPC重算/输入保持拍数，模型周期须等于基础周期*solve_div。 */
-    } mpc;
 } machine_lqr_roll_height_cfg_t;
 
 /* 原腿长/roll PD；参数口径保持 */
@@ -271,7 +238,6 @@ typedef struct {
 /* 一台机器的全部参数 */
 /* 轮驱动：型号、传动、限矩、总线和标定 */
 typedef struct {
-    uint8_t     dji_type;
     float       dji_gear_ratio;
     float       dji_trq_clamp;
     float       wheel_r;
@@ -374,6 +340,40 @@ typedef struct {
     stair_process_param_t process;
 } machine_stair_cfg_t;
 
+/* 跳跃动作参数，全部为待台架试用值；力门槛按单腿静支撑support_force归一化。 */
+typedef struct {
+    uint8_t confirmed; /* 作者允许试用后置1，0时拒绝启动；不代表实机已验收 */
+    float crouch_len; /* 蓄力腿长m，由调用方交普通LQR跟踪 */
+    float crouch_tol; /* 双腿不高于crouch_len+此值视为到位m */
+    float crouch_hold; /* 蓄力到位连续保持s */
+    float thrust_force; /* 每腿附加推力N，叠加在随腿长的静态支撑力上 */
+    float thrust_ramp; /* 推力系数0→1的爬升速率1/s */
+    float thrust_len; /* 行程保护：任一腿达到即停推m，须低于机械上限 */
+    float liftoff_ratio; /* 两腿支持力之和低于此倍整机静支撑视为卸载 */
+    float liftoff_speed; /* 两腿伸长速度均高于此值m/s才接受卸载 */
+    float liftoff_time; /* 起飞条件连续确认s */
+    float retract_len; /* 空中收腿目标m，也是着地瞬间腿长，须给落地留压缩行程 */
+    float retract_rate; /* 收腿给定从实测腿长起步的速率m/s */
+    float flight_kp, flight_kd; /* 空中收腿PD，N/m、N/(m/s)；D作用于给定与实测速度差 */
+    float touchdown_ratio; /* 卸载后任一腿支持力高于此倍单腿静支撑计入着地 */
+    float touchdown_compression; /* 收腿到位后任一腿短于收腿目标超过此值m计入着地 */
+    float touchdown_speed; /* 收腿到位后任一腿压缩速度高于此值m/s计入着地 */
+    float touchdown_time; /* 着地条件连续确认s */
+    float land_len; /* 落地缓冲目标腿长m */
+    float land_rate; /* 缓冲给定从着地实测腿长起步的速率m/s */
+    float land_time; /* 支撑前馈0→1渐入时间s，满后进入交接 */
+    float land_kp, land_kd; /* 落地低刚度高阻尼PD，N/m、N/(m/s) */
+    float angle_kp, angle_kd; /* 空中世界腿角PD，N·m/rad、N·m/(rad/s) */
+    float angle_torque_max; /* 空中腿角摆矩限幅N·m */
+    float pitch_max, roll_max, angle_max; /* 接管期间硬中止：|pitch|、|roll|、世界腿角偏离trim上限rad */
+    uint32_t crouch_timeout_ms, thrust_timeout_ms, flight_timeout_ms; /* 蓄力/蹬伸/空中期限ms；空中超时按着地处理 */
+    uint32_t handoff_timeout_ms, total_timeout_ms, wait_ms; /* 交接期限、总期限及失败撤力等待ms */
+} jump_process_param_t;
+
+typedef struct {
+    jump_process_param_t process; /* 触发键与起跳许可参数待接入阶段另加 */
+} machine_jump_cfg_t;
+
 typedef struct {
 
     const char *name;
@@ -381,8 +381,9 @@ typedef struct {
     machine_rc_cfg_t rc;        /* 公共量程 */
     machine_lqr_cfg_t lqr;
     machine_stair_cfg_t stair; /* 台阶检测/动作，参数及状态不归自起 */
+    machine_jump_cfg_t jump; /* 跳跃动作；当前未接入控制流程 */
 
-    /* 轮: 型号(0=M2006, 1=M3508) + 总传动比 + 满限幅力矩(Nm) */
+    /* 轮: M3508总传动比 + 满限幅力矩(Nm) */
 
     /* 腿: MIT 三个满量程 + 满限幅力矩(Nm) */
 
@@ -412,8 +413,7 @@ typedef struct {
     machine_recovery_cfg_t recovery; /* 公共起立/恢复过程 */
 } machine_cfg_t;
 
-extern const machine_cfg_t machine_table[MACHINE_NUM];
-extern const machine_cfg_t *const machine; /* 编译期选定的机器 */
+extern const machine_cfg_t *const machine; /* 固定大机配置 */
 
 
 #endif

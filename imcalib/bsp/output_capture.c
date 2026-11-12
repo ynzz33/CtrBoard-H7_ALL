@@ -58,7 +58,7 @@ void Output_Capture_CAN(const uint8_t data[8], uint32_t can_id, uint8_t status, 
     record.end_ns = end_ns;
     record.id = can_id;
     record.flags = status;
-    record.machine = (uint8_t)MACHINE_DEFAULT;
+    record.machine = (uint8_t)MACHINE_ID_BIG_WHEELLEG;
     for (uint8_t i = 0u; i < 4u; i++)
     {
         record.current_raw[i] = (int16_t)(((uint16_t)data[2u * i] << 8) | data[2u * i + 1u]);

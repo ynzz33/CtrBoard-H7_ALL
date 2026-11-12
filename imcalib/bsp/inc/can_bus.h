@@ -46,8 +46,6 @@ typedef struct {
     FDCAN_TxHeaderTypeDef tx_template;
     volatile can_bus_state_t state;
     volatile uint32_t     alive_cnt;
-    volatile uint32_t     last_rx_id;    /* 最近收到帧的 CAN ID */
-    volatile uint32_t     last_tx_tick;
     uint32_t              alive_prev;
     uint32_t              dead_since;
     uint32_t              reinit_tick;
@@ -68,9 +66,6 @@ HAL_StatusTypeDef Can_Bus_Transmit(FDCAN_HandleTypeDef *hfdcan, uint32_t can_id,
 bool    Can_Bus_Online(bool expect_traffic);
 /* 按总线号取句柄 (1=FDCAN1 2=FDCAN2 3=FDCAN3) */
 FDCAN_HandleTypeDef *Can_Bus_Handle(uint8_t bus);
-/* 收帧计数 / 最近一帧 ID (调试用) */
-uint32_t Can_Bus_Rx_Count(uint8_t bus);
-uint32_t Can_Bus_Last_Rx_Id(uint8_t bus);
 
 
 #endif

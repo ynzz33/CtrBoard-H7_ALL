@@ -16,9 +16,9 @@ void Leg_Balance_Init(leg_balance_t *lb)
 
     for (uint8_t i = 0u; i < 2u; i++)
     {
-        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd * MACHINE_LQR_DT, 0.0f, 0.0f);
+        PID_struct_init(&lb->leg_len[i], POSITION_PID, machine->lqr.pd.leg_len[i].max_output, 0.0f, machine->lqr.pd.leg_len[i].kp, 0.0f, machine->lqr.pd.leg_len[i].kd * MACHINE_LQR_DT);
     }
-    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.pd.roll.max_output, 0.0f, machine->lqr.pd.roll.kp, 0.0f, machine->lqr.pd.roll.kd * MACHINE_LQR_DT, 0.0f, 0.0f);
+    PID_struct_init(&lb->roll, POSITION_PID, machine->lqr.pd.roll.max_output, 0.0f, machine->lqr.pd.roll.kp, 0.0f, machine->lqr.pd.roll.kd * MACHINE_LQR_DT);
     Roll_Height_Reset(&lb->roll_height);
 }
 
@@ -36,13 +36,10 @@ void Leg_Balance_Reset(leg_balance_t *lb)
     for (uint8_t i = 0u; i < 3u; i++)
     {
         memset(pid[i]->err, 0, sizeof(pid[i]->err));
-        memset(pid[i]->target, 0, sizeof(pid[i]->target));
-        memset(pid[i]->measured, 0, sizeof(pid[i]->measured));
         pid[i]->pout = 0.0f;
         pid[i]->iout = 0.0f;
         pid[i]->dout = 0.0f;
         pid[i]->position_mode_output = 0.0f;
-        pid[i]->last_position_mode_output = 0.0f;
         pid[i]->vel_err = 0.0f;
     }
     memset(lb->F, 0, sizeof(lb->F));
@@ -60,15 +57,12 @@ void Leg_Balance_Reset(leg_balance_t *lb)
 /* P响应位置误差，D直接使用实际速度；不积分、不差分给定或误差。 */
 static void Leg_PD_Update(pid_t *pd, float measured, float target, float velocity)
 {
-    pd->measured[NOW] = measured;
-    pd->target[NOW] = target;
     pd->err[NOW] = target - measured;
     pd->vel_err = -velocity;
     pd->pout = pd->p * pd->err[NOW];
     pd->dout = pd->d * pd->vel_err;
     pd->position_mode_output = pd->pout + pd->dout;
     abs_limit(&pd->position_mode_output, pd->MaxOutput);
-    pd->last_position_mode_output = pd->position_mode_output;
 }
 
 /*
@@ -140,21 +134,6 @@ static float Normal_Length_Target_Update(ramp_t *ramp, float *velocity, float ta
     return ramp->out;
 }
 
-/* 预览只推进斜坡副本，r[0]与本拍真实参考同源，不改变控制历史。 */
-void Leg_Balance_Reference_Preview(leg_balance_t *lb, const lqr_state_t *st)
-{
-    ramp_t ramp[2]={lb->length_ramp[0],lb->length_ramp[1]};
-    float rate[2]={lb->length_ref_rate[0],lb->length_ref_rate[1]};
-    for (uint16_t k=0;k<=RH_MPC_N;k++)
-    {
-        float *ref=&lb->roll_height.mpc.reference[k*4u];
-        ref[0]=0.0f;ref[1]=0.0f;
-        ref[2]=0.5f*(ramp[0].out*cosf(st->target[LQR_X_THL])+ramp[1].out*cosf(st->target[LQR_X_THR]));
-        ref[3]=0.5f*(rate[0]*cosf(st->target[LQR_X_THL])+rate[1]*cosf(st->target[LQR_X_THR]));
-        if (k<RH_MPC_N) for (uint8_t side=0;side<2;side++)
-            (void)Normal_Length_Target_Update(&ramp[side],&rate[side],st->leg_length_target[side],machine->rc.len_rate,machine->lqr.roll_height.length_ref_accel_max,RH_MPC_TS);
-    }
-}
 /* 先推进长度参考，再求轴向力并组合LQR摆矩/轮矩；映射髋力矩后叠加补偿和限幅。 */
 uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             const leg_state_t *leg_l, const leg_state_t *leg_r,
@@ -164,6 +143,8 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
                             float dt, torque_output_t *torque)
 {
     float F[2];
+    float Tp[2];
+    float wheel[2];
     float length[2];
     float target[2];
     float height;
@@ -228,10 +209,7 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
         if (normal_mode && MACHINE_NORMAL_LEG_CONTROL == 1u)
         {
             lb->roll_height.permit = 1u;
-#if MACHINE_ROLL_HEIGHT_USE_MPC && MACHINE_MPC_REFERENCE_PREDICT
-            Leg_Balance_Reference_Preview(lb,st);
-#endif
-            if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->length_ref_rate, lb->turn_ff, values, config))
+            if (!Roll_Height_Update(&lb->roll_height, st, leg_l, leg_r, target, lb->length_ref_rate, lb->turn_ff))
             {
                 return 0u;
             }
@@ -252,24 +230,15 @@ uint8_t Leg_Balance_Compute(leg_balance_t *lb, const lqr_state_t *st,
     {
         Roll_Height_Reset(&lb->roll_height);
     }
-    return Leg_Balance_Apply_Inputs(lb,leg_l,leg_r,F,st->u,values,config,torque);
-}
-
-/* 同一映射出口，十态异步结果只能替换四模型输入，轴向力及补偿缓存仍属本拍。 */
-uint8_t Leg_Balance_Apply_Inputs(leg_balance_t *lb,const leg_state_t *leg_l,const leg_state_t *leg_r,
-    const float F[2],const float input[4],const leg_compensation_values_t *values,
-    const lqr_runtime_config_t *config,torque_output_t *torque)
-{
-    float Tp[2],wheel[2];
-    Tp[0] = -input[LQR_U_BL];
-    Tp[1] = -input[LQR_U_BR];
+    Tp[0] = -st->u[LQR_U_BL];
+    Tp[1] = -st->u[LQR_U_BR];
     if (!config->leg_swing_enable)
     {
         Tp[0] = 0.0f;
         Tp[1] = 0.0f;
     }
-    wheel[0] = config->wheel_enable ? input[LQR_U_WL] : 0.0f;
-    wheel[1] = config->wheel_enable ? input[LQR_U_WR] : 0.0f;
+    wheel[0] = config->wheel_enable ? st->u[LQR_U_WL] : 0.0f;
+    wheel[1] = config->wheel_enable ? st->u[LQR_U_WR] : 0.0f;
 
     /* 3. 力域映射 + 限幅 */
     return Leg_Balance_Output(lb, leg_l, leg_r, F, Tp, wheel, values, config, torque);

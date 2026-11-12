@@ -27,7 +27,6 @@ static void Motor_State_Update(motor_state_t *next)
         next->dm.pos_continuous_rad[i] = feedback->pos_continuous_rad;
         next->dm.vel_rad_s[i] = feedback->vel_rad_s;
         next->dm.trq_nm[i] = feedback->trq_nm;
-        next->dm.last_rx_tick[i] = feedback->last_rx_tick;
         next->dm.parsed_rx_ns[i] = feedback->parsed_rx_ns;
         next->dm.online[i] = (uint8_t)Dm_Is_Online(i);
         next->valid &= (uint8_t)(next->dm.online[i] && !Dm_Has_Fault(i));
@@ -39,11 +38,8 @@ static void Motor_State_Update(motor_state_t *next)
 #if MACHINE_LATENCY_CAPTURE_ENABLE
         next->dji.parsed_rx_ns[i] = feedback->parsed_rx_ns;
 #endif
-        next->dji.angle_rad[i] = feedback->angle_rad;
-        next->dji.angle_total_rad[i] = feedback->angle_total_rad;
         next->dji.vel_rad_s[i] = feedback->vel_rad_s;
         next->dji.current_raw[i] = feedback->current_raw;
-        next->dji.last_rx_tick[i] = feedback->last_rx_tick;
         next->dji.online[i] = (uint8_t)Dji_Is_Online(i);
         next->valid &= next->dji.online[i];
     }
@@ -75,13 +71,17 @@ static void Leg_State_Update(const motor_state_t *motor, leg_state_t *left, leg_
     Leg_Side_Update(motor, &leg_map_r, right);
 }
 
-/* 处理DR16接收并转换为统一遥控指令，再通过快照接口发布。 */
+/* 解析并刷新一次DR16在线状态；遥控目标读改写与落地回置互斥，再通过快照接口发布。 */
 static void Remote_Control_Update(void)
 {
     dr16_t remote;
     rc_command_t rc_command_temp;
+
     DR16_Process();
+    (void)DR16_Online();
     remote = DR16_Snapshot();
+    /* 保护完整读改写，避免落地回置被通信任务的旧副本覆盖。 */
+    taskENTER_CRITICAL();
     rc_command_temp = rc_command;
     Rc_Command_Update(&rc_command_temp, &remote, MACHINE_TICK_DT);
     if (!(output_task_lqr_engaged() || output_task_rl_engaged()))
@@ -89,6 +89,7 @@ static void Remote_Control_Update(void)
         rc_command_temp.leg_length_target = machine->rc.len_init;
     }
     Robot_Feedback_Publish_Rc(&rc_command_temp);
+    taskEXIT_CRITICAL();
 }
 
 
@@ -103,7 +104,7 @@ static void Robot_Fault_Update(void)
     {
         fault |= FAULT_IMU;
     }
-    if (!DR16_Online())
+    if (!dr16.online)
     {
         fault |= FAULT_RC;
     }

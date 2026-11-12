@@ -5,7 +5,6 @@
 #ifndef ROLL_HEIGHT_BALANCE_H
 #define ROLL_HEIGHT_BALANCE_H
 #include "roll_height_model.h"
-#include "roll_height_mpc.h"
 #include "lqr_balance.h"
 #include "leg_solver.h"
 #include "simple-function.h"
@@ -24,7 +23,6 @@ typedef struct {
 } roll_height_observer_t;
 
 typedef struct roll_height_balance {
-    roll_height_mpc_t mpc; /* 本控制实例的静态求解工作区和诊断。 */
     roll_height_feedback_t lqr;
     roll_height_observer_t observer;
     float x[RH_NX];
@@ -40,9 +38,8 @@ typedef struct roll_height_balance {
 
 uint8_t Roll_Height_Available(void);
 void Roll_Height_Reset(roll_height_balance_t *state);
-void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit,
-    uint8_t output_applied); /* MPC保持许可与观察器支持力许可分开。 */
+void Roll_Height_Begin_Tick(roll_height_balance_t *state, uint8_t permit, uint8_t observer_permit);
 uint8_t Roll_Height_Update(roll_height_balance_t *state, const lqr_state_t *lqr,
                           const leg_state_t *left, const leg_state_t *right,
-                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff, const leg_compensation_values_t *values, const lqr_runtime_config_t *config);
+                          const float length_ramp_target[RH_NU], const float length_rate_target[RH_NU], float turn_ff);
 #endif

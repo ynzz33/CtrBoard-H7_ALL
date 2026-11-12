@@ -18,16 +18,13 @@
 #define DJI_OFFLINE_MS         10u
 
 /* 电机固有参数 (按型号, 与机器无关) */
-#define DJI_CURRENT_MAX_M2006  10000
 #define DJI_CURRENT_MAX_M3508  16384
 /* 满电流时输出轴堵转力矩 (在"标准减速比"下) */
-#define DJI_NM_FULL_M2006      (0.18f * 10.0f)
 #define DJI_NM_FULL_M3508      (0.30f * 20.0f)
 /* 标准减速比 (实机总比见机器表 dji_gear_ratio, 按比例缩放) */
-#define DJI_RATIO_STD_M2006    36.0f
 #define DJI_RATIO_STD_M3508    19.2f
 
-/* 型号与减速比: 见 machine_config.c (按机器选择) */
+/* 固定M3508，实机减速比见machine_config.c。 */
 
 /* 电机序 */
 
@@ -51,7 +48,6 @@ typedef struct {
     volatile uint32_t last_rx_tick;
     volatile uint64_t received_ns;
     uint64_t parsed_rx_ns;
-    uint8_t parsed_seen;
 } dji_motor_feedback_t;
 
 extern const dji_motor_config_t dji_motor_config[DJI_MOTOR_NUM];
