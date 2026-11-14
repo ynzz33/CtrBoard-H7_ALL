@@ -6,6 +6,9 @@
  * 图内含Encoder和Actor；生成文件仍由作者使用同名networkzn1替换。
  * 旧单输入网络可编译，但初始化必须拒绝，不能把旧权重用于新观测。 */
 #include "rl_policy.h"
+#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
+#include "jetson_usb.h"
+#endif
 #include "math_utils.h"
 #include "main.h"
 #include "mono_ns.h"
@@ -100,6 +103,9 @@ uint8_t RL_Policy_Run(rl_policy_t *policy, const rl_observation_state_t *observa
     if (obs_input == NULL || history == NULL || action_output == NULL) { policy->run_fail++; return 0u; }
     memcpy(obs_input, observation->obs, RL_OBS_SIZE * sizeof(float));
     memcpy(history, observation->history, RL_HISTORY_SIZE * sizeof(float));
+#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
+    const uint8_t shadow = Jetson_Usb_Shadow_Begin(obs_input, history, Mono_Ns_Get() / 1000u);
+#endif
     start_ns = Mono_Ns_Get(); /* run_us只统计网络调用，不包含观测构建或CAN下发。 */
     batches = ai_networkzn1_run(network->network, network->inputs, network->outputs);
     policy->run_us = (uint32_t)((Mono_Ns_Get() - start_ns) / 1000u);
@@ -116,6 +122,9 @@ uint8_t RL_Policy_Run(rl_policy_t *policy, const rl_observation_state_t *observa
         policy->run_fail++;
         return 0u;
     }
+#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
+    if (shadow) { Jetson_Usb_Shadow_Publish(action); }
+#endif
     for (uint8_t i = 0u; i < RL_ACTION_SIZE; i++) { action[i] = clip(action[i], RL_ACTION_CLIP); }
     policy->run_ok++;
     return 1u;

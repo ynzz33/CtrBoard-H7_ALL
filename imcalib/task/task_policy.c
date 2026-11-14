@@ -128,7 +128,7 @@ void ctrl_task_body(void)
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     trace.value[3]=warmup ? UINT32_MAX : rl_control.policy.run_us;
 #endif
-    /* 动作保持左右两组的网络顺序；首帧为零动作热步，500Hz PD仍正常求解。
+    /* 动作保持左右两组的网络顺序；零动作热步仍按RL内环周期求解PD。
      * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
     taskENTER_CRITICAL();
     if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage && rl_control.recovery.phase == RL_RECOVERY_NORMAL)

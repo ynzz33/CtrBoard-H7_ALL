@@ -8,6 +8,9 @@
 
 #include "motion_guard.h"
 #include <stdint.h>
+#ifndef MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
+#define MACHINE_JETSON_SHADOW_CAPTURE_ENABLE 1u /* 影子联调，只采集和对照。 */
+#endif
 #define MACHINE_LATENCY_CAPTURE_ENABLE              0u /* 完整时序采集；0编译移除测点/缓冲/新增IRQ。 */
 #define MACHINE_MOTION_GUARD_ENABLE                 1u /* 0：原偏航参考；1：大机NORMAL防翻参考约束，改后重新编译烧录 */
 #define MACHINE_NORMAL_LEG_CONTROL                  1u  /* 0：原PD；1：NORMAL四态LQR，控制腿长和roll */
@@ -31,8 +34,8 @@
 /* 固定大机控制节拍及总线参数。 */
 #define MACHINE_TIM6_PERIOD       999u    /* 1 kHz */
 #define MACHINE_TICK_DT           0.001f
-#define MACHINE_RL_CTRL_DIV       2u      /* RL实体PD/反馈采样/正常下发：500Hz */
-#define MACHINE_POLICY_DIV        10u     /* 8000 v2：25/125双输入，100Hz策略/500Hz PD */
+#define MACHINE_RL_CTRL_DIV       5u      /* 1ms基准拍，RL实体PD/反馈采样/正常下发：200Hz */
+#define MACHINE_POLICY_DIV        10u     /* 100Hz策略，每个策略周期对应两个RL控制子步 */
 #define MACHINE_DM_OFFLINE_MS     50u
 #define MACHINE_FDCAN13_DATA_PRESCALER  1u
 #define MACHINE_FDCAN13_DATA_SEG1       4u

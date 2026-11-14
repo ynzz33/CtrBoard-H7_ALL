@@ -14,7 +14,7 @@
 | 查参数和模型 | [机器配置](../imcalib/config/machine_config.c)及[编译配置](../imcalib/config/machine_config.h)。十态增益生成与部署见 [MATLAB 入口](#matlab-gain)。 |
 | 构建与复测 | [eIDE](../.eide/eide.yml)、[Keil](../MDK-ARM/CtrBoard-H7_ALL.uvprojx)及[构建说明](#build)。11 月 9 日有 119 个实际编译单元的工程外 GCC 全量链接记录，采集开关两种配置均检查过。该次 Keil 完整构建及同构建板端验证待做。 |
 | 看当前波形 | [VOFA 源码](../imcalib/task/service/vofa_debug.c)，固定 48 路，零基 46=5013、47 为板端毫秒 tick。通道差异见上方停车位移诊断，基础表见下方 5009 节。 |
-| 追溯旧数据 | [变更与试验记录](sysid-change-map.md)、[后退失衡交接](后退失衡排查交接_20261106.md)、[MPC 历史交接](../../MPC嵌入开发交接.md)。先匹配机型、固件和布局，再解读旧 CSV。 |
+| 追溯旧数据 | [变更与试验记录](sysid-change-map.md)、[后退失衡交接](../../交接以及jetson/后退失衡排查交接_20261106.md)、[MPC 历史交接](../../交接以及jetson/MPC嵌入开发交接.md)。先匹配机型、固件和布局，再解读旧 CSV。 |
 
 ## 当前问题与后续方向
 

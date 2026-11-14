@@ -34,7 +34,7 @@ typedef struct {
     float history[RL_HISTORY_SIZE]; /* v3：限幅后帧，最旧在前，每策略拍推进一次 */
     uint8_t history_seeded;        /* 热步后的首个推理帧已填满历史 */
     float last_action[RL_ACTION_SIZE]; /* 上次经±100裁剪的动作，网络顺序 */
-    rl_observation_sample_t sample; /* 最新500Hz反馈，不主动添加观测延迟 */
+    rl_observation_sample_t sample; /* 按RL内环周期保存的最新反馈 */
     uint8_t sample_valid;           /* 最新反馈可用，坏反馈立即清除 */
     uint8_t warmup_steps;          /* 首次零动作已执行的有效PD子步数 */
     uint8_t history_initialized;    /* 首帧填满，首个零动作热步不运行网络 */
