@@ -5,6 +5,7 @@
 
 #include "robot_control.h"
 #include "latency_usb.h"
+#include "jetson_usb.h"
 #include "machine_config.h"
 #include "vofa_debug.h"
 #include "ws2812.h"
@@ -16,6 +17,8 @@ void background_task_body(void)
     Vofa_Debug_Send();
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     Latency_Usb_Pump();
+#else
+    Jetson_Usb_Record_Pump();
 #endif
     WS2812_RainbowBlink();    
     // for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)

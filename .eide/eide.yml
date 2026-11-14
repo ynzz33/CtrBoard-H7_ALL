@@ -47,6 +47,7 @@ virtualFolder:
                     - path: USB_DEVICE/App/usb_device.c
                     - path: USB_DEVICE/App/usbd_desc.c
                     - path: USB_DEVICE/App/usbd_cdc_if.c
+                    - path: USB_DEVICE/App/jetson_usb.c
                   folders: []
                 - name: Target
                   files:

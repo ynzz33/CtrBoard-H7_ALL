@@ -1,21 +1,21 @@
 ST Edge AI Core v2.2.0-20266 2adc00962
-Created date          : 2026-11-13 03:07:36
-Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/policy3000v3.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace360389727600013901362511312785305 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
+Created date          : 2026-11-13 13:19:34
+Parameters            : generate --target stm32h7 --name networkzn1 -m C:/Users/ynz/Desktop/policy3500v3.onnx --compression none --verbosity 1 -O time --workspace C:/Users/ynz/AppData/Local/Temp/mxAI_workspace766451779230018377310217524139419 --output C:/Users/ynz/.stm32cubemx/networkzn1_output
 
 Exec/report summary (generate)
 ---------------------------------------------------------------------------------------------------------
-model file         :   C:\Users\ynz\Desktop\policy3000v3.onnx                                            
+model file         :   C:\Users\ynz\Desktop\policy3500v3.onnx                                            
 type               :   onnx                                                                              
 c_name             :   networkzn1                                                                        
 compression        :   none                                                                              
 options            :   allocate-inputs, allocate-outputs                                                 
 optimization       :   time                                                                              
 target/series      :   stm32h7                                                                           
-workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace360389727600013901362511312785305   
+workspace dir      :   C:\Users\ynz\AppData\Local\Temp\mxAI_workspace766451779230018377310217524139419   
 output dir         :   C:\Users\ynz\.stm32cubemx\networkzn1_output                                       
 model_fmt          :   float                                                                             
-model_name         :   policy3000v3                                                                      
-model_hash         :   0xab8ed1e8f0cfd11084c1e6ee6f5435e0                                                
+model_name         :   policy3500v3                                                                      
+model_hash         :   0x96660bbf2f6afcbcca516c965ebaeb06                                                
 params #           :   38,825 items (151.66 KiB)                                                         
 ---------------------------------------------------------------------------------------------------------
 input 1/2          :   'obs', f32(1x25), 100 Bytes, activations                                          
@@ -29,7 +29,7 @@ ram (total)        :   1,112 B (1.09 KiB) = 1,112 + 0 + 0
 ---------------------------------------------------------------------------------------------------------
 (*) 'input'/'output' buffers are allocated in the activations buffer
 
-Model name - policy3000v3
+Model name - policy3500v3
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
 m_id   layer (type,original)                                oshape          param/size          macc                     connected to   | c_size          c_macc             c_type              
 ------ ---------------------------------------------------- --------------- --------------- -------- -------------------------------- --- --------------- ------------------ ------------------- 
@@ -104,7 +104,7 @@ model/c-model: macc=43,817/43,401 -416(-0.9%) weights=155,300/155,300  activatio
 
 Generated C-graph summary
 ------------------------------------------------------------------------------------------------------------------------
-model name            : policy3000v3
+model name            : policy3500v3
 c-name                : networkzn1
 c-node #              : 13
 c-array #             : 29

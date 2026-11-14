@@ -1187,6 +1187,11 @@
               <FilePath>../imcalib/bsp/latency_usb.c</FilePath>
             </File>
             <File>
+              <FileName>jetson_usb.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../USB_DEVICE/App/jetson_usb.c</FilePath>
+            </File>
+            <File>
               <FileName>BMI088Middleware.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/bsp/BMI088Middleware.c</FilePath>

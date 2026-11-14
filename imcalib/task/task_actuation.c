@@ -15,6 +15,7 @@
 #include "control_strategy.h"
 #include "control_compute.h"
 #include "control_output.h"
+#include "jetson_usb.h"
 
 static control_frame_t control_frame;
 volatile float output_dm_torque_nm[DM_MOTOR_NUM];
@@ -142,6 +143,19 @@ void output_task_body(void)
     {
         Control_Output_Apply(&control_frame, strategy, &torque);
     }
+#if !MACHINE_LATENCY_CAPTURE_ENABLE
+    static uint8_t telemetry_divider;
+    if (strategy == CTRL_STRATEGY_RL && output_task_rl_engaged() && action_state.rl_ready && control_frame.rl_motor.valid)
+    {
+        if (dispatch) { Jetson_Usb_Record_Sample(&control_frame, torque.valid, dispatch); }
+        telemetry_divider = 0u;
+    }
+    else if (++telemetry_divider >= MACHINE_RL_CTRL_DIV)
+    {
+        telemetry_divider = 0u;
+        Jetson_Usb_Record_Sample(&control_frame, 0u, dispatch);
+    }
+#endif
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     Latency_Dispatch_End();
     trace.end_ns=Mono_Ns_Get();

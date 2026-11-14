@@ -8,6 +8,7 @@
 #include "output_capture.h"
 #include "mono_ns.h"
 #include "rl_observation.h"
+#include "jetson_usb.h"
 #include "rl_policy.h"
 #include <string.h>
 /* 初始化已编译CubeAI网络并检查观测/action尺寸；不在这里开启电机出力。 */
@@ -137,6 +138,9 @@ void ctrl_task_body(void)
         action_state.last_ok_tick = HAL_GetTick();
         action_state.updated = 1u;
         action_state.rl_ready = 1u;
+#if !MACHINE_LATENCY_CAPTURE_ENABLE
+        Jetson_Usb_Record_Action_Observation(observation.obs, warmup);
+#endif
 #if MACHINE_LATENCY_CAPTURE_ENABLE
         trace_policy_published_ns=Mono_Ns_Get();
         trace.correlation=++trace_policy_sequence;trace.flags=4u;
