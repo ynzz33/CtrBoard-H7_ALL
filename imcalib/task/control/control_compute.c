@@ -9,6 +9,7 @@
 #include "output_capture.h"
 #include "mono_ns.h"
 #include "machine_config.h"
+#include "jetson_usb.h"
 #include "fallen_process.h"
 #include "slip.h"
 #include "air_detection.h"
@@ -334,7 +335,7 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
 #endif
     }
     rl_engaged = (uint8_t)(frame->drive_permit && frame->rc.mode.engage && rl_control.recovery.phase != RL_RECOVERY_IDLE && rl_control.recovery.phase != RL_RECOVERY_FAILED);
-    if (rl_engaged && action_state.rl_ready && frame->rl_motor.valid)
+    if (rl_engaged && action_state.rl_ready && frame->rl_motor.valid && Jetson_Usb_External_Action_Allowed())
     {
         if (tick)
         {
@@ -350,6 +351,7 @@ static void Compute_RL(control_frame_t *frame, torque_output_t *torque, uint8_t 
             trace.begin_ns=Mono_Ns_Get();
 #endif
             (void)RL_Torque_Compute(&frame->rl_motor, &machine->rl, action_state.a, &rl_control.torque_state, torque);
+            if (torque->valid) { Jetson_Usb_External_PD_Used(); }
             if (torque->valid && rl_control.observation.history_initialized && rl_control.observation.warmup_steps < MACHINE_POLICY_DIV / MACHINE_RL_CTRL_DIV)
             {
                 rl_control.observation.warmup_steps++;
@@ -376,6 +378,8 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
                          uint8_t *dispatch)
 {
     uint8_t observer_permit;
+    /* 退出RL也要更新动作锁止状态，允许遥控下次重新投入。 */
+    (void)Jetson_Usb_External_Action_Allowed();
 
     if (Stair_Process_Owns_Output(&stair_process))
     {

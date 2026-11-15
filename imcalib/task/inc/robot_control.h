@@ -11,7 +11,7 @@
 #include "rc_command.h"
 #include "feedback_snapshot.h"
 #include "machine_config.h"
-#include "rl_policy.h"
+#include "rl_types.h"
 #include "leg_compensation.h"
 
 /* 执行拍快照 */
@@ -59,7 +59,6 @@ void Action_State_Clear(void);
 void Policy_Tick_Div(void);
 void imu_task_init(void);
 void imu_task_body(void);
-void ctrl_task_init(void);
 void ctrl_task_body(void);
 void output_task_init(void);
 void output_task_body(void);

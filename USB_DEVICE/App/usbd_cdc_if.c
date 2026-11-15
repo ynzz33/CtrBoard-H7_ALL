@@ -288,8 +288,8 @@ static int8_t CDC_Receive_HS(uint8_t* Buf, uint32_t *Len)
   /* USER CODE BEGIN 11 */
 #if MACHINE_LATENCY_CAPTURE_ENABLE
   Latency_Usb_Receive(Buf,*Len);
-#elif MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-  Jetson_Usb_Shadow_Receive(Buf,*Len);
+#else
+  Jetson_Usb_Receive_From_ISR(Buf, *Len);
 #endif
   USBD_CDC_SetRxBuffer(&hUsbDeviceHS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceHS);
@@ -342,6 +342,8 @@ static int8_t CDC_TransmitCplt_HS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
 #if MACHINE_LATENCY_CAPTURE_ENABLE
   Latency_Usb_Receive(Buf,*Len);
+#else
+  Jetson_Usb_Notify_From_ISR();
 #endif
   UNUSED(epnum);
   /* USER CODE END 14 */

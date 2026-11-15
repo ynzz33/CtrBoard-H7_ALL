@@ -1,51 +1,49 @@
+/* USB任务收发实际推理请求、动作回包和遥测，策略与执行任务只发布数据。 */
 #include "jetson_usb.h"
 #include "jetson_protocol.h"
 #include "robot_state.h"
 #include "mono_ns.h"
 #include "usbd_cdc_if.h"
 #include "dma_cache.h"
-#include "jetson_shadow_protocol.h"
+#include "math_utils.h"
+#include "task.h"
 
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-/* One policy producer and one USB task consumer. The producer skips a full
- * slot. The consumer releases it only after copying a complete sample. */
-static jetson_shadow_sample_t shadow_sample;
-static volatile uint8_t shadow_ready;
-static uint32_t shadow_sequence, shadow_drops;
-
-uint8_t Jetson_Usb_Shadow_Begin(const float *obs, const float *history, uint64_t input_ready_us)
-{
-    ++shadow_sequence;
-    if (shadow_ready) { ++shadow_drops; return 0u; }
-    __DMB();
-    shadow_sample.input_ready_us = input_ready_us;
-    shadow_sample.sequence = shadow_sequence;
-    shadow_sample.reset_generation = action_state.reset_count;
-    shadow_sample.dropped = shadow_drops;
-    memcpy(shadow_sample.obs, obs, sizeof(shadow_sample.obs));
-    memcpy(shadow_sample.history, history, sizeof(shadow_sample.history));
-    return 1u;
-}
-
-void Jetson_Usb_Shadow_Publish(const float *raw_action)
-{
-    memcpy(shadow_sample.raw_action, raw_action, sizeof(shadow_sample.raw_action));
-    __DMB();
-    shadow_ready = 1u;
-}
-
-uint8_t Jetson_Usb_Shadow_Take(jetson_shadow_sample_t *sample)
-{
-    if (!shadow_ready) { return 0u; }
-    __DMB();
-    *sample = shadow_sample;
-    __DMB();
-    shadow_ready = 0u;
-    return 1u;
-}
+#if MACHINE_LATENCY_CAPTURE_ENABLE
+#error Jetson control requires the JRL2 USB transport
 #endif
 
-enum { QueueSize = 32, BatchSize = 8, FrameType = 5, PayloadSize = 240 };
+typedef struct {
+    uint64_t input_ready_us;
+    uint64_t session;
+    uint32_t sequence;
+    uint32_t reset_generation;
+    float obs[RL_OBS_SIZE];
+    float history[RL_HISTORY_SIZE];
+} jetson_request_t;
+
+/* 策略任务提交单槽快照，USB任务取走后释放。 */
+static jetson_request_t request;
+static volatile uint8_t request_ready;
+static uint32_t request_sequence;
+static volatile uint32_t peer_ready_ms;
+static volatile uint8_t peer_seen;
+static uint64_t peer_session;
+static TaskHandle_t volatile usb_task;
+static volatile uint8_t external_blocked;
+static uint64_t accepted_input_us, accepted_session;
+static uint32_t accepted_reset, accepted_seq, accepted_return_us;
+static uint32_t first_pd_age_us;
+enum { ExternalReplyUs = 10000u, ExternalActionUs = 20000u, ExternalWarmupMs = 30u };
+
+/* Jetson每50ms更新就绪，只有RL投入且就绪在有效期内才发送请求。 */
+static uint8_t Link_Ready(void)
+{
+    return peer_seen &&
+           (uint32_t)(HAL_GetTick() - peer_ready_ms) < 200u &&
+           output_task_rl_engaged();
+}
+
+enum { QueueSize = 32, BatchSize = 2 };
 enum {
     RlSelected = 1u, RlEngaged = 2u, ActionReady = 4u, PdValid = 8u,
     Dispatched = 16u, ObsValid = 32u, Warmup = 64u, DrivePermit = 128u,
@@ -65,12 +63,9 @@ static uint32_t sequence, drops;
 static float action_obs[RL_OBS_SIZE];
 static uint32_t obs_sequence, obs_ms;
 static uint8_t obs_warmup;
-static uint8_t tx[BatchSize * (JRL_HEADER + PayloadSize + 4)
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-    + 2 * (JRL_HEADER + JRL_SHADOW_INPUT_BYTES + 4)
-    + JRL_HEADER + JRL_SHADOW_RESULT_BYTES + 4
-#endif
-    ]
+static uint8_t tx[BatchSize * (JRL_HEADER + JRL_TELEMETRY_BYTES + 4)
+    + 2 * (JRL_HEADER + JRL_INPUT_BYTES + 4)
+    + JRL_HEADER + JRL_EXTERNAL_PD_BYTES + 4]
     __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
 
 /* Called in the same critical section that publishes the corresponding action. */
@@ -136,84 +131,191 @@ static void Encode_Floats(uint8_t **out, const float *values, unsigned count)
     }
 }
 
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-enum { ShadowRxSize = 512, ShadowPendingCount = 16 };
-static uint8_t shadow_rx[ShadowRxSize];
-static volatile uint32_t shadow_rx_head, shadow_rx_tail, shadow_rx_drops;
-static jrl_parser_t shadow_parser;
-static jetson_shadow_sample_t shadow_outgoing, shadow_pending[ShadowPendingCount];
-static uint8_t shadow_outgoing_ready;
-static uint8_t shadow_result[JRL_HEADER + JRL_SHADOW_RESULT_BYTES + 4];
-static unsigned shadow_result_length;
-static uint32_t shadow_rejected;
+enum { RxSize = 512, PendingCount = 16 };
+static uint8_t rx[RxSize];
+static volatile uint32_t rx_head, rx_tail;
+static jrl_parser_t parser;
+static jetson_request_t outgoing, pending[PendingCount];
+static uint8_t outgoing_ready;
+static uint8_t pd_report[JRL_HEADER + JRL_EXTERNAL_PD_BYTES + 4];
+static unsigned pd_report_length;
+static uint32_t rejected_replies;
 
-void Jetson_Usb_Shadow_Receive(const uint8_t *data, uint32_t length)
+void Jetson_Usb_Notify_From_ISR(void)
 {
-    if (length > ShadowRxSize - (shadow_rx_head - shadow_rx_tail))
-    {
-        ++shadow_rx_drops;
-        return;
-    }
-    for (uint32_t i = 0; i < length; ++i)
-    {
-        shadow_rx[(shadow_rx_head + i) % ShadowRxSize] = data[i];
-    }
-    __DMB();
-    shadow_rx_head += length;
+    BaseType_t wake = pdFALSE;
+    if (usb_task != NULL) { vTaskNotifyGiveFromISR(usb_task, &wake); }
+    portYIELD_FROM_ISR(wake);
 }
 
-static void Shadow_Read_Reply(void)
+uint8_t Jetson_Usb_External_Link_Ready(void)
 {
-    const uint32_t end = shadow_rx_head;
-    __DMB();
-    while (!shadow_result_length && shadow_rx_tail != end)
+    return (uint8_t)(Link_Ready() && !external_blocked);
+}
+
+/* 超时或会话变化后锁止到遥控退出本轮RL，防止旧动作继续出力。 */
+uint8_t Jetson_Usb_External_Action_Allowed(void)
+{
+    if (rc_command.online && (!rc_command.mode.engage || rc_command.mode.strategy != CTRL_STRATEGY_RL))
     {
-        const uint8_t byte = shadow_rx[shadow_rx_tail % ShadowRxSize];
+        external_blocked = 0u;
+        return 0u;
+    }
+    if (!action_state.rl_ready) { return 0u; }
+    if (!Link_Ready() ||
+        (accepted_input_us && accepted_reset == action_state.reset_count ?
+         (accepted_session != peer_session || Mono_Ns_Get() / 1000u - accepted_input_us >= ExternalActionUs) :
+         (uint32_t)(HAL_GetTick() - action_state.last_ok_tick) >= ExternalWarmupMs))
+    {
+        external_blocked = 1u;
+    }
+    return (uint8_t)!external_blocked;
+}
+
+void Jetson_Usb_External_Submit(const float *obs, const float *history, uint32_t reset)
+{
+    if (external_blocked) { return; }
+    const uint64_t input_ready_us = Mono_Ns_Get() / 1000u;
+    if (!Link_Ready()) { return; }
+    ++request_sequence;
+    if (request_ready) { return; }
+    __DMB();
+    request.input_ready_us = input_ready_us;
+    request.session = peer_session;
+    request.sequence = request_sequence;
+    request.reset_generation = reset;
+    memcpy(request.obs, obs, sizeof(request.obs));
+    memcpy(request.history, history, sizeof(request.history));
+    __DMB();
+    request_ready = 1u;
+    if (usb_task != NULL) { xTaskNotifyGive(usb_task); }
+}
+
+/* 发布有限且仍有效的动作，观测和动作在同一个临界区更新。 */
+static uint8_t External_Accept(const jetson_request_t *sent, const uint8_t *payload)
+{
+    float action[RL_ACTION_SIZE];
+    for (uint8_t i = 0; i < RL_ACTION_SIZE; ++i) { action[i] = jrl_f32(payload + 4u + 4u * i); }
+    if (!Float_Array_Finite(action, RL_ACTION_SIZE)) { return 0u; }
+    for (uint8_t i = 0; i < RL_ACTION_SIZE; ++i) { action[i] = clip(action[i], RL_ACTION_CLIP); }
+
+    taskENTER_CRITICAL();
+    const uint64_t age = Mono_Ns_Get() / 1000u - sent->input_ready_us;
+    const uint8_t valid = (uint8_t)(age < ExternalReplyUs &&
+        sent->session == peer_session && sent->reset_generation == action_state.reset_count &&
+        (!accepted_input_us || accepted_reset != sent->reset_generation || sent->input_ready_us > accepted_input_us) &&
+        rc_command.online && rc_command.mode.rc_enable && rc_command.mode.engage &&
+        rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_NORMAL &&
+        ctrl_fault == FAULT_NONE && Jetson_Usb_External_Action_Allowed());
+    if (valid)
+    {
+        memcpy(action_state.a, action, sizeof(action));
+        action_state.last_ok_tick = HAL_GetTick();
+        action_state.updated = action_state.rl_ready = 1u;
+        accepted_input_us = sent->input_ready_us;
+        accepted_session = sent->session;
+        accepted_reset = sent->reset_generation;
+        accepted_seq = sent->sequence;
+        accepted_return_us = (uint32_t)age;
+        first_pd_age_us = 0u;
+        Jetson_Usb_Record_Action_Observation(sent->obs, 0u);
+    }
+    taskEXIT_CRITICAL();
+    return valid;
+}
+
+void Jetson_Usb_External_PD_Used(void)
+{
+    if (!accepted_input_us || accepted_reset != action_state.reset_count) { return; }
+    if (first_pd_age_us == 0u)
+    {
+        first_pd_age_us = (uint32_t)(Mono_Ns_Get() / 1000u - accepted_input_us);
+        RL_Observation_Set_Last_Action(&rl_control.observation, action_state.a);
+    }
+}
+
+static void External_Encode_PD(void)
+{
+    static uint32_t logged_seq;
+    if (pd_report_length || !first_pd_age_us || accepted_seq == logged_seq) { return; }
+    taskENTER_CRITICAL();
+    jrl_header(pd_report, JRL_EXTERNAL_PD, JRL_EXTERNAL_PD_BYTES, accepted_session,
+               accepted_reset, accepted_seq, accepted_input_us);
+    uint8_t *out = pd_report + JRL_HEADER;
+    jrl_p32(out, JRL_EXTERNAL_CONTRACT);
+    jrl_p32(out + 4, accepted_return_us);
+    jrl_p32(out + 8, first_pd_age_us);
+    jrl_p32(out + 12, rejected_replies);
+    logged_seq = accepted_seq;
+    taskEXIT_CRITICAL();
+    pd_report_length = jrl_finish(pd_report);
+}
+
+void Jetson_Usb_Receive_From_ISR(const uint8_t *data, uint32_t length)
+{
+    if (length > RxSize - (rx_head - rx_tail)) { return; }
+    for (uint32_t i = 0; i < length; ++i)
+    {
+        rx[(rx_head + i) % RxSize] = data[i];
+    }
+    __DMB();
+    rx_head += length;
+    Jetson_Usb_Notify_From_ISR();
+}
+
+static void Receive_Frames(void)
+{
+    const uint32_t end = rx_head;
+    __DMB();
+    while (rx_tail != end)
+    {
+        const uint8_t byte = rx[rx_tail % RxSize];
         __DMB();
-        ++shadow_rx_tail;
-        if (!jrl_feed(&shadow_parser, byte)) { continue; }
-        const uint8_t *reply = shadow_parser.data;
+        ++rx_tail;
+        if (!jrl_feed(&parser, byte)) { continue; }
+        const uint8_t *reply = parser.data;
         const uint8_t *payload = reply + JRL_HEADER;
+        if (reply[5] == JRL_READY && jrl_u16(reply + 6) == JRL_READY_BYTES &&
+            jrl_u32(payload) == JRL_EXTERNAL_CONTRACT)
+        {
+            const uint64_t session = jrl_u64(reply + 8);
+            if (!session) { continue; }
+            taskENTER_CRITICAL();
+            peer_session = session;
+            peer_ready_ms = HAL_GetTick();
+            peer_seen = 1u;
+            taskEXIT_CRITICAL();
+            continue;
+        }
         const uint32_t seq = jrl_u32(reply + 20);
-        jetson_shadow_sample_t *sent = &shadow_pending[seq % ShadowPendingCount];
-        if (reply[5] != JRL_SHADOW_REPLY || jrl_u16(reply + 6) != JRL_SHADOW_REPLY_BYTES ||
-            jrl_u32(payload) != JRL_SHADOW_CONTRACT || jrl_u64(reply + 8) != 0 ||
+        jetson_request_t *sent = &pending[seq % PendingCount];
+        if (reply[5] != JRL_REPLY || jrl_u16(reply + 6) != JRL_REPLY_BYTES ||
+            jrl_u32(payload) != JRL_EXTERNAL_CONTRACT || jrl_u64(reply + 8) != sent->session ||
             sent->sequence != seq || !sent->input_ready_us ||
             sent->reset_generation != jrl_u32(reply + 16) ||
             sent->input_ready_us != jrl_u64(reply + 24))
         {
-            ++shadow_rejected;
+            ++rejected_replies;
             continue;
         }
-        jrl_header(shadow_result, JRL_SHADOW_RESULT, JRL_SHADOW_RESULT_BYTES, 0,
-                   sent->reset_generation, seq, sent->input_ready_us);
-        uint8_t *out = shadow_result + JRL_HEADER;
-        memcpy(out, payload, JRL_SHADOW_REPLY_BYTES);
-        out += JRL_SHADOW_REPLY_BYTES;
-        Encode_Floats(&out, sent->raw_action, JRL_SHADOW_ACTION_FLOATS);
-        jrl_p32(out, (uint32_t)(Mono_Ns_Get() / 1000u - sent->input_ready_us));
-        jrl_p32(out + 4, sent->dropped);
-        jrl_p32(out + 8, shadow_rx_drops);
-        jrl_p32(out + 12, shadow_parser.errors);
-        jrl_p32(out + 16, shadow_rejected);
-        shadow_result_length = jrl_finish(shadow_result);
+        if (!External_Accept(sent, payload)) { ++rejected_replies; }
         sent->input_ready_us = 0;
     }
 }
 
-static unsigned Shadow_Encode_Input(uint8_t *frame, const jetson_shadow_sample_t *sample)
+static unsigned Encode_Input(uint8_t *frame, const jetson_request_t *sample)
 {
     unsigned length = 0;
     for (unsigned half = 0; half < 2; ++half)
     {
-        jrl_header(frame + length, JRL_SHADOW_INPUT_FIRST + half, JRL_SHADOW_INPUT_BYTES,
-                   0, sample->reset_generation, sample->sequence, sample->input_ready_us);
+        jrl_header(frame + length, JRL_INPUT_FIRST + half, JRL_INPUT_BYTES,
+                   sample->session, sample->reset_generation, sample->sequence, sample->input_ready_us);
         uint8_t *out = frame + length + JRL_HEADER;
-        jrl_p32(out, JRL_SHADOW_CONTRACT);
+        jrl_p32(out, JRL_EXTERNAL_CONTRACT);
         out += 4;
-        for (unsigned i = 0; i < JRL_SHADOW_HALF_FLOATS; ++i)
+        for (unsigned i = 0; i < JRL_HALF_FLOATS; ++i)
         {
-            const unsigned index = half * JRL_SHADOW_HALF_FLOATS + i;
+            const unsigned index = half * JRL_HALF_FLOATS + i;
             jrl_pf32(out, index < RL_OBS_SIZE ? sample->obs[index] : sample->history[index - RL_OBS_SIZE]);
             out += 4;
         }
@@ -221,40 +323,40 @@ static unsigned Shadow_Encode_Input(uint8_t *frame, const jetson_shadow_sample_t
     }
     return length;
 }
-#endif
 
-void Jetson_Usb_Record_Pump(void)
+/* 每次优先发送完整观测请求和PD回执，再追加最多两帧遥测。 */
+static void Usb_Pump(void)
 {
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-    Shadow_Read_Reply();
-#endif
+    Receive_Frames();
+    External_Encode_PD();
     if (!CDC_Transmit_Ready_HS()) { return; }
     const uint32_t available = head - tail;
     __DMB();
     const uint32_t count = available < BatchSize ? available : BatchSize;
     unsigned length = 0;
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-    if (!shadow_outgoing_ready)
+    if (!outgoing_ready && request_ready)
     {
-        shadow_outgoing_ready = Jetson_Usb_Shadow_Take(&shadow_outgoing);
+        __DMB();
+        outgoing = request;
+        __DMB();
+        request_ready = 0u;
+        outgoing_ready = 1u;
     }
-    if (shadow_outgoing_ready) { length = Shadow_Encode_Input(tx, &shadow_outgoing); }
-    memcpy(tx + length, shadow_result, shadow_result_length);
-    length += shadow_result_length;
-#endif
+    if (outgoing_ready &&
+        (!Link_Ready() || outgoing.reset_generation != action_state.reset_count ||
+         external_blocked || outgoing.session != peer_session ||
+         Mono_Ns_Get() / 1000u - outgoing.input_ready_us >= ExternalReplyUs))
+    {
+        outgoing_ready = 0u;
+    }
+    if (outgoing_ready) { length = Encode_Input(tx, &outgoing); }
+    memcpy(tx + length, pd_report, pd_report_length);
+    length += pd_report_length;
     for (uint32_t i = 0; i < count; ++i)
     {
-#if MACHINE_JETSON_SHADOW_CAPTURE_ENABLE
-        if (shadow_outgoing_ready)
-        {
-            shadow_pending[shadow_outgoing.sequence % ShadowPendingCount] = shadow_outgoing;
-            shadow_outgoing_ready = 0;
-        }
-        shadow_result_length = 0;
-#endif
         const telemetry_sample_t *s = &queue[(tail + i) % QueueSize];
         uint8_t *frame = tx + length;
-        jrl_header(frame, FrameType, PayloadSize, 0u, s->reset, s->sequence, s->time_us);
+        jrl_header(frame, JRL_TELEMETRY, JRL_TELEMETRY_BYTES, 0u, s->reset, s->sequence, s->time_us);
         uint8_t *p = frame + JRL_HEADER;
         jrl_p32(p, s->flags);
         jrl_p32(p + 4, s->fault);
@@ -272,7 +374,24 @@ void Jetson_Usb_Record_Pump(void)
     }
     if (length && CDC_Transmit_HS(tx, (uint16_t)length) == USBD_OK)
     {
+        if (outgoing_ready)
+        {
+            pending[outgoing.sequence % PendingCount] = outgoing;
+            outgoing_ready = 0u;
+        }
+        pd_report_length = 0u;
         __DMB();
         tail += count;
+    }
+}
+
+void Jetson_Usb_Task(void *argument)
+{
+    (void)argument;
+    usb_task = xTaskGetCurrentTaskHandle();
+    for (;;)
+    {
+        (void)ulTaskNotifyTake(pdTRUE, 1u);
+        Usb_Pump();
     }
 }

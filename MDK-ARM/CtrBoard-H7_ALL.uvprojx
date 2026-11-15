@@ -1337,11 +1337,6 @@
               <FilePath>../imcalib/Algorithm/rl/rl_observation.c</FilePath>
             </File>
             <File>
-              <FileName>rl_policy.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../imcalib/Algorithm/rl/rl_policy.c</FilePath>
-            </File>
-            <File>
               <FileName>rl_torque.c</FileName>
               <FileType>1</FileType>
               <FilePath>../imcalib/Algorithm/rl/rl_torque.c</FilePath>

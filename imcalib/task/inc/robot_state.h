@@ -10,6 +10,7 @@
 #include "imu_state.h"
 #include "feedback_snapshot.h"
 #include "leg_solver.h"
+#include "rl_observation.h"
 #include "rl_torque.h"
 #include "lqr_balance.h"
 #include "leg_balance.h"
@@ -40,10 +41,9 @@ typedef struct {
     uint8_t height_valid; /* 公共投影高度是否有效。 */
 } robot_state_t;
 
-/* 最新采样/PD归执行任务，观测/裁剪后action历史归策略任务；参数直接读机器表。 */
+/* 执行任务维护最新采样和PD，策略任务组装观测，外部动作首次用于PD时更新last_action。 */
 typedef struct {
     rl_observation_state_t observation;
-    rl_policy_t policy;
     rl_torque_state_t torque_state;
     rl_recovery_state_t recovery; /* 执行任务推进，策略只复制；阶段供Watch观察。 */
 } rl_control_state_t;

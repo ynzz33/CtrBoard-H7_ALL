@@ -31,6 +31,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "robot_control.h"
+#include "jetson_usb.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -153,7 +154,11 @@ void MX_FREERTOS_Init(void) {
   actuationTaskHandle = osThreadCreate(osThread(actuationTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  if (xTaskCreate(Jetson_Usb_Task, "jetsonUsb", 512u, NULL,
+                  tskIDLE_PRIORITY + 4u, NULL) != pdPASS)
+  {
+    Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
 }
@@ -229,10 +234,9 @@ void imuTask_Entry(void const * argument)
 void policyTask_Entry(void const * argument)
 {
   /* USER CODE BEGIN policyTask_Entry */
-  ctrl_task_init();
   for(;;)
   {
-    /* 等待TIM6每MACHINE_POLICY_DIV拍释放一次，再运行一帧网络推理。 */
+    /* 每个策略节拍组装一帧观测并提交Jetson。 */
     osSemaphoreWait(policy_tick_sem_handle, osWaitForever);
     ctrl_task_body();
     // osDelay(10);

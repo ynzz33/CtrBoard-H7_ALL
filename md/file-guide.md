@@ -2,6 +2,18 @@
 
 本页首页按 2026-11-09 工作区整理。运行路径和开关以现行源码为准，板端是否运行同一构建需核对固件身份。下文带日期的试验配置、旧模型及“当前”字样均按其所在日期理解。
 
+## Jetson USB 实控与日志
+
+H7 在 100 Hz 策略拍组装 `obs[25]` 和 `history[125]`。RL 实际投入且 Jetson 就绪时，首帧发布零动作热步，之后由 USB 任务分两帧发送同一份观测。Jetson 返回 6 路动作，H7 在 200 Hz 内环拍使用通过校验的动作，并在首次使用时更新 `last_action`。
+
+JRL2 契约 `3000201`。动作回包必须匹配会话、复位代次和请求标识，并通过有限值检查。回包期限 10 ms，动作从输入就绪起最多保留 20 ms，首次零动作热步最长 30 ms。失效走原零输出路径，锁止后通过退出 RL 解除。
+
+Jetson 的 `jetson-rl-external-4000.service` 开机启动，等待 H7 的 RL 实际投入位。首次投入时打开日志，退出后继续录制 60 秒。期间再次投入取消结束计时，连续退出满 60 秒封存，随后等待下一次投入。长时间录制每 300 秒分卷。实时文件后缀为 `.partial`，正常封存为 `records-*.bin`。
+
+日志保留实际观测、动作回包、PD 遥测（类型 5）和首次使用动作的时延回执（类型 11）。旧版单文件 `records.bin` 与新分卷使用同一记录头，现有导出工具都可读取。4000 轮 ONNX 和断电前的实控日志已归档。[PD 导出工具](../tools/jetson/export_pd.py) · [4000 轮档案](../rl_model_logs/25obs-6action-pd2000-4000rounds/)
+
+旧 `H7LAT001`/`H7OUT001` 专用采集占用同一个 USB CDC，当前实控固件使用 JRL2 记录。
+
 ## 当前 VOFA 前向估速诊断（5013）
 
 固定 48 路，U1。相对 5012，零基 I12 为运动学前向估速 ds_raw（m/s），I22 为送入融合的水平前向加速度 a_fwd（m/s²），I46 为 5013。I10 为机体 Z 轴加速度（g，含重力），I11 为融合速度，I13 为生效的前进目标。I15 为低通俯仰角速度，I20/I21 为双轮实测轮速。I9 − I8 可还原当前位置误差（本表位置平衡点为零），I24～I30 的和为左轮限幅前轮矩（本表平衡输入为零）。其余通道沿用下方 5009 表。
@@ -661,7 +673,7 @@ $build = "$env:LOCALAPPDATA/Temp/latency-v1-build-02fb1f1a91f5451c8e090f01c11540
 
 根目录[AGENTS.md](../AGENTS.md)提供AI自动阅读入口，规则正文统一在本目录。按2026-11-04作者要求，五份长期维护文档为：[AI任务工作流程.md](AI任务工作流程.md)（每次任务必须首读）、[AGENTS.md](AGENTS.md)（含Git与协作偏好）、[CLAUDE.md](CLAUDE.md)（阅读入口）、本文（代码总览）、[sysid-change-map.md](sysid-change-map.md)（历史记录）。作者另行要求的[训练部署对接说明](file-guide.md)为可交付的版本快照；历史参数、通道和规划不替代当前源码。
 
-先看`main.c → freertos.c → robot_control.c`了解启动，再看`task_comm/task_imu → feedback_snapshot → task_actuation`了解控制主链；处理RL时继续看`task_policy → rl_observation/rl_policy/rl_torque`。
+先看`main.c → freertos.c → robot_control.c`了解启动，再看`task_comm/task_imu → feedback_snapshot → task_actuation`了解控制主链；处理RL时继续看`task_policy → rl_observation → jetson_usb → rl_torque`。
 
 ## 本轮修改概要
 
@@ -687,7 +699,7 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | 路径 | 职责与主要入口 |
 | --- | --- |
 | [Core/Src/main.c](../Core/Src/main.c) | 时钟/外设与通信初始化，启动FreeRTOS；用户改动限定在CubeMX保护区 |
-| [Core/Src/freertos.c](../Core/Src/freertos.c) | 五个任务的创建、初始化调用、等待与循环节拍 |
+| [Core/Src/freertos.c](../Core/Src/freertos.c) | 任务创建和节拍，含独立 Jetson USB 收发任务 |
 | [imcalib/config/machine_config.c](../imcalib/config/machine_config.c) / [头文件](../imcalib/config/machine_config.h) | 两机只读配置、编译选机和节拍宏；驱动/几何/IMU/LQR/RL共用 |
 | imcalib/task | 反馈准备、策略仲裁、求解调用、最终输出及后台服务 |
 | [control_detection.c](../imcalib/task/control/control_detection.c) / [头文件](../imcalib/task/control/inc/control_detection.h) | 同拍检测输入组装、公共观测与三态调度；管理后处理超时撤力、等待及旧历史复位后重判，返回进入FALLEN事件 |
@@ -703,10 +715,10 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | imcalib/common | PID、斜坡、低通、数学/DSP及motor/RC/RL纯类型；kalman是保留数学工具 |
 | [imcalib/common/inc/math_utils.h](../imcalib/common/inc/math_utils.h) | 纯数学公共内联入口：区间clampf、对称clip、逐圈Angle_Wrap_Pi及Float_Array_Finite；不依赖几何/PID任务状态 |
 | [tools/matlab/lqr10/run_all.m](../tools/matlab/lqr10/run_all.m) | LQR模型、Q/R选择及增益表生成入口 |
-| X-CUBE-AI/App、Middlewares/ST/AI | networkzn1生成网络/权重和AI运行库；通过rl_policy封装调用 |
+| X-CUBE-AI/App、Middlewares/ST/AI | CubeMX 生成的模型文件、权重和 AI 运行库 |
 | Drivers、Middlewares | HAL/CMSIS、FreeRTOS、USB及厂商运行库，保留其版权和生成边界 |
 | gcc_support | eIDE专用GCC补充依赖：原版FreeRTOS ARM_CM4F端口及CubeAI10.2.0 GCC库，置于CubeMX生成目录之外，内容与原版本一致 |
-| USB_DEVICE | USB设备/CDC基础实现，当前不承担VOFA传输或电机控制协议 |
+| [jetson_usb.c](../USB_DEVICE/App/jetson_usb.c) / [协议](../imcalib/common/inc/jetson_protocol.h) | Jetson USB 观测发送、动作接收校验、PD 遥测和时延回执 |
 
 ## 启动与任务主链
 
@@ -716,7 +728,8 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | --- | --- | --- |
 | [comm_task_body](../imcalib/task/task_comm.c) | DM/DJI解析与物理量刷新、两腿解算、遥控解算/发布、故障/跌倒与使能看门狗 | freertos中的osDelay |
 | [imu_task_body](../imcalib/task/task_imu.c) | HI229读取/去重、按机器表取轴和符号、姿态/补角、IMU发布 | freertos中的osDelay |
-| [ctrl_task_body](../imcalib/task/task_policy.c) | RL39观测、CubeAI推理、原始动作发布 | TIM6按MACHINE_POLICY_DIV释放策略信号量 |
+| [ctrl_task_body](../imcalib/task/task_policy.c) | 构建 RL 当前观测及历史，发布零动作热步或提交 Jetson 推理请求 | TIM6按MACHINE_POLICY_DIV释放策略信号量 |
+| [Jetson_Usb_Task](../USB_DEVICE/App/jetson_usb.c) | USB 收发，校验并发布动作，发送遥测和时延回执 | 请求/USB 事件通知及任务超时唤醒 |
 | [output_task_body](../imcalib/task/task_actuation.c) | 读取快照并同步调用策略准备、唯一控制运算和最终输出 | TIM6基础执行信号量；RL按MACHINE_RL_CTRL_DIV执行分频 |
 | [background_task_body](../imcalib/task/background_service.c) | 普通VOFA与灯效；USB初始化仍在默认任务入口 | 默认任务循环及osDelay |
 
@@ -727,9 +740,10 @@ flowchart LR
     Sensors[IMU / CAN / 遥控] --> Prepare[IMU与通信任务]
     Prepare --> Snapshot[公共反馈快照]
     Snapshot --> Act[执行任务：策略准备]
-    Act --> Sample[500Hz模型原生反馈采样]
-    Sample --> Policy[50Hz RL观测与推理]
-    Policy --> Action[原始动作发布]
+    Act --> Sample[200 Hz模型原生反馈采样]
+    Sample --> Policy[100 Hz RL观测组装]
+    Policy --> Jetson[USB发送观测并由Jetson推理]
+    Jetson --> Action[H7校验并发布动作]
     Action --> Act
     Act --> Solve[执行任务：唯一控制运算]
     Solve --> Dispatch[执行任务：最终输出]
@@ -748,8 +762,8 @@ flowchart LR
 | imu_state | IMU任务 | 经公共快照供策略/执行读取 |
 | motor_state、leg_l/r | 通信任务 | 电机反馈及对应双腿解算配套发布 |
 | rc_command、robot_state、ctrl_fault | 通信任务；有效落地更新公共len | 执行/策略消费命令和许可，后台读取状态 |
-| RL最新反馈样本、PD/目标与力矩 | 执行任务500Hz | 策略在短临界区读取样本；PD使用当拍反馈 |
-| RL39观测、上一请求、policy、action_state | 策略任务50Hz | 执行消费原始请求；执行清零时递增reset_count使旧推理失效 |
+| RL最新反馈样本、PD/目标与力矩、last_action | 执行任务200 Hz | 策略在短临界区读取样本；PD 使用当拍反馈，首次使用动作时更新历史 |
+| RL当前观测、五帧历史、action_state | 策略任务100 Hz 组装输入并发布热步，USB 任务校验并发布 Jetson 动作 | 执行消费有效动作；清零时递增 reset_count 使在途动作失效 |
 | lqr_state、leg_balance、自起/离地/速度状态、最终力矩及模块内补偿饱和标志 | 执行任务 | 求解和最终输出；后台按实际代码读取 |
 
 [feedback_snapshot.c](../imcalib/task/service/feedback_snapshot.c) / [头文件](../imcalib/task/service/inc/feedback_snapshot.h)由发布方在短临界区提交，执行任务每基础拍读取完整快照；策略任务读取执行任务准备的RL最新样本，不另直接读取原始快照。成功复制不代表传感器有效，各消费者仍检查所需online/valid和许可；同一软件快照不代表物理采样同步。
@@ -760,7 +774,7 @@ flowchart LR
 
 2026-11-09清理后，电机快照不再复制DM/DJI的`last_rx_tick`及DJI的单圈/累计角度；在线期限仍读取驱动原始时间戳，DJI驱动角度仍保留。DM的`parsed_rx_ns`及采集开关下DJI的`parsed_rx_ns`继续按原链路发布，速度、电流、在线和有效标志保持。
 
-几何、速度和雅可比只归`leg_solver`；DR16字节解析只归驱动，遥控死区/量程与模式请求解码只归`rc_command`；网络生命周期只归`rl_policy`。实际出力许可、控制求解与力矩下发只归`task_actuation`，通信任务保留电机使能/失能/故障看门狗职责。
+几何、速度和雅可比只归`leg_solver`；DR16字节解析只归驱动，遥控死区/量程与模式请求解码只归`rc_command`。Jetson 持有并运行网络，H7 的 `jetson_usb` 只收发、校验和发布数据。实际出力许可、控制求解与力矩下发只归`task_actuation`，通信任务保留电机使能/失能/故障看门狗职责。
 
 ## 数据有效性与校验边界
 

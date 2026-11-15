@@ -1,6 +1,6 @@
 /*
- * 每个策略节拍复制最新反馈、遥控、RL执行状态和上一裁剪后动作，组装网络输入并推理。
- * 发布六路裁剪后action前重查模式和reset_count，防止旧控制段的推理覆盖新动作。
+ * 每个策略节拍组装当前观测和历史，提交Jetson推理。
+ * H7只在投入首帧发布零动作热步，正常动作由USB任务接收和校验。
  */
 #include "robot_control.h"
 #include "robot_state.h"
@@ -9,15 +9,9 @@
 #include "mono_ns.h"
 #include "rl_observation.h"
 #include "jetson_usb.h"
-#include "rl_policy.h"
 #include <string.h>
-/* 初始化已编译CubeAI网络并检查观测/action尺寸；不在这里开启电机出力。 */
-void ctrl_task_init(void)
-{
-    (void)RL_Policy_Init(&rl_control.policy);
-}
-/* 复制反馈和last_action→构建观测→推理→发布裁剪后action。
- * reset_count前后不一致或模式已退出则丢弃结果；遥控选择RL可推理，出力另由执行层许可。 */
+
+/* 复制反馈与last_action，构建观测后提交当前控制段的请求。 */
 void ctrl_task_body(void)
 {
 #if MACHINE_LATENCY_CAPTURE_ENABLE
@@ -30,7 +24,6 @@ void ctrl_task_body(void)
     rl_observation_sample_t sample;
     rl_recovery_state_t recovery;
     rc_command_t command;
-    float action[RL_ACTION_SIZE] = {0.0f};
     uint32_t reset_count; /* 本次推理所属动作段编号；发布前不一致说明结果已过期。 */
     uint8_t selected;
     uint8_t sampled; /* 是否成功复制执行任务的有效反馈样本。 */
@@ -74,7 +67,8 @@ void ctrl_task_body(void)
 #endif
         return;
     }
-    /* 第一份零动作必须实际经过一个策略周期的PD子步，再采第二帧运行网络。 */
+    /* 零动作经过一个策略周期的PD子步后，才提交首个推理请求。 */
+    if (!Jetson_Usb_External_Link_Ready()) { return; }
     if (observation.history_initialized && observation.warmup_steps < MACHINE_POLICY_DIV / MACHINE_RL_CTRL_DIV)
     {
 #if MACHINE_LATENCY_CAPTURE_ENABLE
@@ -110,7 +104,7 @@ void ctrl_task_body(void)
     rl_control.observation.history_seeded = built ? observation.history_seeded : 0u;
     rl_control.observation.valid = built;
     taskEXIT_CRITICAL();
-    if (!built || !rl_control.policy.ready || (!warmup && !RL_Policy_Run(&rl_control.policy, &observation, action)))
+    if (!built)
     {
         taskENTER_CRITICAL();
         if (reset_count == action_state.reset_count)
@@ -125,16 +119,19 @@ void ctrl_task_body(void)
 #endif
         return;
     }
-#if MACHINE_LATENCY_CAPTURE_ENABLE
-    trace.value[3]=warmup ? UINT32_MAX : rl_control.policy.run_us;
-#endif
-    /* 动作保持左右两组的网络顺序；零动作热步仍按RL内环周期求解PD。
-     * 推理期间可能退出RL，发布前重查模式，防止新动作覆盖退出时的清零。 */
-    taskENTER_CRITICAL();
-    if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage && rl_control.recovery.phase == RL_RECOVERY_NORMAL)
+    if (!warmup)
     {
-        RL_Observation_Set_Last_Action(&rl_control.observation, action);
-        memcpy(action_state.a, action, sizeof(action_state.a));
+        Jetson_Usb_External_Submit(observation.obs, observation.history, reset_count);
+        return;
+    }
+    /* 发布零动作热步前复查控制段、遥控和Jetson就绪。 */
+    const float zero_action[RL_ACTION_SIZE] = {0.0f};
+    taskENTER_CRITICAL();
+    if (reset_count == action_state.reset_count && rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL &&
+        rc_command.mode.engage && rl_control.recovery.phase == RL_RECOVERY_NORMAL && Jetson_Usb_External_Link_Ready())
+    {
+        RL_Observation_Set_Last_Action(&rl_control.observation, zero_action);
+        memcpy(action_state.a, zero_action, sizeof(action_state.a));
         action_state.last_ok_tick = HAL_GetTick();
         action_state.updated = 1u;
         action_state.rl_ready = 1u;
@@ -144,10 +141,9 @@ void ctrl_task_body(void)
 #if MACHINE_LATENCY_CAPTURE_ENABLE
         trace_policy_published_ns=Mono_Ns_Get();
         trace.correlation=++trace_policy_sequence;trace.flags=4u;
-        trace.value[3]=warmup ? UINT32_MAX : rl_control.policy.run_us;trace.end_ns=trace_policy_published_ns;
+        trace.end_ns=trace_policy_published_ns;
 #endif
     }
-    /* 不匹配时直接丢弃；不能用旧推理的失败路径清掉新控制段。 */
     taskEXIT_CRITICAL();
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     if(trace.flags!=4u) { trace.flags=3u; }

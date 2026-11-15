@@ -73,11 +73,7 @@ static void Control_Frame_Read(void)
 #endif
     control_frame.motor_valid = feedback.motor.valid;
     control_frame.drive_permit = (uint8_t)(Robot_Control_Enable_Allowed() && control_frame.imu.online && control_frame.imu.pitch_world_valid && feedback.motor.valid && robot_state.motor_enabled && torque_output_enabled);
-    if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
-    {
-        control_frame.drive_permit &= rl_control.policy.ready;
-    }
-    else
+    if (control_frame.rc.mode.strategy != CTRL_STRATEGY_RL)
     {
         control_frame.drive_permit &= (uint8_t)(control_frame.left.output.valid && control_frame.right.output.valid);
     }

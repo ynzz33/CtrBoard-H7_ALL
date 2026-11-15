@@ -70,8 +70,7 @@ void Action_State_Clear(void)
     __set_PRIMASK(primask);
 }
 
-/* 创建节拍信号量，按机器表初始化双腿几何/索引，清检测、台阶、自起及LQR/RL历史。
- * 这里只准备运行状态，CubeAI网络初始化由策略任务ctrl_task_init执行。 */
+/* 创建节拍信号量，按机器表初始化双腿几何/索引，清检测、台阶、自起及LQR/RL历史。 */
 void Robot_Control_Init(void)
 {
     ctrl_tick_sem_handle = osSemaphoreCreate(osSemaphore(ctrl_tick_sem), 1);
@@ -108,9 +107,8 @@ void Robot_Control_Init(void)
     leg_map_r.dm_front = DM_MOTOR_LEG_F_RGT;
     leg_map_r.dm_rear = DM_MOTOR_LEG_B_RGT;
 
-    /* 清当前RL观测、网络运行标志、力矩目标和启动/失败计时；网络实例稍后由策略任务创建。 */
+    /* 清当前RL观测、力矩目标和启动/失败计时。 */
     RL_Observation_Reset(&rl_control.observation);
-    RL_Policy_Reset(&rl_control.policy);
     RL_Torque_Reset(&rl_control.torque_state);
     RL_Recovery_Reset(&rl_control.recovery);
     Action_State_Clear();
