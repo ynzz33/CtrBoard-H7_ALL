@@ -18,6 +18,8 @@
 #include "control_detection.h"
 #include "stair_process.h"
 #include "stair_detection.h"
+#include "joint_sysid.h"
+#include <math.h>
 #include <string.h>
 
 static slip_state_t slip_control;
@@ -380,6 +382,7 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
     uint8_t observer_permit;
     /* 退出RL也要更新动作锁止状态，允许遥控下次重新投入。 */
     (void)Jetson_Usb_External_Action_Allowed();
+    Joint_Sysid_Update_Mode(frame, strategy);
 
     if (Stair_Process_Owns_Output(&stair_process))
     {
@@ -498,6 +501,10 @@ void Control_Compute_Run(control_frame_t *frame, ctrl_strategy_t strategy,
             Compute_RL(frame, torque, dispatch);
             break;
 
+        case CTRL_STRATEGY_JOINT_SYSID:
+            LQR_Idle();
+            Joint_Sysid_Update(frame, torque);
+            break;
         case CTRL_STRATEGY_DISABLE:
         default:
             LQR_Idle();

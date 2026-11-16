@@ -192,7 +192,7 @@ static const machine_cfg_t machine_big = {
             .gyro_scale = 0.25f, .height_scale = 5.0f, .joint_vel_scale = 0.05f,
             .obs_clip = 100.0f, .velocity_command_scale = 2.0f,
             .pitch_target_deg = -2.0f,
-            .velocity_command_limit = 2.5f,
+            .velocity_command_limit = 3.0f,
             .yaw_rate_command_limit = 2.0f,
             .height_command_min = 0.22f,
             .height_command_max = 0.30f,

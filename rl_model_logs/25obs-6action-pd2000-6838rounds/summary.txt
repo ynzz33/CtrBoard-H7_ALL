@@ -1,0 +1,3 @@
+records=299989
+dropped=0
+write_failed=0

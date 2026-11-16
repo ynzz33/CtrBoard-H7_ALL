@@ -1,6 +1,9 @@
 /* USB任务收发实际推理请求、动作回包和遥测，策略与执行任务只发布数据。 */
 #include "jetson_usb.h"
 #include "jetson_protocol.h"
+#include "stair_process.h"
+#include "control_condition.h"
+#include "air_detection.h"
 #include "robot_state.h"
 #include "mono_ns.h"
 #include "usbd_cdc_if.h"
@@ -30,15 +33,19 @@ static volatile uint8_t peer_seen;
 static uint64_t peer_session;
 static TaskHandle_t volatile usb_task;
 static volatile uint8_t external_blocked;
+static volatile uint8_t cold_restart_pending;
+static uint64_t cold_restart_session;
+static uint32_t cold_restart_sent_ms;
 static uint64_t accepted_input_us, accepted_session;
 static uint32_t accepted_reset, accepted_seq, accepted_return_us;
 static uint32_t first_pd_age_us;
 enum { ExternalReplyUs = 10000u, ExternalActionUs = 20000u, ExternalWarmupMs = 30u };
+enum { ColdRestartRetryMs = 50u };
 
 /* Jetson每50ms更新就绪，只有RL投入且就绪在有效期内才发送请求。 */
 static uint8_t Link_Ready(void)
 {
-    return peer_seen &&
+    return !cold_restart_pending && peer_seen &&
            (uint32_t)(HAL_GetTick() - peer_ready_ms) < 200u &&
            output_task_rl_engaged();
 }
@@ -60,12 +67,96 @@ typedef struct {
 static telemetry_sample_t queue[QueueSize];
 static volatile uint32_t head, tail;
 static uint32_t sequence, drops;
+typedef struct {
+    uint64_t time_us;
+    uint32_t trial, sequence;
+    uint32_t status[6];
+    uint8_t type;
+    float values[JRL_STAIR_FLOATS];
+} diagnostic_sample_t;
+static diagnostic_sample_t swing_queue[QueueSize];
+static volatile uint32_t swing_head, swing_tail;
+static uint32_t swing_sequence, swing_drops;
+static uint32_t stair_sequence, stair_drops;
+
+void Jetson_Usb_Record_Swing(uint32_t trial, const uint32_t status[6], const float values[JRL_SWING_FLOATS])
+{
+    ++swing_sequence;
+    if (swing_head - swing_tail == QueueSize)
+    {
+        ++swing_drops;
+        return;
+    }
+    diagnostic_sample_t *sample = &swing_queue[swing_head % QueueSize];
+    sample->type = JRL_SWING_SAMPLE;
+    sample->trial = trial;
+    sample->sequence = swing_sequence;
+    sample->time_us = Mono_Ns_Get() / 1000u;
+    memcpy(sample->status, status, sizeof(sample->status));
+    sample->status[1] = swing_drops;
+    memcpy(sample->values, values, JRL_SWING_FLOATS * sizeof(float));
+    __DMB();
+    ++swing_head;
+}
+
+/* 台阶字段随现有USB遥测采样连续记录，台阶状态仅用于标注。 */
+static void Record_Stair(const control_frame_t *input, uint8_t dispatched)
+{
+    ++stair_sequence;
+    if (swing_head - swing_tail == QueueSize)
+    {
+        ++stair_drops;
+        return;
+    }
+    diagnostic_sample_t *sample = &swing_queue[swing_head % QueueSize];
+    sample->type = JRL_STAIR_SAMPLE;
+    sample->time_us = Mono_Ns_Get() / 1000u;
+    sample->trial = stair_process.sequence;
+    sample->sequence = stair_sequence;
+    sample->status[0] = input->imu.online | (input->motor_valid << 1) | (input->left.output.valid << 2) |
+        (input->right.output.valid << 3) | (input->height_valid << 4) | (input->drive_permit << 5) |
+        (dispatched << 6) | ((dispatched && output_debug_dm_sent) << 7) | ((dispatched && output_debug_dji_sent) << 8) |
+        (control_condition.valid << 9) | (air_detection.valid << 10) | (air_detection.flight << 11);
+    sample->status[1] = stair_drops;
+    sample->status[2] = ctrl_fault;
+    sample->status[3] = stair_process.phase;
+    sample->status[4] = stair_process.result | ((uint32_t)stair_process.exit_reason << 8);
+    sample->status[5] = control_condition.condition;
+    float *v = sample->values;
+    memcpy(v, input->imu.quat, 4 * sizeof(float)); v += 4;
+    memcpy(v, input->imu.euler_rad, 3 * sizeof(float)); v += 3;
+    memcpy(v, input->imu.gyro_rad_s, 3 * sizeof(float)); v += 3;
+    memcpy(v, input->imu.acc_g, 3 * sizeof(float)); v += 3;
+    memcpy(v, input->motor_pos, 4 * sizeof(float)); v += 4;
+    memcpy(v, input->motor_vel, 4 * sizeof(float)); v += 4;
+    memcpy(v, input->joint_torque, 4 * sizeof(float)); v += 4;
+    memcpy(v, input->wheel_vel, 2 * sizeof(float)); v += 2;
+    for (unsigned i = 0; i < 4; ++i) { *v++ = output_dm_torque_nm[i]; }
+    *v++ = output_wheel_torque_nm[DJI_MOTOR_WHEEL_LFT];
+    *v++ = output_wheel_torque_nm[DJI_MOTOR_WHEEL_RGT];
+    const leg_state_t *legs[] = {&input->left, &input->right};
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        *v++ = legs[i]->output.virtual_leg_length;
+        *v++ = legs[i]->output.virtual_leg_angle;
+        *v++ = legs[i]->output.d_virtual_leg_length;
+        *v++ = legs[i]->output.d_virtual_leg_angle;
+    }
+    *v++ = input->height;
+    *v++ = input->rc.velocity_target;
+    *v++ = input->rc.yaw_rate_target;
+    *v = input->rc.leg_length_target;
+    __DMB();
+    ++swing_head;
+}
 static float action_obs[RL_OBS_SIZE];
 static uint32_t obs_sequence, obs_ms;
 static uint8_t obs_warmup;
 static uint8_t tx[BatchSize * (JRL_HEADER + JRL_TELEMETRY_BYTES + 4)
     + 2 * (JRL_HEADER + JRL_INPUT_BYTES + 4)
-    + JRL_HEADER + JRL_EXTERNAL_PD_BYTES + 4]
+    + JRL_HEADER + JRL_EXTERNAL_PD_BYTES + 4
+    + JRL_HEADER + JRL_EXTERNAL_RESTART_BYTES + 4
+    + BatchSize * (JRL_HEADER + JRL_STAIR_SAMPLE_BYTES + 4)]
     __attribute__((aligned(DMA_CACHE_LINE_SIZE)));
 
 /* Called in the same critical section that publishes the corresponding action. */
@@ -79,6 +170,7 @@ void Jetson_Usb_Record_Action_Observation(const float obs[RL_OBS_SIZE], uint8_t 
 
 void Jetson_Usb_Record_Sample(const control_frame_t *input, uint8_t pd_valid, uint8_t dispatched)
 {
+    Record_Stair(input, dispatched);
     ++sequence;
     if (head - tail == QueueSize) { ++drops; return; }
     telemetry_sample_t *sample = &queue[head % QueueSize];
@@ -146,6 +238,20 @@ void Jetson_Usb_Notify_From_ISR(void)
     BaseType_t wake = pdFALSE;
     if (usb_task != NULL) { vTaskNotifyGiveFromISR(usb_task, &wake); }
     portYIELD_FROM_ISR(wake);
+}
+
+void Jetson_Usb_Request_Cold_Restart(void)
+{
+    taskENTER_CRITICAL();
+    cold_restart_session = peer_session;
+    cold_restart_sent_ms = HAL_GetTick() - ColdRestartRetryMs;
+    cold_restart_pending = 1u;
+    taskEXIT_CRITICAL();
+}
+
+uint8_t Jetson_Usb_Cold_Restart_Pending(void)
+{
+    return cold_restart_pending;
 }
 
 uint8_t Jetson_Usb_External_Link_Ready(void)
@@ -281,9 +387,19 @@ static void Receive_Frames(void)
             const uint64_t session = jrl_u64(reply + 8);
             if (!session) { continue; }
             taskENTER_CRITICAL();
+            if (session == cold_restart_session)
+            {
+                taskEXIT_CRITICAL();
+                continue;
+            }
             peer_session = session;
             peer_ready_ms = HAL_GetTick();
             peer_seen = 1u;
+            if (cold_restart_pending)
+            {
+                external_blocked = 0u;
+                cold_restart_pending = 0u;
+            }
             taskEXIT_CRITICAL();
             continue;
         }
@@ -334,6 +450,20 @@ static void Usb_Pump(void)
     __DMB();
     const uint32_t count = available < BatchSize ? available : BatchSize;
     unsigned length = 0;
+    const uint32_t now = HAL_GetTick();
+    uint64_t restart_session = 0u;
+    taskENTER_CRITICAL();
+    if (cold_restart_pending && ctrl_strategy == CTRL_STRATEGY_LQR && now - cold_restart_sent_ms >= ColdRestartRetryMs)
+    {
+        restart_session = cold_restart_session;
+    }
+    taskEXIT_CRITICAL();
+    if (restart_session)
+    {
+        jrl_header(tx, JRL_EXTERNAL_RESTART, JRL_EXTERNAL_RESTART_BYTES, restart_session, action_state.reset_count, 0u, 0u);
+        jrl_p32(tx + JRL_HEADER, JRL_EXTERNAL_CONTRACT);
+        length = jrl_finish(tx);
+    }
     if (!outgoing_ready && request_ready)
     {
         __DMB();
@@ -349,7 +479,7 @@ static void Usb_Pump(void)
     {
         outgoing_ready = 0u;
     }
-    if (outgoing_ready) { length = Encode_Input(tx, &outgoing); }
+    if (outgoing_ready) { length += Encode_Input(tx + length, &outgoing); }
     memcpy(tx + length, pd_report, pd_report_length);
     length += pd_report_length;
     for (uint32_t i = 0; i < count; ++i)
@@ -372,8 +502,28 @@ static void Usb_Pump(void)
         Encode_Floats(&p, s->request_nm, 6);
         length += jrl_finish(frame);
     }
+    const uint32_t swing_available = swing_head - swing_tail;
+    const uint32_t swing_count = swing_available < BatchSize ? swing_available : BatchSize;
+    __DMB();
+    for (uint32_t i = 0; i < swing_count; ++i)
+    {
+        const diagnostic_sample_t *sample = &swing_queue[(swing_tail + i) % QueueSize];
+        uint8_t *frame = tx + length;
+        const uint8_t stair = sample->type == JRL_STAIR_SAMPLE;
+        jrl_header(frame, sample->type, stair ? JRL_STAIR_SAMPLE_BYTES : JRL_SWING_SAMPLE_BYTES, 0u,
+                   sample->trial, sample->sequence, sample->time_us);
+        uint8_t *payload = frame + JRL_HEADER;
+        for (unsigned j = 0; j < 6; ++j)
+        {
+            jrl_p32(payload, sample->status[j]);
+            payload += 4;
+        }
+        Encode_Floats(&payload, sample->values, stair ? JRL_STAIR_FLOATS : JRL_SWING_FLOATS);
+        length += jrl_finish(frame);
+    }
     if (length && CDC_Transmit_HS(tx, (uint16_t)length) == USBD_OK)
     {
+        if (restart_session) { cold_restart_sent_ms = now; }
         if (outgoing_ready)
         {
             pending[outgoing.sequence % PendingCount] = outgoing;
@@ -382,6 +532,7 @@ static void Usb_Pump(void)
         pd_report_length = 0u;
         __DMB();
         tail += count;
+        swing_tail += swing_count;
     }
 }
 

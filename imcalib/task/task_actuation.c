@@ -18,6 +18,7 @@
 #include "jetson_usb.h"
 
 static control_frame_t control_frame;
+static uint8_t rl_restart_armed; /* 一次RL投入只在随后选择LQR时发起一次冷启动。 */
 volatile float output_dm_torque_nm[DM_MOTOR_NUM];
 volatile float output_wheel_torque_nm[DJI_MOTOR_NUM];
 
@@ -30,7 +31,9 @@ uint8_t Robot_Control_Enable_Allowed(void)
     if (rc_command.mode.strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_FAILED) { return 0u; }
     recovery = (uint8_t)(fallen_process_control.lifecycle.enabled && fallen_process_control.lifecycle.recovery_enabled && rc_command.mode.strategy == CTRL_STRATEGY_LQR && rc_command.mode.engage);
     recovery |= (uint8_t)(rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage);
-    return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE && (rc_command.mode.strategy == CTRL_STRATEGY_LQR || !robot_state.fallen || recovery));
+    return (uint8_t)(rc_command.mode.rc_enable && rc_command.online && ctrl_fault == FAULT_NONE &&
+        (rc_command.mode.strategy == CTRL_STRATEGY_LQR ||
+         rc_command.mode.strategy == CTRL_STRATEGY_JOINT_SYSID || !robot_state.fallen || recovery));
 }
 
 /* 复制最新反馈到本拍control_frame，计算基础、非倒地和自起三种出力许可。
@@ -50,6 +53,28 @@ static void Control_Frame_Read(void)
     control_frame.left = feedback.left;
     control_frame.right = feedback.right;
     control_frame.rc = feedback.rc;
+    if (control_frame.rc.online && control_frame.rc.mode.rc_enable && control_frame.rc.mode.engage)
+    {
+        if (control_frame.rc.mode.strategy == CTRL_STRATEGY_LQR && rl_restart_armed)
+        {
+            rl_restart_armed = 0u;
+            Jetson_Usb_Request_Cold_Restart();
+        }
+        else if (control_frame.rc.mode.strategy == CTRL_STRATEGY_RL)
+        {
+            if (Jetson_Usb_Cold_Restart_Pending())
+            {
+                /* 等待只覆盖当前执行快照，保留遥控器的RL请求。 */
+                control_frame.rc.mode.strategy = CTRL_STRATEGY_LQR;
+                control_frame.rc.velocity_target = 0.0f;
+                control_frame.rc.yaw_rate_target = 0.0f;
+            }
+            else
+            {
+                rl_restart_armed = 1u;
+            }
+        }
+    }
     control_frame.height = feedback.height;
     control_frame.height_valid = feedback.height_valid;
     control_frame.fallen = robot_state.fallen;
@@ -61,6 +86,7 @@ static void Control_Frame_Read(void)
         control_frame.motor_pos[i] = feedback.motor.dm.pos_continuous_rad[i];
         control_frame.motor_vel[i] = feedback.motor.dm.vel_rad_s[i];
         control_frame.joint_torque[i] = feedback.motor.dm.trq_nm[i];
+        control_frame.joint_rx_ns[i] = feedback.motor.dm.parsed_rx_ns[i];
         control_frame.joint_ready &= (uint8_t)(feedback.motor.dm.online[i] && Dm_Is_Enabled(i));
     }
 #if MACHINE_LATENCY_CAPTURE_ENABLE

@@ -31,7 +31,7 @@ void ctrl_task_body(void)
     uint8_t built; /* 本次网络观测是否成功构建且全部有限。 */
     /* 样本缓存由高优先级执行任务推进，先在临界区复制，避免读取半更新帧。 */
     taskENTER_CRITICAL();
-    selected = (uint8_t)(rc_command.online && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage && rl_control.recovery.phase == RL_RECOVERY_NORMAL);
+    selected = (uint8_t)(rc_command.online && rc_command.mode.rc_enable && rc_command.mode.strategy == CTRL_STRATEGY_RL && rc_command.mode.engage && ctrl_strategy == CTRL_STRATEGY_RL && rl_control.recovery.phase == RL_RECOVERY_NORMAL);
     reset_count = action_state.reset_count;
     if (selected)
     {
@@ -52,15 +52,10 @@ void ctrl_task_body(void)
         observation.history_seeded = rl_control.observation.history_seeded;
         observation.warmup_steps = rl_control.observation.warmup_steps;
     }
-    else
-    {
-        sampled = 0u;
-        RL_Observation_Reset(&rl_control.observation);
-    }
     taskEXIT_CRITICAL();
     if (!selected)
     {
-        Action_State_Clear();
+        /* 离开RL的动作与历史清理由执行任务随阶段变化完成。 */
         #if MACHINE_LATENCY_CAPTURE_ENABLE
         if(trace.end_ns==0u) { trace.end_ns=Mono_Ns_Get(); }
         Latency_Capture_Push(&trace);

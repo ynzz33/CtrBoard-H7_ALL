@@ -1,0 +1,4 @@
+pd_telemetry=40995 input_first=20482 input_second=20482 pd_consumed=20481
+input_to_publish_us: p50=1769 p99=2049 max=4114
+input_to_first_valid_pd_us: p50=4925 p99=4959 max=4963
+h7_rejected_reported_max=3

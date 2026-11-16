@@ -21,6 +21,7 @@ typedef enum {
     CTRL_STRATEGY_LQR,          /* LQR 平衡 */
     CTRL_STRATEGY_DISABLE,      /* 左下 / 离线 */
     CTRL_STRATEGY_COMPENSATION = 4, /* 补偿台架 */
+    CTRL_STRATEGY_JOINT_SYSID = 5, /* 左上右上，关节辨识台架 */
 } ctrl_strategy_t;
 
 typedef struct {

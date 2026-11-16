@@ -17,9 +17,25 @@ enum {
     JRL_REPLY = 8,
     JRL_READY = 10,
     JRL_EXTERNAL_PD = 11,
+    JRL_EXTERNAL_RESTART = 12, /* 发给旧会话，要求结束当前推理进程。 */
+    JRL_SWING_SAMPLE = 13,
+    JRL_STAIR_SAMPLE = 14,
     JRL_TELEMETRY_BYTES = 240,
     JRL_READY_BYTES = 4,
     JRL_EXTERNAL_PD_BYTES = 16,
+    JRL_EXTERNAL_RESTART_BYTES = 4,
+    /* 摆矩采集样本，保留独立类型以兼容现有 type 5 导出。
+     * 帧头 session / reset / seq / us 对应采集会话 / 试次 / 控制拍 / 板端时间。
+     * 负载按下列顺序逐字段编码，双关节数组均为前、后。
+     * u32: flags, board_drops, trial_config, fault, feedback_age_us[2]。
+     * trial_config 低三个字节依次为测试侧（1=左，2=右）、档位、档内序号，后两项从1开始。
+     * f32: swing_nm, axial_n, angle_rad[2], velocity_rad_s[2],
+     *      feedback_nm[2], mapped_nm[2], prelimit_nm[2], submitted_nm[2],
+     *      length_m, length_rate_m_s, swing_rad, swing_rate_rad_s, swing_ref_rad_s。 */
+    JRL_SWING_FLOATS = 19,
+    JRL_SWING_SAMPLE_BYTES = 24 + JRL_SWING_FLOATS * 4,
+    JRL_STAIR_FLOATS = 45,
+    JRL_STAIR_SAMPLE_BYTES = 24 + JRL_STAIR_FLOATS * 4,
     JRL_HALF_FLOATS = 75,
     JRL_INPUT_BYTES = 4 + JRL_HALF_FLOATS * 4,
     JRL_REPLY_BYTES = 4 + 6 * 4 + 4

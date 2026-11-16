@@ -34,6 +34,7 @@ typedef struct {
     rl_motor_state_t rl_motor;  /* 当前RL控制子步的模型坐标反馈，供采样与PD共用 */
     uint8_t motor_valid;        /* 源电机组在线且无故障，与虚拟腿几何valid分开 */
     float joint_torque[4]; /* 四髋物理反馈力矩N·m，顺序同DM索引。 */
+    uint64_t joint_rx_ns[DM_MOTOR_NUM]; /* 各髋反馈接收时刻，顺序同 DM 索引。 */
     leg_compensation_values_t compensation; /* 本拍模型缓存，供AIR估力和补偿叠加分别读取。 */
     uint8_t joint_ready; /* 四髋均在线且报告已使能。 */
     uint8_t drive_permit; /* 本拍反馈、电机和总输出许可满足 */

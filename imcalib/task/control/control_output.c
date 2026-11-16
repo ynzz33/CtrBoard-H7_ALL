@@ -3,6 +3,7 @@
  * 不满足条件时发送零指令；输出数组记录提交的命令值，HAL_OK仅代表驱动提交成功。
  */
 #include "control_output.h"
+#include "joint_sysid.h"
 #include "robot_state.h"
 #include "latency_state.h"
 #include "output_capture.h"
@@ -49,6 +50,14 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
     {
         memset(&applied, 0, sizeof(applied));
     }
+    else if (strategy == CTRL_STRATEGY_JOINT_SYSID)
+    {
+        const float limit = machine->hip.dm_trq_max;
+        for (uint8_t i = 0u; i < DM_MOTOR_NUM; ++i)
+        {
+            applied.dm[i] = fminf(limit, fmaxf(-limit, applied.dm[i]));
+        }
+    }
     taskENTER_CRITICAL();
     for (uint8_t i = 0u; i < DM_MOTOR_NUM; i++)
     {
@@ -62,6 +71,10 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
     {
         output_debug_dm_sent = (uint8_t)(Dm_Send_Zero() == HAL_OK);
         output_debug_dji_sent = (uint8_t)(Dji_All_Stop() == HAL_OK);
+        if (strategy == CTRL_STRATEGY_JOINT_SYSID)
+        {
+            Joint_Sysid_Record(frame, torque, &applied);
+        }
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     record.end_ns=Mono_Ns_Get();record.id=trace_dispatch_sequence;record.fault=ctrl_fault;record.strategy=(uint8_t)strategy;record.machine=MACHINE_ID_BIG_WHEELLEG;record.wheel_online=frame->trace_wheel_online;
     record.flags=(uint16_t)((zero_output?2u:0u)|(output_debug_dm_sent?4u:0u)|(output_debug_dji_sent?8u:0u)|(torque_output_enabled?16u:0u)|(frame->drive_permit?32u:0u));
@@ -73,6 +86,10 @@ void Control_Output_Apply(const control_frame_t *frame, ctrl_strategy_t strategy
     }
     output_debug_dm_sent = (uint8_t)(Dm_Send_Torque(applied.dm) == HAL_OK);
     output_debug_dji_sent = (uint8_t)(Dji_Send_Wheel_Torque(applied.dji[DJI_MOTOR_WHEEL_LFT], applied.dji[DJI_MOTOR_WHEEL_RGT]) == HAL_OK);
+    if (strategy == CTRL_STRATEGY_JOINT_SYSID)
+    {
+        Joint_Sysid_Record(frame, torque, &applied);
+    }
 #if MACHINE_LATENCY_CAPTURE_ENABLE
     record.end_ns=Mono_Ns_Get();record.id=trace_dispatch_sequence;record.fault=ctrl_fault;record.strategy=(uint8_t)strategy;record.machine=MACHINE_ID_BIG_WHEELLEG;record.wheel_online=frame->trace_wheel_online;
     record.flags=(uint16_t)((zero_output?2u:0u)|(output_debug_dm_sent?4u:0u)|(output_debug_dji_sent?8u:0u)|(torque_output_enabled?16u:0u)|(frame->drive_permit?32u:0u));

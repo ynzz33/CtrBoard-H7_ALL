@@ -119,6 +119,7 @@ virtualFolder:
       files:
         - path: imcalib/Algorithm/detection/stair_detection.c
         - path: imcalib/Algorithm/process/stair_process.c
+        - path: imcalib/Algorithm/process/joint_sysid.c
         - path: imcalib/Algorithm/lqr/motion_guard.c
         - path: imcalib/task/control/control_detection.c
         - path: imcalib/Algorithm/process/air_process.c
@@ -167,6 +168,7 @@ targets:
         - imcalib/Algorithm/compensation/inc
         - imcalib/task/inc
         - imcalib/task/control/inc
+        - imcalib/task/control/system_identification/inc
         - imcalib/task/service/inc
         - Middlewares/ST/AI/Inc
         - X-CUBE-AI/App
