@@ -1,0 +1,30 @@
+diff --git a/deployment/jetson_rl/src/main.cpp b/deployment/jetson_rl/src/main.cpp
+index 616a7fb..e9a4e65 100644
+--- a/deployment/jetson_rl/src/main.cpp
++++ b/deployment/jetson_rl/src/main.cpp
+@@ -15,6 +15,9 @@
+ #include <sys/ioctl.h>
+ #include <unistd.h>
+ namespace {
++// H7 JRL2 Type 12 targets the old external-action session with a contract payload.
++constexpr uint8_t JRL_EXTERNAL_RESTART = 12;
++constexpr uint16_t JRL_EXTERNAL_RESTART_BYTES = 4;
+ volatile std::sig_atomic_t stopping=0;
+ void stop_signal(int) { stopping=1; }
+ struct Serial {
+@@ -113,6 +116,15 @@ void shadow(const Args& a) {
+             if (!jrl_feed(&parser,data[i])) continue;
+             const auto* msg=parser.data;
+             const auto type=msg[5];
++            if (external && type == JRL_EXTERNAL_RESTART) {
++                if (jrl_u16(msg + 6) == JRL_EXTERNAL_RESTART_BYTES &&
++                    jrl_u32(msg + JRL_HEADER) == contract && jrl_u64(msg + 8) == session) {
++                    log.event("H7 requested cold restart");
++                    std::cout << "H7 requested cold restart\n";
++                    return;
++                }
++                continue;
++            }
+             if (type!=JRL_SHADOW_INPUT_FIRST && type!=JRL_SHADOW_INPUT_SECOND) continue;
+             if (jrl_u16(msg+6)!=JRL_SHADOW_INPUT_BYTES || jrl_u32(msg+32)!=contract || jrl_u64(msg+8)!=session) {
+                 first=false;

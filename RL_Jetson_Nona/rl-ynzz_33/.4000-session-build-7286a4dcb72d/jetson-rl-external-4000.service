@@ -1,0 +1,16 @@
+[Unit]
+Description=H7 Jetson 4000 RL inference and session recording
+After=local-fs.target time-sync.target
+
+[Service]
+Type=simple
+User=imca
+WorkingDirectory=/home/imca/rl-ynzz_33/shadow-policy4000PD200
+Environment=JRL_EXTERNAL_ACTION=1
+ExecStart=/bin/bash /home/imca/rl-ynzz_33/shadow-policy4000PD200/run-shadow-watch.sh usb-STMicroelectronics_STM32_Virtual_ComPort_386F33613134-if00
+Restart=always
+RestartSec=2
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/jetson_rl.dir/src/main.cpp.o CMakeFiles/jetson_rl.dir/src/inference.cpp.o -o jetson_rl  -Wl,-rpath,/usr/local/cuda/lib64 /usr/lib/aarch64-linux-gnu/libnvinfer.so /usr/lib/aarch64-linux-gnu/libnvonnxparser.so /usr/local/cuda/lib64/libcudart.so 
