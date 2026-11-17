@@ -1,0 +1,13 @@
+[Unit]
+Description=H7 USB telemetry receiver (record while RL is engaged)
+
+[Service]
+Type=exec
+User=imca
+WorkingDirectory=/home/imca/rl-ynzz_33
+ExecStart=/usr/bin/python3 /home/imca/rl-ynzz_33/rl-usb-recorder/record_rl_usb.py --port /dev/serial/by-id/%I --log-dir /home/imca/rl-ynzz_33/logs/usb
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

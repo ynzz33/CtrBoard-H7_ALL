@@ -1,0 +1,112 @@
+{
+  "contract": "fudan-ppo-walk-physical25-history125-critic144-v1",
+  "reset_contract": "fudan-physical-pd-centred-warmup-noisy5-clipped-history-v3",
+  "history_preprocessing": {
+    "frames": 5,
+    "order": "oldest_to_newest",
+    "frame_size": 25,
+    "clip": 100.0,
+    "initial_fill": "repeat_same_noisy_clipped_frame5",
+    "history_before_clip": false,
+    "runtime_sensor_noise": "use_sensor_readings; do_not_add_simulation_noise_on_hardware"
+  },
+  "checkpoint_sha256": "1513279bcc519814af3f1aea266967a937f845244002c7c03e83037fa16878b6",
+  "onnx_sha256": "3be34e5244eb729df25ad51ea570ed03c86fa3691d02e3051f506d371311aefa",
+  "cpu_onnx_max_abs_error": 4.76837158203125e-07,
+  "input": {
+    "obs": [
+      1,
+      25
+    ],
+    "obs_history": [
+      1,
+      125
+    ]
+  },
+  "output": {
+    "actions": [
+      1,
+      6
+    ]
+  },
+  "policy_dt_s": 0.01,
+  "pd_dt_s": 0.005,
+  "additional_action_delay_s": null,
+  "additional_sensor_delay_s": null,
+  "training_disturbances": {
+    "version": "fudan-optional-disturbances-v1",
+    "action_delay": true,
+    "sensor_delay": true,
+    "pushes": true,
+    "action_delay_ms": [
+      10.0,
+      20.0
+    ],
+    "sensor_delay_ms": [
+      10.0,
+      20.0
+    ],
+    "push_interval_s": 7.0,
+    "max_push_vel": 0.3,
+    "external_force_range": [
+      -3.0,
+      3.0
+    ],
+    "external_torque_range": [
+      0.0,
+      0.0
+    ]
+  },
+  "training_command_sampling": {
+    "version": "fudan-parking-commands-v1",
+    "standstill_env_ratio": 0.1,
+    "stop_env_ratio": 0.1,
+    "stop_drive_time_s": [
+      3.0,
+      5.0
+    ],
+    "stop_speed_range": [
+      0.25,
+      1.0
+    ],
+    "parking_heights": [
+      0.22,
+      0.26,
+      0.3
+    ]
+  },
+  "training_posture_reward": {
+    "version": "fudan-roll-pitch-soft-band-v1",
+    "pitch_range_deg": [
+      0.0,
+      5.0
+    ],
+    "pitch_inner_ratio": 0.05,
+    "roll_scale": -100.0,
+    "pitch_scale": -100.0
+  },
+  "runtime_disturbances": "simulation_only; queues and forces are outside ONNX; measure real hardware timing",
+  "h7": "not_adapted_pending_owner_confirmation",
+  "control_timing": {
+    "physics_dt": 0.001,
+    "pd_dt": 0.005,
+    "policy_dt": 0.01
+  },
+  "training_control": {
+    "decimation": 10,
+    "pd_decimation": 5,
+    "leg_stiffness": 20.0,
+    "leg_damping": 1.0,
+    "leg_position_scale": 0.5,
+    "wheel_stiffness": 0.1,
+    "wheel_damping": 0.0,
+    "wheel_velocity_scale": 10.0,
+    "max_wheel_velocity": 150.0,
+    "nominal_leg_positions": [
+      -0.6047205544565015,
+      0.6083241726212976,
+      0.6047205544560037,
+      -0.6083241726229305
+    ]
+  }
+}

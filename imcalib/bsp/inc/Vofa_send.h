@@ -13,7 +13,7 @@
 
 #define VOFA_MAX_CH 48u /* 固定上限48路，不扩通道。 */
 
-#define VOFA_UART (&huart1)
+#define VOFA_UART (&huart8)
 
 /* 成功返回1表示DMA提交成功，不代表上位机已收到。 */
 uint8_t Vofa_Send(const float *data, uint8_t n);
