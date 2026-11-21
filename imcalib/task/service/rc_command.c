@@ -78,7 +78,13 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         else
         {
             cmd->mode.strategy = CTRL_STRATEGY_RL;
-            cmd->mode.engage = (uint8_t)(cmd->s2 == DR16_SW_MID);
+            cmd->mode.engage = 1u;
+            if (cmd->s2 == DR16_SW_DOWN)
+            {
+                /* 小陀螺：固定零前进、正向自转，单位 rad/s。 */
+                cmd->velocity_target = 0.0f;
+                cmd->yaw_rate_target = 15.0f;
+            }
         }
         break;
 

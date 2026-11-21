@@ -52,7 +52,7 @@ void Vofa_Debug_Send(void)
 
     taskENTER_CRITICAL();
     /* 固定48路：停车门控、状态来源、七组轮矩、电流与最终输出。 */
-    dbg[3]=(float)control_condition.condition;
+    dbg[3]=(float)imu_state.gyro_rad_s[2];
     dbg[4]=(float)((lqr_state.valid ? 4u : 0u) | (lqr_state.gain_valid ? 8u : 0u) | (output_task_lqr_engaged() ? 16u : 0u) | (torque_output_enabled ? 32u : 0u) | (rc_command.mode.engage ? 64u : 0u) | (rc_command.online ? 128u : 0u) | (lqr_state.air_control || lqr_state.air_release ? 256u : 0u) | (output_debug_dm_sent ? 512u : 0u) | (output_debug_dji_sent ? 1024u : 0u) | (leg_balance.compensation.saturated ? 2048u : 0u) | (lqr_state.pos_armed ? 16384u : 0u));
     dbg[5]=(float)lqr_state.pos_trace;
     dbg[6]=rc_command.velocity_target;dbg[7]=rc_command.yaw_rate_target;

@@ -106,7 +106,9 @@ uint8_t RL_Observation_Build(rl_observation_state_t *state, const machine_rl_cfg
     raw[RL_OBS_GRAV_X + 1u] = sample->gravity[1];
     raw[RL_OBS_GRAV_X + 2u] = pitch_cos * sample->gravity[2] - pitch_sin * sample->gravity[0];
     raw[RL_OBS_CMD_VX] = clip(command->velocity_target, obs->velocity_command_limit) * obs->velocity_command_scale;
-    raw[RL_OBS_CMD_YAW_RATE] = clip(command->yaw_rate_target, obs->yaw_rate_command_limit) * obs->gyro_scale;
+    /* 左上右下使用固定小陀螺角速度，其余模式沿用普通转向限幅。 */
+    const uint8_t spin_mode = (uint8_t)(command->mode.strategy == CTRL_STRATEGY_RL && command->s1 == DR16_SW_UP && command->s2 == DR16_SW_DOWN);
+    raw[RL_OBS_CMD_YAW_RATE] = (spin_mode ? command->yaw_rate_target : clip(command->yaw_rate_target, obs->yaw_rate_command_limit)) * obs->gyro_scale;
     const float height_command = command->leg_length_target + MACHINE_RL_LEG_TO_HEIGHT;
     raw[RL_OBS_CMD_HEIGHT] = clampf(height_command, obs->height_command_min, obs->height_command_max) * obs->height_scale;
     for (uint8_t i = 0u; i < RL_LEG_MOTOR_NUM; i++)
