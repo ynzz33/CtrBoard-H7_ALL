@@ -5,10 +5,11 @@ LR_IROM1 0x08000000 0x00100000  {    ; load region size_region
    .ANY (+RO)
    .ANY (+XO)
   }
-  RW_IRAM1 0x20000000 0x00020000  {  ; RW data
-   .ANY (+RW +ZI)
+  RW_USBRAM 0x2404C000 0x00004000  {
+   *usb_device.o (+RW +ZI)
+   *usbd_*.o (+RW +ZI)
   }
-  RW_IRAM2 0x24000000 0x00050000  {
+  RW_IRAM2 0x24000000 0x0004C000  {
    .ANY (+RW +ZI)
   }
 }

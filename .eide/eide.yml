@@ -10,7 +10,6 @@ srcDirs:
   - imcalib/config
   - imcalib/Algorithm
   - imcalib/task
-  - X-CUBE-AI
 virtualFolder:
   name: <virtual_root>
   files: []
@@ -20,7 +19,7 @@ virtualFolder:
       folders:
         - name: MDK-ARM
           files:
-            - path: Core/Startup/startup_stm32h723xx.s
+            - path: MDK-ARM/startup_stm32h723xx.s
           folders: []
         - name: User
           files: []
@@ -103,7 +102,7 @@ virtualFolder:
             - path: Middlewares/Third_Party/FreeRTOS/Source/timers.c
             - path: Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS/cmsis_os.c
             - path: Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/heap_4.c
-            - path: gcc_support/FreeRTOS/ARM_CM4F/port.c
+            - path: Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/port.c
           folders: []
         - name: USB_Device_Library
           files:
@@ -129,8 +128,7 @@ virtualFolder:
       folders: []
     - name: Lib
       files:
-        - path: gcc_support/AI/NetworkRuntime1020_CM7_GCC.a
-        - path: Drivers/CMSIS/DSP/Lib/GCC/libarm_cortexM7lfdp_math.a
+        - path: Drivers/CMSIS/DSP/Lib/ARM/arm_cortexM7lfdp_math.lib
       folders: []
 dependenceList: []
 outDir: build
@@ -170,10 +168,8 @@ targets:
         - imcalib/task/control/inc
         - imcalib/task/control/system_identification/inc
         - imcalib/task/service/inc
-        - Middlewares/ST/AI/Inc
-        - X-CUBE-AI/App
         - .cmsis/include
-        - gcc_support/FreeRTOS/ARM_CM4F
+        - Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F
         - Drivers/CMSIS/DSP/Include
       libList: []
     excludeList:
@@ -187,8 +183,49 @@ targets:
       - imcalib/task/control/control_output.c
     settings:
       debugger: cortex-debug
-    toolchain: GCC
+    toolchain: AC5
     toolchainConfigMap:
+      AC5:
+        archExtensions: ""
+        cpuType: Cortex-M7
+        floatingPointHardware: double
+        options:
+          version: 4
+          afterBuildTasks: []
+          asm-compiler: {}
+          beforeBuildTasks: []
+          c/cpp-compiler:
+            CXX_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            C_FLAGS: --diag_suppress=1 --diag_suppress=1295
+            c99-mode: true
+            gnu-extensions: true
+            one-elf-section-per-function: true
+            optimization: level-0
+          global:
+            output-debug-info: enable
+            use-microLIB: false
+          linker:
+            $outputTaskExcludes: []
+            output-format: elf
+        scatterFilePath: MDK-ARM/CtrBoard-H7_ALL.sct
+        storageLayout:
+          RAM:
+            - id: 1
+              isChecked: true
+              mem:
+                size: "0x5000"
+                startAddr: "0x20000000"
+              noInit: false
+              tag: IRAM
+          ROM:
+            - id: 1
+              isChecked: true
+              isStartup: true
+              mem:
+                size: "0x10000"
+                startAddr: "0x08000000"
+              tag: IROM
+        useCustomScatterFile: true
       GCC:
         archExtensions: ""
         cpuType: Cortex-M7

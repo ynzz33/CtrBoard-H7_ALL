@@ -36,11 +36,13 @@ JRL2 type 13 由最终发送路径采样，新增目标摆速，离线导出兼�
 
 ## 接手入口
 
+当前 RL 策略推理由 Jetson 执行。H7 经 USB 发送观测和历史、接收并校验动作，继续执行板端 PD、LQR 和最终出力保护。CubeMX 已移除 X-CUBE-AI，EIDE 和 Keil 工程均已移除板端网络及运行库登记。下文板端模型生成步骤仅供追溯；使用 `tools/latency/record_timing.py` 时，通过 `--model` 指定本次实际使用的 Jetson 模型文件。
+
 | 要做的事 | 从哪里开始 |
 | --- | --- |
 | 找控制链 | [任务创建](../Core/Src/freertos.c) → [执行任务](../imcalib/task/task_actuation.c) → [策略准备](../imcalib/task/control/control_strategy.c) → [候选计算](../imcalib/task/control/control_compute.c) → [最终许可与发送](../imcalib/task/control/control_output.c)。大机保留 LQR 与 RL 路径，十态和高度/roll MPC 已移除。 |
 | 查参数和模型 | [机器配置](../imcalib/config/machine_config.c)及[编译配置](../imcalib/config/machine_config.h)。十态增益生成与部署见 [MATLAB 入口](#matlab-gain)。 |
-| 构建与复测 | [eIDE](../.eide/eide.yml)、[Keil](../MDK-ARM/CtrBoard-H7_ALL.uvprojx)及[构建说明](#build)。11 月 9 日有 119 个实际编译单元的工程外 GCC 全量链接记录，采集开关两种配置均检查过。该次 Keil 完整构建及同构建板端验证待做。 |
+| 构建与复测 | [EIDE](../.eide/eide.yml) 当前使用 AC5 5.06u7，复用 [Keil](../MDK-ARM/CtrBoard-H7_ALL.uvprojx) 的启动文件和散装加载文件。AC5 完整编译链接及 OpenOCD Flash 校验通过，Jetson 联机和控制验证待做。旧 GCC 构建记录见[构建说明](#build)。 |
 | 看当前波形 | [VOFA 源码](../imcalib/task/service/vofa_debug.c)，固定 48 路，零基 46=5013、47 为板端毫秒 tick。通道差异见上方停车位移诊断，基础表见下方 5009 节。 |
 | 追溯旧数据 | [变更与试验记录](sysid-change-map.md)、[后退失衡交接](../../交接以及jetson/后退失衡排查交接_20261106.md)、[MPC 历史交接](../../交接以及jetson/MPC嵌入开发交接.md)。先匹配机型、固件和布局，再解读旧 CSV。 |
 
@@ -731,7 +733,6 @@ LQR仍使用原单圈标定角解算几何、原K/增益/限矩/补偿和1kHz周
 | imcalib/common | PID、斜坡、低通、数学/DSP及motor/RC/RL纯类型；kalman是保留数学工具 |
 | [imcalib/common/inc/math_utils.h](../imcalib/common/inc/math_utils.h) | 纯数学公共内联入口：区间clampf、对称clip、逐圈Angle_Wrap_Pi及Float_Array_Finite；不依赖几何/PID任务状态 |
 | [tools/matlab/lqr10/run_all.m](../tools/matlab/lqr10/run_all.m) | LQR模型、Q/R选择及增益表生成入口 |
-| X-CUBE-AI/App、Middlewares/ST/AI | CubeMX 生成的模型文件、权重和 AI 运行库 |
 | Drivers、Middlewares | HAL/CMSIS、FreeRTOS、USB及厂商运行库，保留其版权和生成边界 |
 | gcc_support | eIDE专用GCC补充依赖：原版FreeRTOS ARM_CM4F端口及CubeAI10.2.0 GCC库，置于CubeMX生成目录之外，内容与原版本一致 |
 | [jetson_usb.c](../USB_DEVICE/App/jetson_usb.c) / [协议](../imcalib/common/inc/jetson_protocol.h) | Jetson USB 观测发送、动作接收校验、PD 遥测和时延回执 |

@@ -26,18 +26,22 @@ def main():
     if not out.is_absolute():
         out = ROOT / out
     sources = {}
-    for group in ('imcalib', 'Core', 'USB_DEVICE', 'X-CUBE-AI/App'):
+    for group in ('imcalib', 'Core', 'USB_DEVICE'):
         for source in (ROOT / group).rglob('*'):
             if source.is_file() and source.suffix.lower() in ('.c', '.h', '.s'):
                 sources[str(source.relative_to(ROOT))] = identity(source)
+    executable = 'axf' if cfg['toolchain'] == 'AC5' else 'elf'
+    if executable == 'axf':
+        for path in ('MDK-ARM/startup_stm32h723xx.s', 'MDK-ARM/CtrBoard-H7_ALL.sct'):
+            sources[str(Path(path))] = identity(ROOT / path)
     def git(*args):
-        return subprocess.check_output(['git', *args], cwd=ROOT)
+        return subprocess.check_output(['git', *args], cwd=str(ROOT))
     record = dict(format='h7-expected-timing-firmware', version=1, expected_build_only=True,
                   head=git('rev-parse', 'HEAD').decode().strip(),
                   dirty_status=git('status', '--short').decode('utf-8', errors='replace'),
                   dirty_patch_sha256=hashlib.sha256(git('diff', '--binary')).hexdigest(),
                   builder_params=identity(a.params), defines=cfg.get('defines'), sources=sources,
-                  artifacts={ext: identity(out / (cfg['name'] + '.' + ext)) for ext in ('elf', 'bin', 'hex')})
+                  artifacts={ext: identity(out / (cfg['name'] + '.' + ext)) for ext in (executable, 'bin', 'hex')})
     a.out.parent.mkdir(parents=True, exist_ok=True)
     a.out.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
     print(a.out)

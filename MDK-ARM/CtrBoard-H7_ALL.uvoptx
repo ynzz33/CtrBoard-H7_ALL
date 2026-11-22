@@ -1701,18 +1701,6 @@
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
     <RteFlg>0</RteFlg>
-    <File>
-      <GroupNumber>22</GroupNumber>
-      <FileNumber>102</FileNumber>
-      <FileType>5</FileType>
-      <tvExp>0</tvExp>
-      <tvExpOptDlg>0</tvExpOptDlg>
-      <bDave2>0</bDave2>
-      <PathWithFileName>../X-CUBE-AI/App/networkzn1_generate_report.txt</PathWithFileName>
-      <FilenameWithoutPath>networkzn1_generate_report.txt</FilenameWithoutPath>
-      <RteFlg>0</RteFlg>
-      <bShared>0</bShared>
-    </File>
   </Group>
   <Group>
     <GroupName>Lib</GroupName>
@@ -1720,61 +1708,6 @@
     <tvExpOptDlg>0</tvExpOptDlg>
     <cbSel>0</cbSel>
     <RteFlg>0</RteFlg>
-    <File>
-      <GroupNumber>23</GroupNumber>
-      <FileNumber>103</FileNumber>
-      <FileType>4</FileType>
-      <tvExp>0</tvExp>
-      <tvExpOptDlg>0</tvExpOptDlg>
-      <bDave2>0</bDave2>
-      <PathWithFileName>../Middlewares/ST/AI/Lib/NetworkRuntime1020_CM7_Keil.lib</PathWithFileName>
-      <FilenameWithoutPath>NetworkRuntime1020_CM7_Keil.lib</FilenameWithoutPath>
-      <RteFlg>0</RteFlg>
-      <bShared>0</bShared>
-    </File>
-  </Group>
-  <Group>
-    <GroupName>Application/User/X-CUBE-AI/App</GroupName>
-    <tvExp>0</tvExp>
-    <tvExpOptDlg>0</tvExpOptDlg>
-    <cbSel>0</cbSel>
-    <RteFlg>0</RteFlg>
-    <File>
-      <GroupNumber>25</GroupNumber>
-      <FileNumber>104</FileNumber>
-      <FileType>1</FileType>
-      <tvExp>0</tvExp>
-      <tvExpOptDlg>0</tvExpOptDlg>
-      <bDave2>0</bDave2>
-      <PathWithFileName>../X-CUBE-AI/App/networkzn1.c</PathWithFileName>
-      <FilenameWithoutPath>networkzn1.c</FilenameWithoutPath>
-      <RteFlg>0</RteFlg>
-      <bShared>0</bShared>
-    </File>
-    <File>
-      <GroupNumber>25</GroupNumber>
-      <FileNumber>105</FileNumber>
-      <FileType>1</FileType>
-      <tvExp>0</tvExp>
-      <tvExpOptDlg>0</tvExpOptDlg>
-      <bDave2>0</bDave2>
-      <PathWithFileName>../X-CUBE-AI/App/networkzn1_data.c</PathWithFileName>
-      <FilenameWithoutPath>networkzn1_data.c</FilenameWithoutPath>
-      <RteFlg>0</RteFlg>
-      <bShared>0</bShared>
-    </File>
-    <File>
-      <GroupNumber>25</GroupNumber>
-      <FileNumber>106</FileNumber>
-      <FileType>1</FileType>
-      <tvExp>0</tvExp>
-      <tvExpOptDlg>0</tvExpOptDlg>
-      <bDave2>0</bDave2>
-      <PathWithFileName>../X-CUBE-AI/App/networkzn1_data_params.c</PathWithFileName>
-      <FilenameWithoutPath>networkzn1_data_params.c</FilenameWithoutPath>
-      <RteFlg>0</RteFlg>
-      <bShared>0</bShared>
-    </File>
   </Group>
   <Group>
     <GroupName>::CMSIS</GroupName>

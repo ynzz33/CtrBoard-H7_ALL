@@ -54,7 +54,7 @@ def main():
     p.add_argument('--seconds', type=float, default=30.)
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--firmware-manifest', type=Path, required=True)
-    p.add_argument('--model', type=Path, default=ROOT / 'X-CUBE-AI/App/networkzn1_data_params.c')
+    p.add_argument('--model', type=Path, required=True, help='Jetson model file to archive with the capture')
     p.add_argument('--machine-config', type=Path, default=ROOT / 'imcalib/config/machine_config.c')
     a = p.parse_args()
     if not 0 < a.seconds <= 3600:
