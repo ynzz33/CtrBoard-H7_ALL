@@ -1,0 +1,302 @@
+{
+  "contract": "fudan-jump-physical25-history125-v1",
+  "checkpoint_sha256": "1f1ae7d029c6f741a84b6b703d2ce496a4787c4d29c0934deeb9582c2aa17f80",
+  "onnx_sha256": "20472a387af9d61177032e7a599c3614da7cff9a81ed643ed204a46a2f202383",
+  "input": {
+    "obs": [
+      1,
+      25
+    ],
+    "obs_history": [
+      1,
+      125
+    ]
+  },
+  "output": {
+    "actions": [
+      1,
+      6
+    ]
+  },
+  "command_scale": [
+    3.0,
+    0.25,
+    5.0
+  ],
+  "jump_config": {
+    "sim": {
+      "dt": 0.001,
+      "wheel_model": "mechanical",
+      "fitted_leg_load": false,
+      "wheel_motor_gain": 1.0,
+      "wheel_motor_delay_ms": 0.0,
+      "wheel_motor_time_constant_ms": 0.0,
+      "wheel_motor_time_constant_range_ms": null,
+      "wheel_motor_torque_limit_nm": null
+    },
+    "control": {
+      "decimation": 10,
+      "pd_decimation": 5,
+      "leg_stiffness": 20.0,
+      "leg_damping": 1.0,
+      "leg_position_scale": 0.5,
+      "wheel_stiffness": 0.1,
+      "wheel_damping": 0.0,
+      "wheel_velocity_scale": 10.0,
+      "max_wheel_velocity": 150.0,
+      "nominal_leg_positions": [
+        -0.6047205544565015,
+        0.6083241726212976,
+        0.6047205544560037,
+        -0.6083241726229305
+      ]
+    },
+    "normalization": {
+      "clip": 100.0,
+      "angular_velocity": 0.25,
+      "command": [
+        3.0,
+        0.25,
+        5.0
+      ],
+      "joint_velocity": 0.05,
+      "acceleration": 0.0025,
+      "torques": 0.05,
+      "height_center": 0.5,
+      "height_scale": 5.0,
+      "noise_scales": [
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.05,
+        0.0,
+        0.0,
+        0.0,
+        0.02,
+        0.02,
+        0.02,
+        0.02,
+        0.075,
+        0.075,
+        0.075,
+        0.075,
+        0.075,
+        0.075,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "commands": {
+      "velocity_initial": 2.1,
+      "velocity_max": 2.1,
+      "velocity_increment": 0.1,
+      "yaw_range": [
+        -2.0,
+        2.0
+      ],
+      "height_range": [
+        0.22,
+        0.3
+      ],
+      "resampling_steps": 2000,
+      "curriculum_threshold": 0.7,
+      "curriculum_yaw_factor": 0.8,
+      "standstill_env_ratio": 0.0,
+      "stop_env_ratio": 0.0,
+      "stop_drive_time_s": [
+        3.0,
+        5.0
+      ],
+      "stop_speed_range": [
+        0.25,
+        1.0
+      ],
+      "parking_heights": [
+        0.22,
+        0.26,
+        0.3
+      ]
+    },
+    "domain_rand": {
+      "kp_range": [
+        0.9,
+        1.1
+      ],
+      "kd_range": [
+        0.9,
+        1.1
+      ],
+      "motor_strength_range": [
+        0.9,
+        1.1
+      ],
+      "nominal_offset_range": [
+        -0.05,
+        0.05
+      ],
+      "added_mass_range": [
+        -2.0,
+        3.0
+      ],
+      "mass_scale_range": [
+        0.8,
+        1.2
+      ],
+      "com_range": [
+        -0.05,
+        0.05
+      ],
+      "friction_range": [
+        0.1,
+        2.0
+      ],
+      "ground_friction_range": null,
+      "restitution_range": [
+        0.5,
+        1.0
+      ],
+      "friction_buckets": 64,
+      "randomize_action_delay": false,
+      "delay_ms_range": [
+        6.0,
+        14.0
+      ],
+      "randomize_sensor_delay": false,
+      "sensor_delay_ms_range": [
+        2.0,
+        2.0
+      ],
+      "push_robots": false,
+      "push_interval_s": 7.0,
+      "max_push_vel_xy": 0.3,
+      "external_force_range": [
+        0.0,
+        0.0
+      ],
+      "external_torque_range": [
+        0.0,
+        0.0
+      ]
+    },
+    "env": {
+      "num_envs": 512,
+      "play_num_envs": 20,
+      "episode_length_s": 20.0,
+      "fail_ticks": 0,
+      "terminal_gravity_z": -0.1,
+      "reset_velocity_range": [
+        -0.5,
+        0.5
+      ]
+    },
+    "rewards": {
+      "pitch_soft_range_deg": [
+        0.0,
+        5.0
+      ],
+      "pitch_inner_penalty_ratio": 0.05,
+      "tracking_sigma": 0.25,
+      "tracking_enhance_sigma": 2.5,
+      "height_sigma": 0.01,
+      "soft_limit_half_span": 0.485,
+      "scales": {
+        "tracking_lin_vel": 1.0,
+        "tracking_lin_vel_enhance": 1.0,
+        "tracking_ang_vel": 1.0,
+        "flight": 0.15,
+        "encourage_jump": 1.0,
+        "base_height_flight": 6.0,
+        "leg_tuck": 1.7,
+        "takeoff_extend": 0.5,
+        "line_z": 6.0,
+        "pen_theta_no0": -2.0,
+        "action_rate": -0.04,
+        "torques": -5e-05,
+        "orientation": -25.0,
+        "ang_vel_xy": -0.1,
+        "nominal_state": -1.0,
+        "collision": -1.0,
+        "landing_reach": 2.5,
+        "landing_level": 1.5,
+        "landing_upright": 1.5,
+        "landing_compression": 1.5,
+        "landing_support": 2.5,
+        "landing_body": -2.5,
+        "landing_bounce": -1.5,
+        "landing_clearance": -2.5,
+        "landing_sink": -2.5,
+        "landing_support_loss": -1.5,
+        "landing_motor_target": 2.5,
+        "landing_drive": 2.5,
+        "landing_first_drive": 2.5,
+        "landing_early_length": 2.0
+      },
+      "landing": {
+        "air_ticks": 3,
+        "buffer_ticks": 35,
+        "max_jump_ticks": 140,
+        "reach_m": 0.3,
+        "compressed_m": 0.25,
+        "length_sigma_m": 0.045,
+        "wheel_level_sigma_m": 0.035,
+        "pitch_sigma_rad": 0.18,
+        "stop_sink": {
+          "min_clearance_m": 0.06,
+          "clearance_width_m": 0.06,
+          "velocity_scale_m_s": 0.8
+        },
+        "preload": {
+          "lead_s": 0.1,
+          "height_margin_m": 0.02,
+          "nominal_diff_rad": 1.279,
+          "lead_diff_rad": 0.3,
+          "max_diff_rad": 1.42,
+          "sigma_diff_rad": 0.25,
+          "support_diff_Nm": 10.0,
+          "length_floor_m": 0.29
+        }
+      }
+    },
+    "version": "fudan-jump-preload-v4",
+    "tuck_m": 0.16,
+    "extend_m": 0.31,
+    "flight_height_m": 0.65,
+    "clip_single_reward": 2.5
+  },
+  "control": {
+    "decimation": 10,
+    "pd_decimation": 5,
+    "leg_stiffness": 20.0,
+    "leg_damping": 1.0,
+    "leg_position_scale": 0.5,
+    "wheel_stiffness": 0.1,
+    "wheel_damping": 0.0,
+    "wheel_velocity_scale": 10.0,
+    "max_wheel_velocity": 150.0,
+    "nominal_leg_positions": [
+      -0.6047205544565015,
+      0.6083241726212976,
+      0.6047205544560037,
+      -0.6083241726229305
+    ]
+  },
+  "control_timing": {
+    "physics_dt": 0.001,
+    "pd_dt": 0.005,
+    "policy_dt": 0.01
+  },
+  "reset_contract": "fudan-physical-pd-centred-warmup-noisy5-clipped-history-v3",
+  "runtime_height_command_m": 1.0,
+  "max_abs_error": 1.811981201171875e-05,
+  "validation": "Actor/encoder weights strict loaded; ELU matches archived base network. Jump task source remains unavailable.",
+  "atol": 2e-05,
+  "rtol": 1e-05,
+  "actor_height_command_preprocessing": "Jump-only obs[8]=1.0*5=5.0, owner requested",
+  "runtime_contract": 3000202
+}

@@ -22,6 +22,9 @@ typedef struct {
     uint32_t reset_generation;
     float obs[RL_OBS_SIZE];
     float history[RL_HISTORY_SIZE];
+    uint32_t jump_flags; /* bit0选择跳跃，bit1拨轮到顶，bit2 AIR有效，bit3腾空。 */
+    float support_force;
+    float leg_length;
 } jetson_request_t;
 
 /* 策略任务提交单槽快照，USB任务取走后释放。 */
@@ -292,6 +295,12 @@ void Jetson_Usb_External_Submit(const float *obs, const float *history, uint32_t
     request.reset_generation = reset;
     memcpy(request.obs, obs, sizeof(request.obs));
     memcpy(request.history, history, sizeof(request.history));
+    request.jump_flags = (rc_command.s1 == DR16_SW_UP && rc_command.s2 == DR16_SW_UP ? 1u : 0u)
+        | (rc_command.leg_length_target >= MACHINE_BIG_LEG_LEN_MAX - 0.0001f ? 2u : 0u)
+        | (air_detection.valid ? 4u : 0u)
+        | (air_detection.flight ? 8u : 0u);
+    request.support_force = air_detection.mean_force;
+    request.leg_length = 0.5f * (leg_l.output.virtual_leg_length + leg_r.output.virtual_leg_length);
     __DMB();
     request_ready = 1u;
     if (usb_task != NULL) { xTaskNotifyGive(usb_task); }
@@ -435,6 +444,9 @@ static unsigned Encode_Input(uint8_t *frame, const jetson_request_t *sample)
             jrl_pf32(out, index < RL_OBS_SIZE ? sample->obs[index] : sample->history[index - RL_OBS_SIZE]);
             out += 4;
         }
+        jrl_p32(out, sample->jump_flags);
+        jrl_pf32(out + 4, sample->support_force);
+        jrl_pf32(out + 8, sample->leg_length);
         length += jrl_finish(frame + length);
     }
     return length;

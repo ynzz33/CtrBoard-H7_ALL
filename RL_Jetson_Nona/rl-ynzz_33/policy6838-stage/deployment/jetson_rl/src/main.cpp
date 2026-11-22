@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include "inference.hpp"
+#include "jump_switch.hpp"
 #include "logger.hpp"
 #include <csignal>
 #include <fcntl.h>
@@ -73,6 +74,12 @@ void replay(jrl::Inference& net,const std::string& input,const std::string& outp
 }
 void shadow(const Args& a) {
     jrl::Inference net(need(a,"--engine"));
+    jrl::Inference jump(need(a,"--jump-engine"), "20472a387af9d61177032e7a599c3614da7cff9a81ed643ed204a46a2f202383");
+    jrl::JumpSwitch switching;
+    uint32_t jump_flags = 0;
+    uint32_t input_contract = 0;
+    float support_force = 0, leg_length = 0;
+    unsigned previous_phase = 0;
     const auto seconds=std::stoull(need(a,"--seconds"));
     if (seconds>86400) throw std::runtime_error("invalid duration");
     jrl::Logger log(need(a,"--log-dir"));
@@ -100,6 +107,13 @@ void shadow(const Args& a) {
         if (now >= next_ready_us) {
             serial.send(ready, ready_length);
             log.push(2, ready, ready_length);
+            // 旧H7保持WALK；配套新固件识别3000202并发送跳跃元数据。
+            if (external) {
+                jrl_p32(ready + JRL_HEADER, 3000201u);
+                serial.send(ready, jrl_finish(ready));
+                jrl_p32(ready + JRL_HEADER, contract);
+                jrl_finish(ready);
+            }
             next_ready_us = now + 50000u;
         }
         pollfd fd{serial.fd,POLLIN,0};
@@ -118,7 +132,7 @@ void shadow(const Args& a) {
             const auto type=msg[5];
             if (external && type == JRL_EXTERNAL_RESTART) {
                 if (jrl_u16(msg + 6) == JRL_EXTERNAL_RESTART_BYTES &&
-                    jrl_u32(msg + JRL_HEADER) == contract && jrl_u64(msg + 8) == session) {
+                    (jrl_u32(msg + JRL_HEADER) == contract || jrl_u32(msg + JRL_HEADER) == 3000201u) && jrl_u64(msg + 8) == session) {
                     log.event("H7 requested cold restart");
                     std::cout << "H7 requested cold restart\n";
                     return;
@@ -126,7 +140,9 @@ void shadow(const Args& a) {
                 continue;
             }
             if (type!=JRL_SHADOW_INPUT_FIRST && type!=JRL_SHADOW_INPUT_SECOND) continue;
-            if (jrl_u16(msg+6)!=JRL_SHADOW_INPUT_BYTES || jrl_u32(msg+32)!=contract || jrl_u64(msg+8)!=session) {
+            const bool legacy = external && jrl_u32(msg+32)==3000201u && jrl_u16(msg+6)==304;
+            const bool current = jrl_u32(msg+32)==contract && jrl_u16(msg+6)==JRL_SHADOW_INPUT_BYTES;
+            if ((!legacy && !current) || jrl_u64(msg+8)!=session) {
                 first=false;
                 continue;
             }
@@ -134,6 +150,8 @@ void shadow(const Args& a) {
             if (beginning) {
                 std::memcpy(identity,msg+8,sizeof(identity));
                 first=true;
+                input_contract = jrl_u32(msg+32);
+                jump_flags = legacy ? 0u : jrl_u32(msg+36+4*JRL_SHADOW_HALF_FLOATS);
             } else if (!first || std::memcmp(identity,msg+8,sizeof(identity))) {
                 first=false;
                 continue;
@@ -143,13 +161,45 @@ void shadow(const Args& a) {
             if (beginning) continue;
             first=false;
             for (float v:input) if (!std::isfinite(v)) throw std::runtime_error("nonfinite input");
+            if (input_contract != jrl_u32(msg+32) || jump_flags != (legacy ? 0u : jrl_u32(msg+36+4*JRL_SHADOW_HALF_FLOATS))) {
+                throw std::runtime_error("Jump metadata mismatch");
+            }
             const auto start=jrl::monotonic_us();
-            const auto action=net.run(input);
+            support_force = legacy ? 0.f : jrl_f32(msg+40+4*JRL_SHADOW_HALF_FLOATS);
+            leg_length = legacy ? 0.f : jrl_f32(msg+44+4*JRL_SHADOW_HALF_FLOATS);
+            const bool jumping = switching.update(jump_flags, jrl_u32(identity+8), jrl_u64(identity+16), support_force);
+            const auto jump_input = switching.input(input);
+            if (switching.phase == jrl::JumpSwitch::Fault)
+                {
+                if (previous_phase != unsigned(switching.phase))
+                    log.event("jump_fault: timeout or invalid support feedback; replies withheld");
+                previous_phase = unsigned(switching.phase);
+                continue;
+            }
+            if (previous_phase != unsigned(switching.phase)) {
+                log.event("jump_phase=" + std::to_string(switching.phase) +
+                          " flags=" + std::to_string(jump_flags) +
+                          " target_height_m=1.0 request=" + std::to_string(jrl_u32(identity+12)));
+                previous_phase = unsigned(switching.phase);
+            }
+            const auto action=jumping ? jump.run(jump_input) : net.run(input);
             const auto us=jrl::monotonic_us()-start;
+            uint8_t inference_record[656]{};
+            jrl_p32(inference_record, jrl_u32(identity+12));
+            jrl_p32(inference_record+4, unsigned(switching.phase));
+            jrl_p32(inference_record+8, jumping ? 5200u : 6838u);
+            jrl_p32(inference_record+12, jump_flags);
+            jrl_p64(inference_record+16, jrl_u64(identity+16));
+            const auto& actual_input = jumping ? jump_input : input;
+            for (unsigned k=0;k<150;k++) jrl_pf32(inference_record+24+4*k, actual_input[k]);
+            for (unsigned k=0;k<6;k++) jrl_pf32(inference_record+624+4*k, action[k]);
+            jrl_pf32(inference_record+648, support_force);
+            jrl_pf32(inference_record+652, leg_length);
+            log.push(15, inference_record, sizeof(inference_record));
             uint8_t reply[JRL_HEADER+JRL_SHADOW_REPLY_BYTES+4]{};
             jrl_header(reply,JRL_SHADOW_REPLY,JRL_SHADOW_REPLY_BYTES,0,0,0,0);
             std::memcpy(reply+8,identity,sizeof(identity));
-            jrl_p32(reply+32,contract);
+            jrl_p32(reply+32,input_contract);
             for (unsigned j=0;j<action.size();++j) {
                 if (!std::isfinite(action[j])) throw std::runtime_error("nonfinite action");
                 jrl_pf32(reply+36+4*j,action[j]);
@@ -170,9 +220,12 @@ int main(int argc,char** argv) {
         if(argc<2) throw std::runtime_error("commands: convert, vectors, replay, shadow");
         Args a;for(int i=2;i<argc;i+=2) { if(i+1>=argc) throw std::runtime_error("options require values");a[argv[i]]=argv[i+1]; }
         std::string mode=argv[1];
-        if(mode=="convert") jrl::Inference::convert(need(a,"--onnx"),need(a,"--engine"));
-        else if(mode=="vectors"||mode=="replay") { jrl::Inference net(need(a,"--engine"));if(mode=="vectors") vectors(net,need(a,"--input"),need(a,"--output"));else replay(net,need(a,"--input"),need(a,"--output")); }
-
+        if(mode=="convert") jrl::Inference::convert(need(a,"--onnx"),need(a,"--engine"), a.count("--sha") ? a.at("--sha") : "");
+        else if(mode=="vectors"||mode=="replay") {
+            jrl::Inference net(need(a,"--engine"), a.count("--sha") ? a.at("--sha") : "");
+            if(mode=="vectors") vectors(net,need(a,"--input"),need(a,"--output"));
+            else replay(net,need(a,"--input"),need(a,"--output"));
+        }
         else if(mode=="shadow") shadow(a);
         else throw std::runtime_error("unknown command");
         return 0;

@@ -26,8 +26,8 @@ struct TrtLog: nvinfer1::ILogger { void log(Severity s,const char* msg) noexcept
 static TrtLog log;
 static void cuda_ok(cudaError_t e) { if(e!=cudaSuccess) throw std::runtime_error(cudaGetErrorString(e)); }
 static std::vector<char> bytes(const std::string& p) { std::ifstream in(p,std::ios::binary);if(!in) throw std::runtime_error("cannot read "+p);return {std::istreambuf_iterator<char>(in),{}}; }
-void Inference::convert(const std::string& onnx,const std::string& engine) {
-    if(sha256(onnx)!=onnx_sha) throw std::runtime_error("ONNX is not the pinned policy4000PD200 export");
+void Inference::convert(const std::string& onnx,const std::string& engine, const std::string& expected_sha) {
+    if(sha256(onnx)!=(expected_sha.empty() ? onnx_sha : expected_sha)) throw std::runtime_error("ONNX is not the pinned policy4000PD200 export");
     if(std::filesystem::exists(engine)||std::filesystem::exists(engine+".meta")) throw std::runtime_error("refuse to overwrite engine");
     std::unique_ptr<nvinfer1::IBuilder> builder(nvinfer1::createInferBuilder(log));if(!builder) throw std::runtime_error("create builder");
     std::unique_ptr<nvinfer1::INetworkDefinition> net(builder->createNetworkV2(0));
@@ -42,7 +42,7 @@ void Inference::convert(const std::string& onnx,const std::string& engine) {
     config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE,64u*1024u*1024u);
     std::unique_ptr<nvinfer1::IHostMemory> blob(builder->buildSerializedNetwork(*net,*config));if(!blob) throw std::runtime_error("build engine failed");
     std::ofstream out(engine,std::ios::binary);out.write(static_cast<const char*>(blob->data()),blob->size());out.close();if(!out) throw std::runtime_error("write engine failed");
-    std::ofstream meta(engine+".meta");meta<<"checkpoint_sha256="<<checkpoint_sha<<"\ncontract="<<JRL_CONTRACT<<"\nonnx_sha256="<<sha256(onnx)<<"\nengine_sha256="<<sha256(engine)<<"\nprecision=FP32_no_TF32\n";
+    std::ofstream meta(engine+".meta");meta<<"checkpoint_sha256="<<(expected_sha.empty() ? checkpoint_sha : "1f1ae7d029c6f741a84b6b703d2ce496a4787c4d29c0934deeb9582c2aa17f80")<<"\ncontract="<<JRL_CONTRACT<<"\nonnx_sha256="<<sha256(onnx)<<"\nengine_sha256="<<sha256(engine)<<"\nprecision=FP32_no_TF32\n";
     meta.close();if(!meta) throw std::runtime_error("write metadata failed");
 }
 struct Inference::Impl {
@@ -52,9 +52,9 @@ struct Inference::Impl {
     cudaStream_t stream{};void* device[3]{};
     ~Impl() { if(stream) cudaStreamSynchronize(stream);for(auto p:device) if(p) cudaFree(p);if(stream) cudaStreamDestroy(stream); }
 };
-Inference::Inference(const std::string& path):impl_(new Impl) {
+Inference::Inference(const std::string& path, const std::string& expected_sha):impl_(new Impl) {
     std::ifstream meta(path+".meta");std::string text((std::istreambuf_iterator<char>(meta)),{});
-    if(text.find(std::string("onnx_sha256=")+onnx_sha+"\n")==std::string::npos || text.find("contract="+std::to_string(JRL_CONTRACT)+"\n")==std::string::npos || text.find("engine_sha256="+sha256(path)+"\n")==std::string::npos) throw std::runtime_error("engine metadata/hash mismatch");
+    if(text.find(std::string("onnx_sha256=")+(expected_sha.empty() ? onnx_sha : expected_sha)+"\n")==std::string::npos || text.find("contract="+std::to_string(JRL_CONTRACT)+"\n")==std::string::npos || text.find("engine_sha256="+sha256(path)+"\n")==std::string::npos) throw std::runtime_error("engine metadata/hash mismatch");
     auto data=bytes(path);auto& x=*impl_;
     x.runtime.reset(nvinfer1::createInferRuntime(log));if(!x.runtime) throw std::runtime_error("create runtime");
     x.engine.reset(x.runtime->deserializeCudaEngine(data.data(),data.size()));if(!x.engine) throw std::runtime_error("load engine failed");

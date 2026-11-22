@@ -194,7 +194,7 @@ static const machine_cfg_t machine_big = {
             .pitch_target_deg = -2.0f,
             .velocity_command_limit = 3.0f,
             .yaw_rate_command_limit = 2.0f,
-            .height_command_min = 0.22f,
+            .height_command_min = 0.15f,
             .height_command_max = 0.30f,
         },
         .torque = {

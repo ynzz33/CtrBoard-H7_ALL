@@ -6,9 +6,11 @@
 #define JRL_VERSION 2u
 #define JRL_MAX_FRAME 384u
 #define JRL_HEADER 32u
-#define JRL_EXTERNAL_CONTRACT 3000201u
+#define JRL_EXTERNAL_CONTRACT 3000202u
 
 /* 输入两帧共150个float，顺序是obs[25]、history[125]。
+ * 每半帧末尾追加相同的12字节快照：u32跳跃标志、f32支持力N、f32平均腿长m。
+ * 跳跃标志bit0选择、bit1拨轮到顶、bit2支持力有效、bit3传统AIR腾空。
  * 动作回包携带原请求标识、6路原始动作及Jetson推理耗时us。 */
 enum {
     JRL_TELEMETRY = 5,
@@ -37,7 +39,7 @@ enum {
     JRL_STAIR_FLOATS = 45,
     JRL_STAIR_SAMPLE_BYTES = 24 + JRL_STAIR_FLOATS * 4,
     JRL_HALF_FLOATS = 75,
-    JRL_INPUT_BYTES = 4 + JRL_HALF_FLOATS * 4,
+    JRL_INPUT_BYTES = 4 + JRL_HALF_FLOATS * 4 + 12,
     JRL_REPLY_BYTES = 4 + 6 * 4 + 4
 };
 static inline uint16_t jrl_u16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1]<<8)); }

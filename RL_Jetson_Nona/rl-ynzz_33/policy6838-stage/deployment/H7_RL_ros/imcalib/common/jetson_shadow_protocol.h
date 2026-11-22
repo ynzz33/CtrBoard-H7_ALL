@@ -17,7 +17,7 @@ enum {
     JRL_SHADOW_INPUT_FLOATS = 150,
     JRL_SHADOW_HALF_FLOATS = 75,
     JRL_SHADOW_ACTION_FLOATS = 6,
-    JRL_SHADOW_INPUT_BYTES = 4 + JRL_SHADOW_HALF_FLOATS * 4,
+    JRL_SHADOW_INPUT_BYTES = 4 + JRL_SHADOW_HALF_FLOATS * 4 + 12,
     JRL_SHADOW_REPLY_BYTES = 4 + JRL_SHADOW_ACTION_FLOATS * 4 + 4
 };
 
@@ -25,6 +25,6 @@ enum {
  * concatenated obs[25], history[125]. Reply floats are raw action[6],
  * followed by Jetson inference duration in microseconds (uint32_t). */
 #define JRL_SHADOW_CONTRACT 3500301u
-#define JRL_EXTERNAL_CONTRACT 3000201u
+#define JRL_EXTERNAL_CONTRACT 3000202u
 
 #endif

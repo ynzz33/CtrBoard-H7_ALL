@@ -72,7 +72,7 @@ void Rc_Command_Update(rc_command_t *cmd, const dr16_t *rc, float dt)
         cmd->mode.rc_enable = 1u;
         if (cmd->s2 == DR16_SW_UP)
         {
-            cmd->mode.strategy = CTRL_STRATEGY_JOINT_SYSID;
+            cmd->mode.strategy = CTRL_STRATEGY_RL; /* 左上右上：Jetson跳跃待命。 */
             cmd->mode.engage = 1u;
         }
         else

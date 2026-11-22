@@ -40,7 +40,7 @@ while true; do
     fi
     run="$logs/$prefix-$(date +%Y%m%d-%H%M%S)-$(cat /proc/sys/kernel/random/uuid)"
     echo "Opening $port; run=$run"
-    /home/imca/rl-ynzz_33/policy6838-stage/build/jetson_rl shadow --port "$port" --engine /home/imca/rl-ynzz_33/policy6838-stage/policy6838PD200.engine --log-dir "$run" --seconds 0 &
+    /home/imca/rl-ynzz_33/policy6838-stage/build/jetson_rl shadow --port "$port" --engine /home/imca/rl-ynzz_33/policy6838-stage/policy6838PD200.engine --jump-engine /home/imca/rl-ynzz_33/jump5200/policy5200.engine --log-dir "$run" --seconds 0 &
     child=$!
     status=0
     wait "$child" || status=$?

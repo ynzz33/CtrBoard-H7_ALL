@@ -1,0 +1,22 @@
+{
+  "samples": 256,
+  "onnx_max_abs_error": 1.811981201171875e-05,
+  "tensorrt_max_abs_error": 1.9073486328125e-05,
+  "tensorrt_p95_us": 146,
+  "tensorrt_max_us": 294,
+  "hardware_jump_verified": false,
+  "atol": 2e-05,
+  "rtol": 1e-05,
+  "jetson_cpp_build": true,
+  "h7_build": true,
+  "core_checks": true,
+  "jump_state_checks": true,
+  "pseudo_terminal_replies": 22,
+  "pseudo_terminal_parser_errors": 0,
+  "active_service_switched": true,
+  "runtime_height_command_m": 1.0,
+  "native_network_real_input_samples": 100,
+  "native_network_vs_logged_trt_max_abs_error": 5.7220458984375e-06,
+  "final_trigger": "H7 leg_length_target reaches 0.33m upper bound",
+  "latest_h7_build": "2026-11-22 ARMCC 5.06, restored upper-bound trigger"
+}
